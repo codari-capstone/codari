@@ -124,6 +124,14 @@ describe('hasActiveFilter', () => {
   it('태그를 고르면 필터다', () => {
     expect(hasActiveFilter({ ...DEFAULT_PARAMS, tag: ['dp'] })).toBe(true)
   })
+
+  it('난이도를 고르면 필터다', () => {
+    expect(hasActiveFilter({ ...DEFAULT_PARAMS, difficulty: ['EASY'] })).toBe(true)
+  })
+
+  it('풀이 상태를 고르면 필터다', () => {
+    expect(hasActiveFilter({ ...DEFAULT_PARAMS, status: ['SOLVED'] })).toBe(true)
+  })
 })
 
 describe('nextSort', () => {
@@ -139,5 +147,12 @@ describe('nextSort', () => {
     expect(
       nextSort({ ...DEFAULT_PARAMS, sortField: 'id', sortDirection: 'desc' }, 'difficulty'),
     ).toEqual({ sortField: 'difficulty', sortDirection: 'asc' })
+  })
+
+  it('같은 열을 다시 누르면 asc로 돌아온다', () => {
+    expect(nextSort({ ...DEFAULT_PARAMS, sortField: 'id', sortDirection: 'desc' }, 'id')).toEqual({
+      sortField: 'id',
+      sortDirection: 'asc',
+    })
   })
 })
