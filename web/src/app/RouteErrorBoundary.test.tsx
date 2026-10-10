@@ -1,7 +1,8 @@
 import { render, screen } from '@testing-library/react'
-import { createMemoryRouter, RouterProvider } from 'react-router'
+import { createMemoryRouter, Outlet, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { AppShell } from './AppShell'
 import { Component as LoginPage } from './LoginPage'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
 import { ThemeProvider } from './ThemeProvider'
@@ -69,6 +70,49 @@ describe('RouteErrorBoundary', () => {
     ).toBeInTheDocument()
     // 다시 시도해도 같은 결과라 버튼을 보이지 않는다
     expect(screen.queryByRole('button', { name: '다시 시도' })).not.toBeInTheDocument()
+  })
+
+  // Component 없는 부모 라우트에 단 ErrorBoundary가 자식 오류를 받는지 확인한다.
+  // 받지 못하면 청크 로드 실패가 빈 화면이 된다.
+  it('Component가 없는 부모 라우트의 ErrorBoundary도 자식 오류를 받는다', async () => {
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          ErrorBoundary: RouteErrorBoundary,
+          children: [
+            {
+              Component: () => (
+                <AppShell>
+                  <Outlet />
+                </AppShell>
+              ),
+              children: [
+                {
+                  path: 'boom',
+                  loader: () => {
+                    throw { type: '/problems/judge-unavailable', status: 503 }
+                  },
+                  Component: () => <p>여기는 보이면 안 된다</p>,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+      { initialEntries: ['/boom'] },
+    )
+
+    render(
+      <ThemeProvider>
+        <RouterProvider router={router} />
+      </ThemeProvider>,
+    )
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByText('여기는 보이면 안 된다')).not.toBeInTheDocument()
+    // 폴백도 AppShell을 쓰므로 헤더가 하나 있어야 한다
+    expect(screen.getAllByRole('banner')).toHaveLength(1)
   })
 })
 
