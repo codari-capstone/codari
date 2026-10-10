@@ -12,13 +12,14 @@ import { clientOptions } from './client'
  *
  * 사라지는 것 — ProvisionalPaths, ProblemListQuery, provisionalApi.
  *   gen:api가 만든 schema.d.ts의 paths와 @/api/client의 api가 대신한다.
- *   provisionalApi를 쓰는 곳은 features/problems/problemsQuery.ts 한 곳이다.
+ *   화면 코드에서 provisionalApi를 쓰는 곳은 features/problems/problemsQuery.ts
+ *   하나뿐이다. 테스트도 같은 클라이언트로 요청하므로 함께 바꾼다.
  *
  * 남는 것 — Difficulty, SolveStatus, ConceptTag, ProblemSummary는 생성된
  *   components['schemas']에서 별칭으로 다시 잇는다. DIFFICULTIES·SOLVE_STATUSES·
  *   DIFFICULTY_RANK는 손으로 유지한다 — OpenAPI는 값 목록이나 정렬 순위를 만들어
- *   주지 않는다. 이 심볼들을 여섯 개 파일이 직접 import하므로 파일을 통째로 지우면
- *   전부 깨진다.
+ *   주지 않는다. 화면·목 데이터·테스트가 이 심볼들을 여러 곳에서 직접 import하므로
+ *   파일을 통째로 지우면 전부 깨진다.
  *
  * 순서: npm run gen:api → provisionalApi를 api로 교체 → '사라지는 것' 삭제 →
  * 남는 타입을 schema.d.ts 기준으로 다시 잇는다. 타입 오류가 나는 곳이 실제 응답과
