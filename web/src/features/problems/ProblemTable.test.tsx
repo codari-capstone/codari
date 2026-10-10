@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
@@ -48,19 +48,28 @@ function renderTable(props: Partial<React.ComponentProps<typeof ProblemTable>> =
   return { onSort }
 }
 
+/** 라벨이 어느 행에 붙었는지 보려면 행을 집어야 한다. closest가 null이면 구조가 바뀐 것이다. */
+function rowOf(title: string): HTMLElement {
+  const row = screen.getByRole('link', { name: title }).closest('tr')
+  if (!row) throw new Error(`${title} 행을 찾지 못했다`)
+  return row
+}
+
 describe('ProblemTable', () => {
-  it('난이도를 한국어로 보여 준다', () => {
+  // getByText('쉬움')만 쓰면 라벨이 어느 행에 붙었는지 검사하지 않는다. 실제로
+  // EASY와 MEDIUM 라벨을 맞바꿔도 테스트가 전부 통과했다. 행을 집어서 단언한다.
+  it('난이도를 행마다 한국어로 보여 준다', () => {
     renderTable()
 
-    expect(screen.getByText('쉬움')).toBeInTheDocument()
-    expect(screen.getByText('보통')).toBeInTheDocument()
+    expect(within(rowOf('두 수의 합')).getByText('쉬움')).toBeInTheDocument()
+    expect(within(rowOf('올바른 괄호')).getByText('보통')).toBeInTheDocument()
   })
 
-  it('풀이 상태를 한국어로 보여 준다', () => {
+  it('풀이 상태를 행마다 한국어로 보여 준다', () => {
     renderTable()
 
-    expect(screen.getByText('맞음')).toBeInTheDocument()
-    expect(screen.getByText('틀림')).toBeInTheDocument()
+    expect(within(rowOf('두 수의 합')).getByText('맞음')).toBeInTheDocument()
+    expect(within(rowOf('올바른 괄호')).getByText('틀림')).toBeInTheDocument()
   })
 
   it('제목이 문제 풀이 화면 링크다', () => {
