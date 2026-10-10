@@ -6,11 +6,23 @@ import { clientOptions } from './client'
  * 명세(#2) 확정 전까지 쓰는 임시 계약.
  *
  * DB 스키마(PR #60)와 기능명세(PR #61)에서 역산했다. openapi-typescript가 만드는
- * paths 모양을 그대로 흉내내므로, 명세가 확정되면 다음만 하면 된다.
- *   1. npm run gen:api 로 schema.d.ts 생성
- *   2. 이 파일을 지우고 import를 @/api/client 의 api 로 바꾼다 (problemsQuery.ts 한 곳)
- *   3. 타입 오류가 나는 곳이 실제 응답과 어긋난 곳이다. 거기만 고친다
- * 호출부의 모양은 손대지 않는다.
+ * paths 모양을 그대로 흉내내므로, 명세가 확정돼도 호출부의 모양은 바뀌지 않는다.
+ *
+ * 다만 이 파일 전체가 임시인 것은 아니다. 명세가 오면 이렇게 갈린다.
+ *
+ * 사라지는 것 — ProvisionalPaths, ProblemListQuery, provisionalApi.
+ *   gen:api가 만든 schema.d.ts의 paths와 @/api/client의 api가 대신한다.
+ *   provisionalApi를 쓰는 곳은 features/problems/problemsQuery.ts 한 곳이다.
+ *
+ * 남는 것 — Difficulty, SolveStatus, ConceptTag, ProblemSummary는 생성된
+ *   components['schemas']에서 별칭으로 다시 잇는다. DIFFICULTIES·SOLVE_STATUSES·
+ *   DIFFICULTY_RANK는 손으로 유지한다 — OpenAPI는 값 목록이나 정렬 순위를 만들어
+ *   주지 않는다. 이 심볼들을 여섯 개 파일이 직접 import하므로 파일을 통째로 지우면
+ *   전부 깨진다.
+ *
+ * 순서: npm run gen:api → provisionalApi를 api로 교체 → '사라지는 것' 삭제 →
+ * 남는 타입을 schema.d.ts 기준으로 다시 잇는다. 타입 오류가 나는 곳이 실제 응답과
+ * 어긋난 곳이다.
  */
 
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD'
