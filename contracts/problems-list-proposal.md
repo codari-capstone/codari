@@ -9,13 +9,17 @@
 > 아래 중 **"꼭 필요한 것"**은 화면이 실제로 그 동작에 기대고 있어서 바뀌면 화면 코드가 깨지는
 > 부분이다. **"프론트가 맞춰 둔 것"**은 이름이나 표기 방식이라 백엔드가 다르게 정해도 프론트가
 > 흡수할 수 있는 부분이다.
+>
+> `contracts/README.md`는 이 디렉터리를 "OpenAPI 명세"로 설명하지만, 이 파일은 그 명세
+> 자체가 아니다. `contracts/openapi.yaml`이 아직 없는 동안 쓰는 임시 Markdown 제안서이고,
+> 실제 명세가 생기면 이 문서는 없어진다.
 
 ## 요약
 
 | 구분 | 항목 |
 | --- | --- |
-| 꼭 필요한 것 | 풀이 상태 서버 역산·단일 값, 비로그인 시 필드 생략, `difficulty` 순위 정렬, 개념 태그 별도 엔드포인트, `Page` 형태 유지 |
-| 프론트가 맞춰 둔 것 | `sort` 파라미터 형식, 배열 파라미터 전달 방식, 필드 이름(`solveStatus` 등), 화면 번호 = `problems.id` |
+| 꼭 필요한 것 | 풀이 상태 서버 역산·단일 값, `difficulty` 순위 정렬, 개념 태그 별도 엔드포인트, `Page` 형태 유지 |
+| 프론트가 맞춰 둔 것 | 비로그인 시 `null` 대신 필드 생략, `sort` 파라미터 형식, 배열 파라미터 전달 방식, 필드 이름(`solveStatus` 등), 화면 번호 = `problems.id` |
 
 ## 1. 타입
 
@@ -37,7 +41,7 @@ interface ProblemSummary {
   title: string
   difficulty: Difficulty
   tags: ConceptTag[]
-  solveStatus?: SolveStatus   // 비로그인이면 필드 자체가 없음 (2번 참고)
+  solveStatus?: SolveStatus   // 비로그인이면 필드 자체가 없음 (5번 참고)
 }
 
 interface Page<T> {
@@ -53,16 +57,16 @@ interface Page<T> {
 | 쿼리 파라미터 | 타입 | 설명 |
 | --- | --- | --- |
 | `keyword` | `string?` | 제목 부분 일치 |
-| `difficulty` | `Difficulty[]?` | 반복 키 (5번 참고) |
+| `difficulty` | `Difficulty[]?` | 반복 키 (7번 참고) |
 | `tag` | `string[]?` | 개념 태그 slug, 반복 키 |
 | `status` | `SolveStatus[]?` | 풀이 상태, 반복 키 |
-| `sort` | `string?` | Spring Data 형식 `'<field>,<direction>'` (4번 참고). 화면이 쓰는 `field`는 `id`, `difficulty`뿐 |
+| `sort` | `string?` | Spring Data 형식 `'<field>,<direction>'` (6번 참고). 화면이 쓰는 `field`는 `id`, `difficulty`뿐 |
 
 응답: `Page<ProblemSummary>` (`{ content: ProblemSummary[], totalElements: number }`)
 
 ### `GET /api/concept-tags`
 
-파라미터 없음. 응답: `ConceptTag[]`. 문제 목록 필터와 무관하게 전체 태그를 항상 돌려준다 (6번 참고).
+파라미터 없음. 응답: `ConceptTag[]`. 문제 목록 필터와 무관하게 전체 태그를 항상 돌려준다 (3번 참고).
 
 ## 3. 꼭 필요한 것 — 이유와 함께
 
@@ -81,15 +85,7 @@ interface Page<T> {
 `SAMPLE_RUN`과 `job_status='JUDGE_ERROR'`는 세지 않는다. 이 규칙에 이견이 있으면 `LIST-01` 자체를
 다시 논의해야 할 문제이지, 프론트가 임의로 바꿀 수 있는 부분이 아니다.
 
-### ② 비로그인 요청이면 `solveStatus` 필드를 생략해 달라 (`null`이 아니라 생략)
-
-`없음`과 `UNSOLVED`(안 품)는 다른 의미다. 로그인하지 않은 사용자는 "안 풀었다"가 아니라
-"풀이 여부를 알 수 없다"에 해당한다. 화면은 이 필드가 응답에 없을 때 풀이 상태 열 자체를
-숨긴다 (`COM-05`, `web/src/features/problems/ProblemTable.tsx`). `null`로 내려오면 화면이
-"필드가 존재한다"고 판단해 열을 그린 뒤 빈 칸을 보여주게 되므로, `null`과 생략은 프론트
-입장에서 동일하지 않다.
-
-### ③ `difficulty` 정렬은 알파벳순이 아니라 `EASY < MEDIUM < HARD`다
+### ② `difficulty` 정렬은 알파벳순이 아니라 `EASY < MEDIUM < HARD`다
 
 문자열로 정렬하면 `EASY, HARD, MEDIUM` 순서가 되어 `HARD`(어려움)가 가운데에 온다. 이 문제가
 가장 틀리기 쉬운 지점이라 따로 적는다. 프론트는 `DIFFICULTY_RANK = { EASY: 0, MEDIUM: 1, HARD: 2 }`를
@@ -97,7 +93,7 @@ MSW 목(mock)에서도 그대로 쓰고 있다 (`web/src/mocks/handlers.ts`). �
 정렬해야 한다 — 문자열 컬럼이라면 `ORDER BY CASE difficulty WHEN 'EASY' THEN 0 ...` 같은 처리가
 필요하다.
 
-### ④ 개념 태그 목록은 별도 엔드포인트로 받아야 한다
+### ③ 개념 태그 목록은 별도 엔드포인트로 받아야 한다
 
 문제 목록 응답에서 태그를 뽑아 쓰면, 필터를 걸수록 결과에 등장하는 태그 종류가 줄어들어
 사용자가 선택할 수 있는 필터 옵션 자체가 줄어든다. 예를 들어 `난이도=HARD`로 좁히면 쉬운
@@ -107,7 +103,7 @@ MSW 목(mock)에서도 그대로 쓰고 있다 (`web/src/mocks/handlers.ts`). �
 같은 엔드포인트를 재사용할 수 있을 것이다 — 다만 이건 가능성이고, 지금 확정된 다른 화면의
 요구사항은 아니다.
 
-### ⑤ `Page` 형태(`content`, `totalElements`)는 유지해 달라
+### ④ `Page` 형태(`content`, `totalElements`)는 유지해 달라
 
 이 화면은 페이지 나누기(`LIST-05`)를 범위에서 뺐지만, 결과 개수 표시는 `totalElements`를
 읽는다. `content.length`로 세면 지금은 우연히 맞아도 페이지 나누기가 붙는 순간(응답이 한
@@ -115,6 +111,20 @@ MSW 목(mock)에서도 그대로 쓰고 있다 (`web/src/mocks/handlers.ts`). �
 받을 필요는 없지만, 응답 모양은 처음부터 `Page`로 둬야 나중에 고치지 않는다.
 
 ## 4. 프론트가 맞춰 둔 것 (백엔드가 다르게 정해도 되는 부분)
+
+### ⑤ 비로그인 요청이면 `solveStatus`는 `null`보다 생략이 낫다
+
+지금 화면에서 이 열이 보이는지는 응답이 아니라 로그인 상태(`useAuth`, 지금은 로그인
+전으로 고정된 stub)로 정해지고, 셀 하나는 `problem.solveStatus`가 `null`이든 필드가
+없든 똑같이 `'—'`를 그린다(`web/src/features/problems/ProblemTable.tsx`). 즉 지금은
+`null`로 내려와도 화면이 깨지지 않는다 — 이건 "꼭 필요한 것"의 기준(바뀌면 화면 코드가
+깨짐)을 넘지 못한다.
+
+그래도 응답 설계로는 생략을 요청한다. 로그인(#18)이 붙으면 로그인한 사용자의 행은
+`UNSOLVED`(안 품)라는 실제 답을 가질 수 있는데, 비로그인 요청은 애초에 "풀었는지"를
+묻지 않은 상태다. `null`은 이 둘을 구분하지 않는다. `web/src/api/provisional.ts` 63번
+줄 주석("없는 것과 '안 품'은 다른 의미다")이 프론트가 처음부터 가졌던 의도이고, 생략
+쪽으로 맞춰 두면 그 구분이 응답 모양에 그대로 남는다.
 
 ### ⑥ `sort`는 Spring Data 규약 `'<field>,<direction>'`을 쓴다
 
