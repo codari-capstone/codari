@@ -189,6 +189,13 @@ describe('ProblemListPage', () => {
     expect(within(main).getByRole('link', { name: /로그인/ })).toBeInTheDocument()
   })
 
+  it('비로그인이면 풀이 상태 열이 표에 없다', async () => {
+    renderPage()
+
+    await screen.findByRole('link', { name: '두 수의 합' })
+    expect(screen.queryByRole('columnheader', { name: '풀이 상태' })).not.toBeInTheDocument()
+  })
+
   it('로그인하면 안내가 사라지고 풀이 상태 열이 보인다', async () => {
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
       user: { id: 'u1', nickname: '찬우', role: 'USER' },

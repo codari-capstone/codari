@@ -26,6 +26,12 @@ export function Component() {
   const [searchParams, setSearchParams] = useSearchParams()
   // parseParams는 매번 새 객체를 만든다. 메모하지 않으면 아래 디바운스 effect의
   // 의존성이 렌더마다 바뀌어 타이머가 계속 초기화된다.
+  //
+  // 변이 테스트 기록: 이 useMemo를 벗겨도 현재 테스트는 전부 통과한다 — jsdom +
+  // 단일 user.type 호출 안에서는 effect 재구성이 타이머를 매번 새로 거는 정도의
+  // 차이만 만들고 결과(최종 URL)는 같기 때문이다. 즉 이 메모이제이션의 필요성은
+  // 테스트로 보장되지 않는다. 지우지 않는 이유는 참조 안정성이 아래 effect
+  // 의존성 배열의 의도와 들어맞기 때문이고, 실제 차이는 렌더 횟수(성능)에서만 난다.
   const params = useMemo(() => parseParams(searchParams), [searchParams])
   const { isAuthenticated } = useAuth()
 
