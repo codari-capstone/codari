@@ -63,7 +63,18 @@ test.describe('문제 목록', () => {
     expect(layout).not.toBeNull()
     // 2열이면 asideBottom > mainTop 이다. 쌓였으면 사이드바가 본문 위에서 끝난다.
     expect(layout!.asideBottom).toBeLessThanOrEqual(layout!.mainTop + 1)
-    // 표는 컨테이너가 가로 스크롤을 받는다. 문서 자체가 넘치면 화면 전체가 흔들린다.
+    // 문서 자체가 가로로 넘치면 화면 전체가 흔들린다. 다만 이 단언만으로는 표가
+    // 컨테이너로 스크롤을 받고 있다는 것까지는 증명하지 못한다 — 아래에서 따로 본다.
     expect(layout!.documentWidth).toBeLessThanOrEqual(layout!.viewportWidth + 1)
+
+    // 문서 폭 단언만으로는 부족하다. 지금 fixture의 제목이 짧아 320px에서도 표가
+    // 다 들어가므로, overflow-x-auto를 지워도 그 단언은 통과한다. 스크롤을 받는 쪽이
+    // 문서가 아니라 표 컨테이너인지를 따로 확인한다 — 실제 문제 제목은 fixture보다
+    // 길고, 로그인하면 열도 하나 늘어난다.
+    const overflowX = await page
+      .locator('[data-slot="table-container"]')
+      .evaluate((el) => getComputedStyle(el).overflowX)
+
+    expect(overflowX, '표 컨테이너가 가로 스크롤을 받지 않는다').toBe('auto')
   })
 })
