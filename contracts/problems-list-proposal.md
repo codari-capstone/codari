@@ -18,7 +18,7 @@
 
 | 구분 | 항목 |
 | --- | --- |
-| 꼭 필요한 것 | 풀이 상태 서버 역산·단일 값, `difficulty` 순위 정렬, 개념 태그 별도 엔드포인트, `Page` 형태 유지 |
+| 꼭 필요한 것 | 풀이 상태 서버 역산·단일 값, `difficulty` 순위 정렬, 개념 태그 별도 엔드포인트, `Page` 형태 유지, 비로그인 요청의 `status` 무시 |
 | 프론트가 맞춰 둔 것 | 비로그인 시 `null` 대신 필드 생략, `sort` 파라미터 형식, 배열 파라미터 전달 방식, 필드 이름(`solveStatus` 등), 화면 번호 = `problems.id` |
 
 ## 1. 타입
@@ -36,12 +36,12 @@ interface ConceptTag {
 }
 
 interface ProblemSummary {
-  id: number           // 화면에 보여 주는 번호. 별도 번호 컬럼 없음 (8번 참고)
+  id: number           // 화면에 보여 주는 번호. 별도 번호 컬럼 없음 (9번 참고)
   slug: string
   title: string
   difficulty: Difficulty
   tags: ConceptTag[]
-  solveStatus?: SolveStatus   // 비로그인이면 필드 자체가 없음 (5번 참고)
+  solveStatus?: SolveStatus   // 비로그인이면 필드 자체가 없음 (6번 참고)
 }
 
 interface Page<T> {
@@ -57,10 +57,10 @@ interface Page<T> {
 | 쿼리 파라미터 | 타입 | 설명 |
 | --- | --- | --- |
 | `keyword` | `string?` | 제목 부분 일치 |
-| `difficulty` | `Difficulty[]?` | 반복 키 (7번 참고) |
+| `difficulty` | `Difficulty[]?` | 반복 키 (8번 참고) |
 | `tag` | `string[]?` | 개념 태그 slug, 반복 키 |
-| `status` | `SolveStatus[]?` | 풀이 상태, 반복 키 |
-| `sort` | `string?` | Spring Data 형식 `'<field>,<direction>'` (6번 참고). 화면이 쓰는 `field`는 `id`, `difficulty`뿐 |
+| `status` | `SolveStatus[]?` | 풀이 상태, 반복 키. 비로그인 요청이면 무시한다 (5번 참고) |
+| `sort` | `string?` | Spring Data 형식 `'<field>,<direction>'` (7번 참고). 화면이 쓰는 `field`는 `id`, `difficulty`뿐 |
 
 응답: `Page<ProblemSummary>` (`{ content: ProblemSummary[], totalElements: number }`)
 
@@ -110,9 +110,27 @@ MSW 목(mock)에서도 그대로 쓰고 있다 (`web/src/mocks/handlers.ts`). �
 페이지분만 담게 되는 순간) 틀린 값이 된다. 지금 당장 페이지네이션 파라미터(`page`, `size`)를
 받을 필요는 없지만, 응답 모양은 처음부터 `Page`로 둬야 나중에 고치지 않는다.
 
+### ⑤ 비로그인 요청의 `status`는 무시하고 전체 목록을 내려 달라
+
+로그인한 사용자가 `/problems?status=SOLVED`를 공유하면, 비로그인 방문자가 그 링크를 열었을 때
+풀이 상태로 좁혀진 목록을 보게 되는데, `ProblemFilters`는 비로그인이면 풀이 상태 섹션
+자체를 숨기므로(COM-05) 왜 좁혀졌는지 알려 주는 컨트롤이 화면에 없다. `parseParams`는
+인증 여부를 묻지 않고 순수하게 URL을 읽어야 하므로(테스트하기 쉽고, 어디서 호출해도
+같은 값을 내야 하므로) `status`를 인증 상태와 무관하게 그대로 들고 있고, `toQuery`도
+그대로 쿼리에 싣는다 — 이건 프론트의 의도적인 설계다.
+
+문제는 서버 쪽이다. #25가 `status`를 인증 주체와 대조해 검증한다면, 비로그인 요청에
+`status`가 실려 있는 조합에 400을 줄 수 있는데, 그러면 화면 전체가 오류
+상태로 덮인다 — 공유된 링크를 연 비로그인 방문자에게는 "조건에 안 맞는 목록"이 아니라
+"고장난 화면"으로 보인다. 그래서 비로그인 요청이면 `status`를 조용히 무시하고 필터
+없는 전체 목록을 돌려 달라고 요청한다. 이 판단에 동의하지 않는다면(예: 명시적으로
+400을 주는 쪽을 선호한다면) 백엔드가 다르게 정해도 된다 — 다만 그 경우 프론트는
+비로그인 + `status` 조합을 쿼리를 보내기 전에 걸러내는 처리를 `parseParams`나 `toQuery`
+어느 한쪽에 추가해야 한다.
+
 ## 4. 프론트가 맞춰 둔 것 (백엔드가 다르게 정해도 되는 부분)
 
-### ⑤ 비로그인 요청이면 `solveStatus`는 `null`보다 생략이 낫다
+### ⑥ 비로그인 요청이면 `solveStatus`는 `null`보다 생략이 낫다
 
 지금 화면에서 이 열이 보이는지는 응답이 아니라 로그인 상태(`useAuth`, 지금은 로그인
 전으로 고정된 stub)로 정해지고, 셀 하나는 `problem.solveStatus`가 `null`이든 필드가
@@ -122,18 +140,18 @@ MSW 목(mock)에서도 그대로 쓰고 있다 (`web/src/mocks/handlers.ts`). �
 
 그래도 응답 설계로는 생략을 요청한다. 로그인(#18)이 붙으면 로그인한 사용자의 행은
 `UNSOLVED`(안 품)라는 실제 답을 가질 수 있는데, 비로그인 요청은 애초에 "풀었는지"를
-묻지 않은 상태다. `null`은 이 둘을 구분하지 않는다. `web/src/api/provisional.ts` 63번
+묻지 않은 상태다. `null`은 이 둘을 구분하지 않는다. `web/src/api/provisional.ts` 70번
 줄 주석("없는 것과 '안 품'은 다른 의미다")이 프론트가 처음부터 가졌던 의도이고, 생략
 쪽으로 맞춰 두면 그 구분이 응답 모양에 그대로 남는다.
 
-### ⑥ `sort`는 Spring Data 규약 `'<field>,<direction>'`을 쓴다
+### ⑦ `sort`는 Spring Data 규약 `'<field>,<direction>'`을 쓴다
 
 예: `id,asc`, `difficulty,desc`. 화면이 쓰는 `field`는 `id`와 `difficulty` 둘뿐이다
 (`web/src/features/problems/problemListParams.ts`의 `SortField`). 다른 파라미터 이름이나
 형식(`sortBy=id&order=asc` 등)을 쓰고 싶다면 프론트가 `toQuery`/`parseParams` 두 함수만
 고치면 되므로 알려 주면 된다.
 
-### ⑦ 배열 파라미터는 반복 키로 보낸다
+### ⑧ 배열 파라미터는 반복 키로 보낸다
 
 `?difficulty=EASY&difficulty=HARD` 형태다. 콤마로 묶은 문자열(`?difficulty=EASY,HARD`)로
 보내지 않는다. 콤마로 묶으면 서버 입장에서 하나의 문자열 파라미터로 들어오고, 그 값이
@@ -141,7 +159,7 @@ MSW 목(mock)에서도 그대로 쓰고 있다 (`web/src/mocks/handlers.ts`). �
 빠질 위험이 있다. 반복 키는 Spring의 `@RequestParam List<T>`가 기본으로 받는 형식이라 맞춰
 뒀다.
 
-### ⑧ 화면의 "번호"는 `problems.id`를 쓴다
+### ⑨ 화면의 "번호"는 `problems.id`를 쓴다
 
 스키마에 별도의 전시용 번호 컬럼이 없다는 전제로, `problems.id`를 그대로 화면 번호로
 쓴다. 별도 번호 컬럼이 실제로 있다면 그 값을 쓰도록 바꾸면 된다 — 이건 어느 컬럼을 보여줄지의
