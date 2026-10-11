@@ -9,6 +9,7 @@ import { createQueryClient } from '@/app/queryClient'
 import { ProblemsLayout } from '@/app/ProblemsLayout'
 import { ThemeProvider } from '@/app/ThemeProvider'
 import * as useAuthModule from '@/features/auth/useAuth'
+import { problems } from '@/mocks/fixtures/problems'
 import { server } from '@/mocks/server'
 import { Component as ProblemListPage } from './ProblemListPage'
 
@@ -72,6 +73,21 @@ describe('ProblemListPage', () => {
     renderPage('/problems?difficulty=HARD')
 
     expect(await screen.findByText(/조건에 맞는 문제 2개/)).toBeInTheDocument()
+  })
+
+  // 개수는 응답의 totalElements에서 읽어야 한다. MSW 핸들러는 totalElements를
+  // content.length와 같게 주므로 둘을 바꿔 써도 다른 테스트가 잡지 못한다. 서버가
+  // 다른 값을 주는 경우를 만들어 계약 필드를 읽는지 본다 — 나중에 페이지 나누기가
+  // 붙으면 content.length는 한 페이지 크기가 되어 표시가 틀린다.
+  it('개수는 content 길이가 아니라 totalElements에서 읽는다', async () => {
+    server.use(
+      http.get('*/api/problems', () =>
+        HttpResponse.json({ content: [problems[0]], totalElements: 99 }),
+      ),
+    )
+    renderPage()
+
+    expect(await screen.findByText(/문제 99개/)).toBeInTheDocument()
   })
 
   it('첫 로드에는 기다리는 중임을 알린다', () => {
@@ -210,5 +226,10 @@ describe('ProblemListPage', () => {
     // 좁혀야 '두 수의 합' 행의 풀이 상태 셀을 가리키는 단언이 된다.
     const row = screen.getByRole('row', { name: /두 수의 합/ })
     expect(within(row).getByText('맞음')).toBeInTheDocument()
+    // AppHeader도 자기 자신의 '로그인' 링크를 두므로(이땐 로그인 상태라 없지만) main으로
+    // 좁혀, 이 화면의 안내문이 로그인하면 사라지는지까지 확인한다.
+    expect(
+      within(screen.getByRole('main')).queryByRole('link', { name: '로그인' }),
+    ).not.toBeInTheDocument()
   })
 })
