@@ -53,12 +53,16 @@ export function Component() {
 
   // 입력이 멈추면 URL에 반영한다. replace를 쓰지 않으면 글자마다 히스토리가 쌓여
   // 뒤로가기를 눌러도 한 글자씩만 지워진다.
+  // 비교와 기록 모두 trim한 값으로 한다. parseParams가 keyword를 trim해서 돌려주므로
+  // (params.keyword는 항상 trim된 값), draft 그대로를 lastWritten에 적으면 뒤쪽 공백이
+  // 있는 동안 params.keyword와 영영 안 맞아 위 effect가 "밖에서 바뀌었다"고 오판해
+  // setDraft로 입력란의 공백을 지워 버린다. trim해서 맞춰야 타이핑 중 공백이 보존된다.
   useEffect(() => {
-    if (draft === params.keyword) return
+    if (draft.trim() === params.keyword) return
 
     const timer = setTimeout(() => {
-      lastWritten.current = draft
-      setSearchParams(serializeParams({ ...params, keyword: draft }), { replace: true })
+      lastWritten.current = draft.trim()
+      setSearchParams(serializeParams({ ...params, keyword: draft.trim() }), { replace: true })
     }, SEARCH_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)

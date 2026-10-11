@@ -21,6 +21,13 @@ import { clientOptions } from './client'
  *   주지 않는다. 화면·목 데이터·테스트가 이 심볼들을 여러 곳에서 직접 import하므로
  *   파일을 통째로 지우면 전부 깨진다.
  *
+ *   Page<T>도 남지만 애매하게 남는다 — ProvisionalPaths 안에서만 쓰여 그 타입과
+ *   함께 죽는 '사라지는 것' 성격도 있고, problemsQuery.ts·client.test.ts·
+ *   handlers.test.ts가 직접 import해 쓰는 '남는 것' 성격도 있다. springdoc이
+ *   자기 방식의 페이지 타입(보통 Spring Data의 PageImpl 계열)을 만들어 줄 것이므로,
+ *   이 손으로 적은 Page<T>는 생성된 그 타입으로 별칭을 바꿔 가리키게 한다 — 새로
+ *   만들지 않는다.
+ *
  * 순서: npm run gen:api → provisionalApi를 api로 교체 → '사라지는 것' 삭제 →
  * 남는 타입을 schema.d.ts 기준으로 다시 잇는다. 타입 오류가 나는 곳이 실제 응답과
  * 어긋난 곳이다.

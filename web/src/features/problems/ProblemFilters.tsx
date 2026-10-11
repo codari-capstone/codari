@@ -115,7 +115,13 @@ export function ProblemFilters() {
 
       {hasActiveFilter(params) ? (
         <Button asChild variant="outline" size="lg" className="min-h-11">
-          {/* 기본값을 URL에 쓰지 않으므로 쿼리 없는 주소가 곧 초기화 상태다 */}
+          {/*
+            기본값을 URL에 쓰지 않으므로 쿼리 없는 주소가 곧 초기화 상태다. 이 링크는
+            일부러 깨끗한 '/problems'로 돌아간다 — 단순하고 공유하기 쉽다는 이유로
+            sort까지 함께 버린다. hasActiveFilter가 sort를 필터로 안 치는 건(결과를
+            줄이지 않으니까) 초기화 버튼을 보여줄지 정하는 기준일 뿐, 눌렀을 때 sort를
+            지킨다는 뜻은 아니다.
+          */}
           <Link to="/problems">필터 초기화</Link>
         </Button>
       ) : null}

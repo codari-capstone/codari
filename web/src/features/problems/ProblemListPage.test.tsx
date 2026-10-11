@@ -129,6 +129,25 @@ describe('ProblemListPage', () => {
     expect(router.state.historyAction).toBe('REPLACE')
   })
 
+  // parseParams가 keyword를 trim해서 돌려주므로, URL 동기화 effect가 trim 전 값과
+  // 비교하면 "밖에서 바뀌었다"고 오판해 입력란의 끝 공백을 지워 버린다. 그러면
+  // '두 ' 다음에 '수'를 이어 쳐도 '두수'가 되어 다단어 제목을 전혀 찾지 못한다.
+  it('단어 뒤에 공백을 입력해도 입력란의 공백이 지워지지 않는다', async () => {
+    const user = userEvent.setup()
+    const router = renderPage()
+
+    await user.type(screen.getByRole('searchbox', { name: '제목으로 검색' }), '두 ')
+
+    await waitFor(() => {
+      expect(router.state.location.search).toContain('keyword')
+    })
+
+    // URL은 trim된 값만 들고 있어야 한다 (parseParams 계약, COM-05와 무관하게 적용)
+    expect(router.state.location.search).toBe(`?keyword=${encodeURIComponent('두')}`)
+    // 입력란은 사용자가 친 그대로, 끝 공백이 남아 있어야 한다
+    expect(screen.getByRole('searchbox', { name: '제목으로 검색' })).toHaveValue('두 ')
+  })
+
   it('열 머리를 누르면 정렬이 URL에 들어간다', async () => {
     const user = userEvent.setup()
     const router = renderPage()
