@@ -9,10 +9,9 @@ import * as useAuthModule from '@/features/auth/useAuth'
 import { ProblemFilters } from './ProblemFilters'
 
 function renderFilters(initialUrl = '/problems') {
-  const router = createMemoryRouter(
-    [{ path: '/problems', element: <ProblemFilters /> }],
-    { initialEntries: [initialUrl] },
-  )
+  const router = createMemoryRouter([{ path: '/problems', element: <ProblemFilters /> }], {
+    initialEntries: [initialUrl],
+  })
 
   render(
     <QueryClientProvider client={createQueryClient()}>
@@ -103,9 +102,6 @@ describe('ProblemFilters', () => {
   it('필터가 있으면 초기화 링크가 쿼리 없는 주소를 가리킨다', () => {
     renderFilters('/problems?difficulty=HARD')
 
-    expect(screen.getByRole('link', { name: '필터 초기화' })).toHaveAttribute(
-      'href',
-      '/problems',
-    )
+    expect(screen.getByRole('link', { name: '필터 초기화' })).toHaveAttribute('href', '/problems')
   })
 })

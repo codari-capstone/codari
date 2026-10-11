@@ -1,9 +1,4 @@
-import {
-  DIFFICULTIES,
-  SOLVE_STATUSES,
-  type Difficulty,
-  type SolveStatus,
-} from '@/api/provisional'
+import { DIFFICULTIES, SOLVE_STATUSES, type Difficulty, type SolveStatus } from '@/api/provisional'
 
 export type SortField = 'id' | 'difficulty'
 export type SortDirection = 'asc' | 'desc'
