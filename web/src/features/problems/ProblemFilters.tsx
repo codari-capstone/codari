@@ -96,7 +96,13 @@ export function ProblemFilters() {
            */
           <div role="alert" className="flex min-h-11 items-center justify-between gap-2 text-sm">
             <span className="text-muted-foreground">태그를 불러오지 못했습니다</span>
-            <Button variant="outline" size="sm" onClick={() => void refetchTags()}>
+            {/*
+              min-h-11은 버튼 자체에 건다. 감싸는 div에만 걸면 줄만 높아지고 실제로
+              누를 수 있는 영역은 버튼 크기 그대로다 — 체크박스는 label이 입력을
+              활성화해 주지만 버튼은 자기 크기가 곧 터치 영역이다 (2.5.5).
+              ErrorState의 다시 시도 버튼도 같은 방식이다.
+            */}
+            <Button variant="outline" className="min-h-11" onClick={() => void refetchTags()}>
               다시 시도
             </Button>
           </div>
