@@ -7,6 +7,12 @@ import { Component as LoginPage } from './LoginPage'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
 import { ThemeProvider } from './ThemeProvider'
 
+// 운영 라우터가 실제로 ErrorBoundary를 달고 있는지 검증하려면 청크 로드 실패를
+// 재현해야 한다. SubmissionHistoryPage의 동적 import를 강제로 실패시킨다.
+vi.mock('@/features/history/SubmissionHistoryPage', () => {
+  throw new Error('청크를 불러오지 못했다')
+})
+
 /** 라우트가 실제로 던진 오류를 ErrorBoundary가 받는 상황을 만든다. */
 function renderWithThrowingRoute(thrown: unknown) {
   const router = createMemoryRouter([
@@ -112,6 +118,25 @@ describe('RouteErrorBoundary', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.queryByText('여기는 보이면 안 된다')).not.toBeInTheDocument()
     // 폴백도 AppShell을 쓰므로 헤더가 하나 있어야 한다
+    expect(screen.getAllByRole('banner')).toHaveLength(1)
+  })
+
+  // 지금까지의 테스트는 손으로 짠 라우터 트리로 "ErrorBoundary가 전파된다"는
+  // react-router의 동작만 증명한다. 운영 라우터(router.tsx)가 실제로 그 자리에
+  // ErrorBoundary를 달고 있는지는 별개다 — 한 줄 삭제로 깨질 수 있고, 그래도
+  // typecheck·lint·기존 테스트·build가 전부 통과한다. 배포 후 청크 404를
+  // 흉내 내 운영 라우터 자체를 돌려 확인한다.
+  it('운영 라우터도 청크 로드 실패를 오류 화면으로 받는다', async () => {
+    window.history.pushState({}, '', '/submissions')
+    const { router } = await import('./router')
+
+    render(
+      <ThemeProvider>
+        <RouterProvider router={router} />
+      </ThemeProvider>,
+    )
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.getAllByRole('banner')).toHaveLength(1)
   })
 })
