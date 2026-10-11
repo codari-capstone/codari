@@ -66,7 +66,7 @@ export function ProblemFilters() {
   const [searchParams, setSearchParams] = useSearchParams()
   const params = useMemo(() => parseParams(searchParams), [searchParams])
   const { isAuthenticated } = useAuth()
-  const { data: tags = [] } = useQuery(conceptTagsQuery())
+  const { data: tags = [], error: tagsError, refetch: refetchTags } = useQuery(conceptTagsQuery())
 
   function apply(next: Partial<ProblemListParams>) {
     setSearchParams(serializeParams({ ...params, ...next }))
@@ -86,14 +86,30 @@ export function ProblemFilters() {
       </FilterGroup>
 
       <FilterGroup title="개념 태그">
-        {tags.map((tag) => (
-          <FilterCheckbox
-            key={tag.slug}
-            label={tag.name}
-            checked={params.tag.includes(tag.slug)}
-            onChange={() => apply({ tag: toggled(params.tag, tag.slug) })}
-          />
-        ))}
+        {tagsError ? (
+          /*
+           * 사이드바 보조 필터라 ErrorState급 큰 블록은 과하다. 한 줄 안내와 다시
+           * 시도 버튼으로 줄인다. 로딩 중 표시는 따로 두지 않는다 — 태그는 보통
+           * 바로 도착해서, 깜빡였다 사라지는 로딩 줄이 그냥 늦게 나타나는 것보다
+           * 더 거슬린다. 이게 없으면 URL에 ?tag=dp가 있어도 체크박스가 영영 안
+           * 보여 사용자가 자신의 결과를 좁히는 필터를 확인·해제할 수 없다.
+           */
+          <div role="alert" className="flex min-h-11 items-center justify-between gap-2 text-sm">
+            <span className="text-muted-foreground">태그를 불러오지 못했습니다</span>
+            <Button variant="outline" size="sm" onClick={() => void refetchTags()}>
+              다시 시도
+            </Button>
+          </div>
+        ) : (
+          tags.map((tag) => (
+            <FilterCheckbox
+              key={tag.slug}
+              label={tag.name}
+              checked={params.tag.includes(tag.slug)}
+              onChange={() => apply({ tag: toggled(params.tag, tag.slug) })}
+            />
+          ))
+        )}
       </FilterGroup>
 
       {/*
