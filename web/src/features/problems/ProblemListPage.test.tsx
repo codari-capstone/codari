@@ -170,6 +170,50 @@ describe('ProblemListPage', () => {
     }
   })
 
+  // 필터만 걸린 주소(keyword가 처음부터 '')에서 초기화하면 params.keyword가 변하지 않아
+  // URL 동기화 effect가 draft를 두고, 디바운스가 검색어를 되살린다. fake timer로 디바운스
+  // 뒤까지 흘려보낸 다음 URL과 입력란을 각각 확인한다.
+  it('필터 초기화는 아직 URL에 안 쓴 검색어도 되살리지 않는다', async () => {
+    vi.useFakeTimers()
+    try {
+      const router = renderPage('/problems?difficulty=HARD')
+      const box = screen.getByRole('searchbox', { name: '제목으로 검색' })
+
+      fireEvent.change(box, { target: { value: '합' } })
+      // 디바운스(300ms)가 끝나기 전에 초기화를 누른다
+      fireEvent.click(screen.getAllByRole('link', { name: '필터 초기화' })[0])
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400)
+      })
+
+      expect(router.state.location.search).toBe('')
+      expect(box).toHaveValue('')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // 초기화 감지를 "쿼리가 비었는가"로 하면 마지막 필터를 체크 해제하는 일반 클릭에서도
+  // 입력 중인 검색어가 죽는다. 이 경우는 검색어가 살아 URL에 반영되어야 한다.
+  it('마지막 필터를 풀어도 입력 중인 검색어는 남아 URL에 반영된다', async () => {
+    vi.useFakeTimers()
+    try {
+      const router = renderPage('/problems?difficulty=HARD')
+      const box = screen.getByRole('searchbox', { name: '제목으로 검색' })
+
+      fireEvent.change(box, { target: { value: '합' } })
+      fireEvent.click(screen.getByRole('checkbox', { name: '어려움' }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400)
+      })
+
+      expect(router.state.location.search).toBe(`?keyword=${encodeURIComponent('합')}`)
+      expect(box).toHaveValue('합')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('열 머리를 누르면 정렬이 URL에 들어간다', async () => {
     const user = userEvent.setup()
     const router = renderPage()

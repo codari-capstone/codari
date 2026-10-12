@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
+import { Link, useLocation, useSearchParams } from 'react-router'
 
 import { EmptyState } from '@/components/EmptyState'
 import { ErrorState } from '@/components/ErrorState'
@@ -10,8 +10,10 @@ import { Input } from '@/components/ui/input'
 import { useAuth } from '@/features/auth/useAuth'
 import {
   hasActiveFilter,
+  isResetFiltersNavigation,
   nextSort,
   parseParams,
+  RESET_FILTERS_STATE,
   serializeParams,
   type SortField,
 } from './problemListParams'
@@ -50,6 +52,21 @@ export function Component() {
       setDraft(params.keyword)
     }
   }, [params.keyword])
+
+  // '필터 초기화'를 누르면 아직 URL에 안 쓴 검색어도 버린다. 위 effect는 keyword가 URL에서
+  // 그대로 ''인 경우(필터만 걸려 있던 때)를 "안 바뀌었다"고 보고 draft를 두는데, 그러면
+  // 디바운스가 곧 그 검색어를 다시 URL에 써서 사용자가 지운 필터 중 하나가 되살아난다.
+  // 쿼리가 비었는지로 초기화를 가리면 마지막 필터를 체크 해제하는 일반 클릭에서도
+  // 입력 중인 검색어가 죽으므로, 초기화 링크가 싣는 location state로 가른다.
+  const location = useLocation()
+  const [seenLocationKey, setSeenLocationKey] = useState(location.key)
+  // effect가 아니라 렌더 중에 맞춘다(React 문서의 "props 변화에 state 조정" 방식).
+  // lastWritten은 건드리지 않아도 된다 — 초기화로 keyword가 바뀌면 위 effect가 ''로 맞추고,
+  // 안 바뀌었으면 lastWritten이 이미 ''이다.
+  if (seenLocationKey !== location.key) {
+    setSeenLocationKey(location.key)
+    if (isResetFiltersNavigation(location.state)) setDraft('')
+  }
 
   // 입력이 멈추면 URL에 반영한다. replace를 쓰지 않으면 글자마다 히스토리가 쌓여
   // 뒤로가기를 눌러도 한 글자씩만 지워진다.
@@ -116,7 +133,7 @@ export function Component() {
             <EmptyState
               title="조건에 맞는 문제가 없습니다"
               description="검색어나 필터를 바꿔 보세요."
-              action={{ label: '필터 초기화', to: '/problems' }}
+              action={{ label: '필터 초기화', to: '/problems', state: RESET_FILTERS_STATE }}
             />
           ) : (
             <EmptyState

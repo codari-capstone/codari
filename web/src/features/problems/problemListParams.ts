@@ -108,3 +108,16 @@ export function nextSort(
   if (params.sortField !== field) return { sortField: field, sortDirection: 'asc' }
   return { sortField: field, sortDirection: params.sortDirection === 'asc' ? 'desc' : 'asc' }
 }
+
+/**
+ * '필터 초기화' 링크가 이동할 때 싣는 location state.
+ *
+ * 초기화를 "쿼리가 비었는가"로 알아내면 안 된다. 마지막 남은 필터 체크를 푸는 일반 클릭도
+ * 쿼리를 비우므로, 입력란에서 아직 URL에 안 쓴 검색어까지 같이 죽는다. 어느 쪽이든 도착
+ * 주소는 똑같이 '/problems'라서 주소로는 둘을 가를 수 없고, 이동을 일으킨 쪽이 알려 줘야 한다.
+ */
+export const RESET_FILTERS_STATE = { resetFilters: true } as const
+
+export function isResetFiltersNavigation(state: unknown): boolean {
+  return typeof state === 'object' && state !== null && 'resetFilters' in state
+}
