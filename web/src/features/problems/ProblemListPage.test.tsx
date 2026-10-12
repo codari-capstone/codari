@@ -193,6 +193,28 @@ describe('ProblemListPage', () => {
     }
   })
 
+  // 초기화 링크는 두 곳(사이드바, 0건 빈 상태)에 있다. 본문 쪽이 state를 잃어도 사이드바
+  // 테스트는 통과하므로 따로 확인한다. 사이드바는 main 밖이라 main으로 좁히면 본문 링크다.
+  it('0건 빈 상태의 필터 초기화도 입력 중인 검색어를 되살리지 않는다', async () => {
+    const router = renderPage('/problems?difficulty=EASY&tag=dp')
+    await screen.findByText('조건에 맞는 문제가 없습니다')
+    vi.useFakeTimers()
+    try {
+      const box = screen.getByRole('searchbox', { name: '제목으로 검색' })
+
+      fireEvent.change(box, { target: { value: '합' } })
+      fireEvent.click(within(screen.getByRole('main')).getByRole('link', { name: '필터 초기화' }))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(400)
+      })
+
+      expect(router.state.location.search).toBe('')
+      expect(box).toHaveValue('')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   // 초기화 감지를 "쿼리가 비었는가"로 하면 마지막 필터를 체크 해제하는 일반 클릭에서도
   // 입력 중인 검색어가 죽는다. 이 경우는 검색어가 살아 URL에 반영되어야 한다.
   it('마지막 필터를 풀어도 입력 중인 검색어는 남아 URL에 반영된다', async () => {
