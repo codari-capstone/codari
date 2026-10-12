@@ -1,8 +1,8 @@
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 
+import { type Page, type ProblemSummary, provisionalApi } from '@/api/provisional'
 import { server } from '@/mocks/server'
-import { api } from './client'
 
 /**
  * baseUrl이 '/' 같은 상대 경로면 openapi-fetch가 만드는 new Request()가
@@ -17,10 +17,22 @@ describe('api 클라이언트', () => {
       ),
     )
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (api as any).GET('/api/problems')
+    const { data, error } = await provisionalApi.GET('/api/problems')
 
     expect(error).toBeUndefined()
     expect(data).toEqual({ content: [], totalElements: 0 })
+  })
+
+  // 임시 계약을 둔 이유가 타입이다. any로 새어 나가면 둘 이유가 없다.
+  it('응답에 타입이 붙는다', async () => {
+    server.use(
+      http.get(`${window.location.origin}/api/problems`, () =>
+        HttpResponse.json({ content: [], totalElements: 0 }),
+      ),
+    )
+
+    const { data } = await provisionalApi.GET('/api/problems')
+
+    expectTypeOf(data).toEqualTypeOf<Page<ProblemSummary> | undefined>()
   })
 })
