@@ -9,6 +9,7 @@ import { DIFFICULTY_LABEL, SOLVE_STATUS_LABEL } from './labels'
 import {
   hasActiveFilter,
   parseParams,
+  RESET_FILTERS_STATE,
   serializeParams,
   type ProblemListParams,
 } from './problemListParams'
@@ -86,8 +87,11 @@ export function ProblemFilters() {
       </FilterGroup>
 
       <FilterGroup title="개념 태그">
-        {tagsError ? (
+        {tagsError && tags.length === 0 ? (
           /*
+           * 캐시된 태그가 있으면 오류 줄 대신 그걸 계속 그린다. 오래 열어 둔 탭에서 재연결 뒤
+           * 백그라운드 refetch가 실패해도 data는 남고 error만 켜지는데, 체크박스를 지우면
+           * ?tag=dp 같은 필터를 보거나 해제할 수 없게 된다.
            * 사이드바 보조 필터라 ErrorState급 큰 블록은 과하다. 한 줄 안내와 다시
            * 시도 버튼으로 줄인다. 로딩 중 표시는 따로 두지 않는다 — 태그는 보통
            * 바로 도착해서, 깜빡였다 사라지는 로딩 줄이 그냥 늦게 나타나는 것보다
@@ -144,7 +148,9 @@ export function ProblemFilters() {
             줄이지 않으니까) 초기화 버튼을 보여줄지 정하는 기준일 뿐, 눌렀을 때 sort를
             지킨다는 뜻은 아니다.
           */}
-          <Link to="/problems">필터 초기화</Link>
+          <Link to="/problems" state={RESET_FILTERS_STATE}>
+            필터 초기화
+          </Link>
         </Button>
       ) : null}
     </div>

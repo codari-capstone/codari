@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
@@ -10,13 +10,13 @@ import * as useAuthModule from '@/features/auth/useAuth'
 import { server } from '@/mocks/server'
 import { ProblemFilters } from './ProblemFilters'
 
-function renderFilters(initialUrl = '/problems') {
+function renderFilters(initialUrl = '/problems', queryClient = createQueryClient()) {
   const router = createMemoryRouter([{ path: '/problems', element: <ProblemFilters /> }], {
     initialEntries: [initialUrl],
   })
 
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
@@ -64,6 +64,33 @@ describe('ProblemFilters', () => {
     ).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '다시 시도' })).toBeInTheDocument()
     expect(screen.queryByRole('checkbox', { name: '동적 계획법' })).not.toBeInTheDocument()
+  })
+
+  // TanStack Query v5는 백그라운드 refetch가 실패해도 data를 남기고 error만 켠다. 오류 줄이
+  // error만 보고 체크박스를 대체하면, 탭을 오래 열어 둔 채 네트워크가 끊겼다 돌아온 사용자의
+  // ?tag=dp 필터가 눈에 안 보이고 해제도 못 한다. 실제 refetchOnReconnect 경로와 같은
+  // 상태(data 있음 + error 있음)를 refetchQueries로 만든다.
+  it('캐시된 태그가 있으면 백그라운드 refetch가 실패해도 체크박스를 계속 보여 준다', async () => {
+    const queryClient = createQueryClient()
+    renderFilters('/problems?tag=dp', queryClient)
+    expect(await screen.findByRole('checkbox', { name: '동적 계획법' })).toBeChecked()
+
+    server.use(
+      http.get('*/api/concept-tags', () => HttpResponse.json({ status: 503 }, { status: 503 })),
+    )
+    // retry:1이라 재시도 지연을 거쳐 실패가 확정된다
+    // refetchQueries가 끝나도 observer 알림은 setTimeout(0)으로 미뤄져 DOM에는 아직 반영 전이다.
+    // 그 알림까지 흘려보내지 않으면 오류 줄로 바꾸는 버그가 있어도 단언이 먼저 돌아 통과하는
+    // 장식용 테스트가 된다 (오류 줄 분기를 되돌려 실제로 그렇게 통과하는 걸 확인했다).
+    await act(async () => {
+      await queryClient.refetchQueries({ queryKey: ['concept-tags'] })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
+
+    // 실패가 정말 상태에 반영됐는지 먼저 확인해야, 아래 단언이 "오류가 안 났다"로 통과하지 않는다
+    expect(queryClient.getQueryState(['concept-tags'])?.error).not.toBeNull()
+    expect(screen.getByRole('checkbox', { name: '동적 계획법' })).toBeChecked()
+    expect(screen.queryByText('태그를 불러오지 못했습니다')).not.toBeInTheDocument()
   })
 
   it('다시 시도를 누르면 재요청해 성공하면 태그를 보여 준다', async () => {
