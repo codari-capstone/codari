@@ -28,6 +28,10 @@ export const handlers: RequestHandler[] = [
       if (keyword && !problem.title.includes(keyword)) return false
       if (difficulties.length > 0 && !difficulties.includes(problem.difficulty)) return false
       if (tags.length > 0 && !problem.tags.some((tag) => tags.includes(tag.slug))) return false
+      // 이 핸들러는 인증을 모른다(의도된 선택이다). 그래서 비로그인 요청에서도 status를
+      // 그대로 걸러 낸다. contracts/problems-list-proposal.md는 실제 서버가 비로그인 요청의
+      // status를 무시하고 전체 목록을 주도록 요청한다. 즉 이 동작은 그 점에서 명세가 아니다 —
+      // mock을 근거로 "비로그인도 status로 걸러진다"고 읽지 말 것. 로그인 사용자의 동작만 모사한다.
       if (statuses.length > 0) {
         if (!problem.solveStatus || !statuses.includes(problem.solveStatus)) return false
       }
