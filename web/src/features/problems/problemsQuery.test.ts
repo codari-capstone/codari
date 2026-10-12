@@ -3,6 +3,7 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 
 import { createQueryClient } from '@/app/queryClient'
+import { toUserMessage } from '@/constants/errors'
 import { server } from '@/mocks/server'
 import { conceptTags } from '@/mocks/fixtures/problems'
 import { DEFAULT_PARAMS } from './problemListParams'
@@ -61,6 +62,37 @@ describe('problemListQuery', () => {
     await expect(client().fetchQuery(problemListQuery(DEFAULT_PARAMS))).rejects.toMatchObject({
       type: '/problems/unavailable',
       title: 'Unavailable',
+      status: 503,
+    })
+  })
+})
+
+describe('problemListQuery 비JSON 오류 본문', () => {
+  // openapi-fetch는 JSON이 아닌 본문을 문자열 그대로 error에 둔다. 그걸 던지면 status를
+  // 잃어 게이트웨이가 돌려준 HTML 401도 일반 오류 문구가 된다.
+  it('본문이 JSON이 아닌 401도 status를 지닌 채 던진다', async () => {
+    server.use(
+      http.get('*/api/problems', () => HttpResponse.text('<html>login</html>', { status: 401 })),
+    )
+
+    const error = await client()
+      .fetchQuery(problemListQuery(DEFAULT_PARAMS))
+      .then(
+        () => {
+          throw new Error('거절되어야 한다')
+        },
+        (reason: unknown) => reason,
+      )
+
+    expect(error).toMatchObject({ status: 401 })
+    expect(toUserMessage(error).title).toBe('로그인이 필요합니다')
+  })
+
+  // JSON.parse('')가 던져 error가 ''가 된다. 거짓이지만 nullish가 아니다.
+  it('본문이 빈 503도 status를 지닌 채 던진다', async () => {
+    server.use(http.get('*/api/problems', () => new HttpResponse(null, { status: 503 })))
+
+    await expect(client().fetchQuery(problemListQuery(DEFAULT_PARAMS))).rejects.toMatchObject({
       status: 503,
     })
   })

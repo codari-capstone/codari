@@ -9,10 +9,16 @@ import { toQuery, type ProblemListParams } from './problemListParams'
  * openapi-fetch는 던지지 않고 { data, error }를 돌려준다. TanStack Query는
  * 던진 것만 오류로 보므로 여기서 던진다. error는 서버의 RFC 9457 본문이고,
  * constants/errors.ts의 toUserMessage가 그걸 한국어 문구로 바꾼다.
+ *
+ * error가 객체일 때만 그대로 던진다. openapi-fetch는 본문을 text()로 읽어 JSON.parse를
+ * 시도하고 실패하면 문자열을 그대로 error에 둔다(게이트웨이의 HTML 로그인 페이지 등).
+ * 본문이 비어 있으면 JSON.parse('')가 던져 error가 ''가 된다. 둘 다 `??`로는 안 걸러지고,
+ * 문자열을 던지면 toUserMessage가 status를 못 읽어 401도 일반 문구가 된다.
  */
 function unwrap<T>(result: { data?: T; error?: unknown; response: Response }): T {
   if (result.data !== undefined) return result.data
-  throw result.error ?? { status: result.response.status }
+  if (typeof result.error === 'object' && result.error !== null) throw result.error
+  throw { status: result.response.status }
 }
 
 /**
