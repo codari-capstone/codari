@@ -2,6 +2,9 @@ CREATE TABLE users (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     email VARCHAR(320),
     password_hash VARCHAR(255),
+    -- 재설정마다 1씩 올린다. 토큰에 담긴 값과 다르면 거절해 재설정 즉시 모든 기기를 로그아웃시킨다.
+    -- 시각 비교는 iat가 초 단위라 같은 초 안의 재설정 전후를 구분하지 못한다.
+    token_version INTEGER NOT NULL DEFAULT 0,
     nickname VARCHAR(100) NOT NULL,
     avatar_url TEXT,
     role VARCHAR(16) NOT NULL DEFAULT 'USER'
@@ -39,7 +42,7 @@ CREATE INDEX refresh_tokens_family_idx ON refresh_tokens (family_id);
 CREATE TABLE email_tokens (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     email VARCHAR(320) NOT NULL,
-    purpose VARCHAR(24) NOT NULL CHECK (purpose IN ('VERIFY_EMAIL')),
+    purpose VARCHAR(24) NOT NULL CHECK (purpose IN ('VERIFY_EMAIL', 'RESET_PASSWORD')),
     token_hash VARCHAR(128) NOT NULL,
     attempt_count SMALLINT NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 5),
     expires_at TIMESTAMPTZ NOT NULL,
@@ -129,7 +132,8 @@ CREATE TABLE reference_solutions (
     solution_role VARCHAR(16) NOT NULL CHECK (solution_role IN ('REFERENCE', 'BRUTE')),
     source_code TEXT NOT NULL,
     verified_at TIMESTAMPTZ,
-    UNIQUE (problem_version_id, language, solution_role)
+    UNIQUE (problem_version_id, language, solution_role),
+    UNIQUE (id, problem_version_id)
 );
 
 CREATE TABLE submissions (
@@ -137,7 +141,9 @@ CREATE TABLE submissions (
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     problem_version_id BIGINT NOT NULL REFERENCES problem_versions(id),
     submission_kind VARCHAR(16) NOT NULL DEFAULT 'SUBMIT'
-        CHECK (submission_kind IN ('SAMPLE_RUN', 'SUBMIT')),
+        CHECK (submission_kind IN ('SAMPLE_RUN', 'SUBMIT', 'VALIDATION')),
+    -- 같은 버전·언어에 REFERENCE와 BRUTE가 함께 있어 언어만으로는 어느 코드를 검증했는지 알 수 없다.
+    reference_solution_id BIGINT,
     language VARCHAR(16) NOT NULL CHECK (language IN ('PYTHON', 'CPP')),
     source_code TEXT NOT NULL,
     job_status VARCHAR(16) NOT NULL DEFAULT 'QUEUED'
@@ -154,11 +160,18 @@ CREATE TABLE submissions (
     submitted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     judged_at TIMESTAMPTZ,
     UNIQUE (id, problem_version_id),
-    CHECK ((job_status <> 'COMPLETED') OR verdict IS NOT NULL)
+    CHECK ((job_status <> 'COMPLETED') OR verdict IS NOT NULL),
+    CHECK ((submission_kind = 'VALIDATION') = (reference_solution_id IS NOT NULL)),
+    -- 다른 버전의 정답 코드를 가리키면 그 코드가 이 버전 케이스로 검증된 것으로 기록된다.
+    FOREIGN KEY (reference_solution_id, problem_version_id)
+        REFERENCES reference_solutions(id, problem_version_id) ON DELETE CASCADE
 );
 
-CREATE INDEX submissions_user_history_idx ON submissions (user_id, submitted_at DESC, id DESC);
+CREATE INDEX submissions_user_history_idx ON submissions (user_id, submitted_at DESC, id DESC)
+    WHERE submission_kind = 'SUBMIT';
 CREATE INDEX submissions_problem_user_idx ON submissions (problem_version_id, user_id, job_status);
+CREATE INDEX submissions_reference_solution_idx ON submissions (reference_solution_id)
+    WHERE reference_solution_id IS NOT NULL;
 
 CREATE TABLE submission_test_results (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -216,8 +229,7 @@ CREATE TABLE user_problem_stats (
     solved BOOLEAN NOT NULL DEFAULT FALSE,
     first_solved_at TIMESTAMPTZ,
     attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
-    revealed_hint_level_sum INTEGER NOT NULL DEFAULT 0 CHECK (revealed_hint_level_sum >= 0),
-    hinted_submission_count INTEGER NOT NULL DEFAULT 0 CHECK (hinted_submission_count >= 0),
+    max_revealed_hint_level SMALLINT NOT NULL DEFAULT 0 CHECK (max_revealed_hint_level BETWEEN 0 AND 3),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, problem_id),
     CHECK (solved = (first_solved_at IS NOT NULL))
