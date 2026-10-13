@@ -13,7 +13,7 @@ PostgreSQL용 초안이다. DDL은 `api/src/main/resources/db/migration/V1__init
 | `refresh_tokens` | 사용자, 토큰 해시, 토큰 묶음 ID, 만료·폐기 시각 | 로그인 유지, 갱신, 로그아웃 및 토큰 폐기 |
 | `email_tokens` | 이메일, 용도, 인증번호 해시, 시도 횟수, 만료·사용 시각 | 가입·비밀번호 재설정 이메일 인증번호 발송·확인과 재발송 제한 |
 
-일반 가입은 이메일과 `password_hash`를 사용하고, OAuth 가입은 `oauth_accounts`에 계정 연결을 만든다. OAuth access token과 refresh token 원문은 저장하지 않는다. `nickname`은 사용자 요청에 따라 대소문자 구분 없이 중복을 허용하지 않는다. 사용자 행에는 생성·변경 시각 컬럼을 두지 않는다. 예외로 토큰 무효화에 쓰는 `password_changed_at`만 둔다.
+일반 가입은 이메일과 `password_hash`를 사용하고, OAuth 가입은 `oauth_accounts`에 계정 연결을 만든다. OAuth access token과 refresh token 원문은 저장하지 않는다. `nickname`은 사용자 요청에 따라 대소문자 구분 없이 중복을 허용하지 않는다. 사용자 행에는 생성·변경 시각 컬럼을 두지 않는다. 토큰 무효화에는 시각 대신 `token_version` 번호를 쓴다.
 
 `users` 행은 가입 완료 시점에만 만든다. 인증하지 않은 사용자는 `users`에 남지 않는다.
 
@@ -26,9 +26,9 @@ PostgreSQL용 초안이다. DDL은 `api/src/main/resources/db/migration/V1__init
 - **계정 연결 없음**: GitHub 가입 계정은 이메일이 없어 일반 가입 계정과 이메일로 겹치지 않는다. 같은 사람이 두 방식으로 가입하면 별도 계정 두 개가 되고, 자동으로 연결하지 않는다.
 - **비밀번호 재설정**(일반 가입 계정만, `password_hash`가 있는 계정):
   1. 인증번호 발송·확인: 가입과 같은 규칙으로 `email_tokens`에 `purpose = 'RESET_PASSWORD'` 행을 쓴다. 용도가 달라 발송 제한과 유효한 인증번호는 가입과 따로 센다.
-  2. 인증에 성공하면 서버 서명 재설정 증명서(이메일과 그 시점의 `password_changed_at` 포함, 10분 유효)를 응답한다. DB에 저장하지 않는다.
-  3. 새 비밀번호 제출: 증명서의 서명·만료와 `password_changed_at`이 현재 값과 같은지 확인한 뒤 `password_hash`와 `password_changed_at`을 갱신한다. 같은 트랜잭션에서 그 사용자의 `refresh_tokens`에 모두 `revoked_at`을 채운다.
-  4. `password_changed_at`이 바뀌므로 같은 증명서로는 다시 재설정할 수 없다. API는 요청마다 access token의 발급 시각(`iat`)이 `password_changed_at`보다 이전이면 401로 거절해, 재설정 즉시 모든 기기가 로그아웃된다. `iat`는 초 단위이므로 `password_changed_at`도 초 단위로 잘라 저장한다(`date_trunc('second', now())`). 자르지 않으면 재설정과 같은 초에 새로 발급한 토큰까지 거절된다.
+  2. 인증에 성공하면 서버 서명 재설정 증명서(이메일과 그 시점의 `token_version` 포함, 10분 유효)를 응답한다. DB에 저장하지 않는다.
+  3. 새 비밀번호 제출: 증명서의 서명·만료를 확인하고, `WHERE token_version = 증명서 값` 조건으로 `password_hash`를 갱신하며 `token_version`을 1 올린다. 갱신된 행이 없으면 이미 쓰인 증명서로 보고 거절한다. 같은 트랜잭션에서 그 사용자의 `refresh_tokens`에 모두 `revoked_at`을 채운다.
+  4. `token_version`이 바뀌므로 같은 증명서로는 다시 재설정할 수 없다. access token에도 발급 시점의 `token_version`을 넣고, API는 요청마다 현재 값과 다르면 401로 거절해 재설정 즉시 모든 기기가 로그아웃된다. 시각(`iat`)으로 비교하지 않는 이유는 `iat`가 초 단위라 같은 초 안의 재설정 전후 토큰을 구분하지 못하기 때문이다. 토큰 만료는 지금처럼 `exp`로 판단한다.
 - **비밀번호 규칙**: 10~20자이며 영문 대문자·소문자·숫자·특수문자를 각각 하나 이상 포함한다. DB 제약이 아니라 서버와 화면에서 검사한다.
 
 ### 문제와 채점
@@ -79,4 +79,4 @@ PostgreSQL용 초안이다. DDL은 `api/src/main/resources/db/migration/V1__init
 - `email_tokens`는 가입 때 사용자 행이 생기기 전에 쓰므로 `users`를 참조하지 않고 이메일로 조회한다. 재설정도 같은 방식으로 조회한다. 이메일별·용도별로 유효한(`used_at`이 빈) 인증번호는 하나만 허용한다. 재발송 제한은 하루 단위로 세므로 하루가 지난 행은 정리해도 된다.
 - 이메일별 발송 제한(1분 간격·하루 5회)은 `email_tokens.created_at`으로 센다. 같은 IP의 발송·가입 여부 조회 제한(하루 20회, 가입·재설정 따로)과 로그인 연속 실패 잠금(같은 이메일 5회 실패 시 5분, 가입되지 않은 이메일 포함)은 DB가 아니라 API 서버 메모리에서 센다. API가 재시작되면 이 횟수는 초기화되고, API 서버가 한 대일 때만 정확하다. 서버를 늘리면 공유 저장소로 옮긴다.
 - 초대 코드 기능은 두지 않는다.
-- develop에 병합되기 전까지는 V1을 수정할 수 있다. 그 기간에 로컬 DB에 V1을 적용했다면, V1이 바뀐 뒤 로컬 DB를 초기화한다. 병합 후에는 기존 파일을 고치지 않고 다음 버전 마이그레이션을 추가한다.
+- 공유 DB(개발·배포 서버)가 생기기 전까지는 V1을 수정할 수 있다. 그 기간에 로컬 DB에 V1을 적용했다면, V1이 바뀐 뒤 로컬 DB를 초기화한다. 공유 DB가 생긴 뒤에는 기존 파일을 고치지 않고 다음 버전 마이그레이션을 추가한다.

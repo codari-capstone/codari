@@ -2,8 +2,9 @@ CREATE TABLE users (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     email VARCHAR(320),
     password_hash VARCHAR(255),
-    -- 이 시각 이전에 발급된 access token과 재설정 증명서를 거절해 재설정 즉시 모든 기기를 로그아웃시킨다.
-    password_changed_at TIMESTAMPTZ,
+    -- 재설정마다 1씩 올린다. 토큰에 담긴 값과 다르면 거절해 재설정 즉시 모든 기기를 로그아웃시킨다.
+    -- 시각 비교는 iat가 초 단위라 같은 초 안의 재설정 전후를 구분하지 못한다.
+    token_version INTEGER NOT NULL DEFAULT 0,
     nickname VARCHAR(100) NOT NULL,
     avatar_url TEXT,
     role VARCHAR(16) NOT NULL DEFAULT 'USER'
@@ -131,7 +132,8 @@ CREATE TABLE reference_solutions (
     solution_role VARCHAR(16) NOT NULL CHECK (solution_role IN ('REFERENCE', 'BRUTE')),
     source_code TEXT NOT NULL,
     verified_at TIMESTAMPTZ,
-    UNIQUE (problem_version_id, language, solution_role)
+    UNIQUE (problem_version_id, language, solution_role),
+    UNIQUE (id, problem_version_id)
 );
 
 CREATE TABLE submissions (
@@ -141,7 +143,7 @@ CREATE TABLE submissions (
     submission_kind VARCHAR(16) NOT NULL DEFAULT 'SUBMIT'
         CHECK (submission_kind IN ('SAMPLE_RUN', 'SUBMIT', 'VALIDATION')),
     -- 같은 버전·언어에 REFERENCE와 BRUTE가 함께 있어 언어만으로는 어느 코드를 검증했는지 알 수 없다.
-    reference_solution_id BIGINT REFERENCES reference_solutions(id) ON DELETE CASCADE,
+    reference_solution_id BIGINT,
     language VARCHAR(16) NOT NULL CHECK (language IN ('PYTHON', 'CPP')),
     source_code TEXT NOT NULL,
     job_status VARCHAR(16) NOT NULL DEFAULT 'QUEUED'
@@ -159,7 +161,10 @@ CREATE TABLE submissions (
     judged_at TIMESTAMPTZ,
     UNIQUE (id, problem_version_id),
     CHECK ((job_status <> 'COMPLETED') OR verdict IS NOT NULL),
-    CHECK ((submission_kind = 'VALIDATION') = (reference_solution_id IS NOT NULL))
+    CHECK ((submission_kind = 'VALIDATION') = (reference_solution_id IS NOT NULL)),
+    -- 다른 버전의 정답 코드를 가리키면 그 코드가 이 버전 케이스로 검증된 것으로 기록된다.
+    FOREIGN KEY (reference_solution_id, problem_version_id)
+        REFERENCES reference_solutions(id, problem_version_id) ON DELETE CASCADE
 );
 
 CREATE INDEX submissions_user_history_idx ON submissions (user_id, submitted_at DESC, id DESC)
