@@ -63,21 +63,15 @@ describe('loginSchema', () => {
 
 describe('loginErrorMessage', () => {
   it('401이면 자격 증명 불일치 문구를 준다', () => {
-    const message = loginErrorMessage({ status: 401 })
-
-    expect(message).toContain('이메일 또는 비밀번호가 맞지 않아요')
-    expect(message).toContain('GitHub 로그인')
+    expect(loginErrorMessage({ status: 401 })).toBe(
+      '이메일 또는 비밀번호가 맞지 않아요. GitHub로 가입했다면 GitHub 로그인을 이용해 주세요',
+    )
   })
 
   it('429면 로그인 제한 문구를 준다', () => {
-    const message = loginErrorMessage({ status: 429 })
-
-    expect(message).toContain('로그인 시도가 너무 많아요')
-    expect(message).toContain('5분')
-  })
-
-  it('401과 429 문구는 서로 다르다', () => {
-    expect(loginErrorMessage({ status: 401 })).not.toBe(loginErrorMessage({ status: 429 }))
+    expect(loginErrorMessage({ status: 429 })).toBe(
+      '로그인 시도가 너무 많아요. 5분 후 다시 시도해 주세요',
+    )
   })
 
   it('그 밖의 오류는 일반 문구로 떨어진다', () => {
