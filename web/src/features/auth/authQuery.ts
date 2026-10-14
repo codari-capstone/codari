@@ -7,7 +7,9 @@ export const ME_QUERY_KEY = ['me'] as const
 /**
  * 오류를 ErrorState·toUserMessage가 읽을 수 있는 모양으로 올린다.
  *
- * features/problems/problemsQuery.ts의 unwrap과 같은 이유로 같은 모양이다.
+ * features/problems/problemsQuery.ts의 unwrap과 비슷한 역할이지만 모양은 다르다.
+ * unwrap은 result.error를 그대로 던져서 본문에 status가 없으면 같은 누락이 생긴다.
+ * 그쪽은 이번 작업 범위 밖이라 그대로 두었다.
  * 공통 모듈로 빼지 않는 이유: 그쪽은 성공 본문이 반드시 있고, 여기는 204처럼
  * 본문이 없는 성공을 다뤄야 해서 분기가 다르다. 억지로 합치면 둘 다 복잡해진다.
  *

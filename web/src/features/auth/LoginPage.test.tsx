@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { server } from '@/mocks/server'
 import { logoutRequest } from './authQuery'
@@ -13,7 +13,6 @@ import { safeRedirect } from './safeRedirect'
 // MSW의 쿠키 저장소는 테스트 사이에 비워지지 않는다. 앞 테스트의 로그인이 남으면
 // 다음 테스트가 이미 로그인한 상태로 시작해 폼 대신 이동 화면을 만난다.
 afterEach(async () => {
-  vi.restoreAllMocks()
   await logoutRequest()
 })
 
@@ -57,6 +56,11 @@ describe('safeRedirect', () => {
   it('프로토콜 상대 주소를 거부한다', () => {
     // '//evil.com'을 navigate에 넘기면 외부로 나간다.
     expect(safeRedirect('//evil.com')).toBe('/problems')
+  })
+
+  it('역슬래시로 시작하는 주소를 거부한다', () => {
+    // 브라우저는 주소 앞부분의 '\'를 '/'처럼 읽는다.
+    expect(safeRedirect(String.raw`/\evil.com`)).toBe('/problems')
   })
 
   it('절대 URL을 거부한다', () => {
@@ -124,6 +128,21 @@ describe('로그인 화면', () => {
     expect(alert.textContent).toBe(CREDENTIAL_MESSAGE)
   })
 
+  it('본문의 status와 HTTP 상태가 다르면 HTTP 상태를 따른다', async () => {
+    server.use(
+      http.post('*/api/auth/login', () =>
+        HttpResponse.json({ status: 500, title: 'Unauthorized' }, { status: 401 }),
+      ),
+    )
+    const user = userEvent.setup()
+    renderLogin()
+
+    await fillAndSubmit(user)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe(CREDENTIAL_MESSAGE)
+  })
+
   it('429면 제한 문구를 보여 준다', async () => {
     server.use(
       http.post('*/api/auth/login', () =>
@@ -149,13 +168,25 @@ describe('로그인 화면', () => {
     expect(await screen.findByRole('heading', { name: '제출 기록 도착' })).toBeInTheDocument()
   })
 
+  it('폼의 submit 이벤트만으로도 로그인 요청이 나간다', async () => {
+    // 버튼 클릭을 거치지 않는 제출 경로다. onSubmit이 폼에 있어야 잡힌다.
+    const user = userEvent.setup()
+    renderLogin({ from: '/submissions' })
+
+    await user.type(screen.getByLabelText('이메일'), 'user@codari.test')
+    await user.type(screen.getByLabelText('비밀번호'), 'Codari!test1')
+    fireEvent.submit(screen.getByRole('form', { name: '로그인' }))
+
+    expect(await screen.findByRole('heading', { name: '제출 기록 도착' })).toBeInTheDocument()
+  })
+
   it('제출 중에는 버튼이 눌리지 않아 요청이 한 번만 나간다', async () => {
     let calls = 0
     server.use(
       http.post('*/api/auth/login', async () => {
         calls += 1
-        // 두 번째 클릭이 들어올 틈을 만든다. 즉시 응답하면 이 테스트는
-        // 버튼이 disabled가 아니어도 통과해 버린다.
+        // 응답을 늦춰 요청이 진행 중인 구간을 만든다. 그래야 버튼이 비활성화된 상태를
+        // 관찰할 수 있고, 그 사이에 두 번째 클릭을 넣을 수 있다.
         await new Promise((resolve) => setTimeout(resolve, 50))
         return HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' })
       }),
@@ -205,17 +236,22 @@ describe('로그인 화면', () => {
   it('목 계정을 화면에 노출하지 않는다', async () => {
     renderLogin()
 
-    const form = await screen.findByRole('form', { name: '로그인' })
-    expect(within(form).queryByText(/codari\.test/)).not.toBeInTheDocument()
-    expect(document.body.textContent).not.toContain('Codari!test1')
+    await screen.findByRole('form', { name: '로그인' })
+    // textContent는 속성과 입력값을 보지 못한다. placeholder·value 같은 속성까지 보려고
+    // 직렬화한 HTML 전체를 본다. 입력칸은 비어 있어야 하므로 값도 따로 확인한다.
+    const html = document.body.innerHTML
+    expect(html).not.toContain('codari.test')
+    expect(html).not.toContain('Codari!test1')
+    expect(screen.getByLabelText('이메일')).toHaveValue('')
+    expect(screen.getByLabelText('비밀번호')).toHaveValue('')
   })
 
   it('아직 없는 화면으로 가는 링크를 두지 않는다', async () => {
-    // 회원가입(COM-06)·비밀번호 찾기(COM-08)는 2차다. 링크를 미리 두면 404로 떨어진다.
+    // 회원가입(COM-06)·비밀번호 찾기(COM-08) 화면은 아직 구현되지 않았다. 링크를 미리 두면
+    // 404로 떨어진다. 이 테스트는 헤더 없이 화면만 그리므로 링크가 있다면 모두 이 화면의 것이다.
     renderLogin()
 
     await screen.findByRole('form', { name: '로그인' })
-    expect(screen.queryByRole('link', { name: /회원가입/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /비밀번호 찾기/ })).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('link')).toHaveLength(0)
   })
 })

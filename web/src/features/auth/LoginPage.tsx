@@ -43,8 +43,9 @@ export function Component() {
       <h1 className="text-2xl font-semibold">로그인</h1>
 
       {/*
-        form의 onSubmit에 건다. 버튼의 onClick에 걸면 비밀번호 칸에서 Enter를
-        눌렀을 때 아무 일도 일어나지 않는다.
+        form의 onSubmit에 건다. 제출 버튼의 onClick에 걸어도 Enter는 브라우저가 기본 버튼을
+        눌러 주므로 동작하지만, onSubmit은 버튼 클릭을 거치지 않는 제출까지 모두 잡고
+        한 컨트롤이 아니라 폼 자신의 이벤트다.
         aria-label이 있어야 테스트와 스크린 리더가 이 폼을 이름으로 집을 수 있다.
       */}
       <form
