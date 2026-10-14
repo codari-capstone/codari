@@ -121,7 +121,7 @@ describe('MSW 문제 목록 핸들러', () => {
 
 describe('MSW 인증 핸들러', () => {
   it('세션 쿠키가 비어 있으면 /api/me가 401이다', async () => {
-    // 쿠키 항아리를 비우는 공개 API가 없다(명세 3.8). 헤더로 보낸 쿠키가
+    // MSW에 쿠키 항아리를 비우는 공개 API가 없어 헤더 쿠키가 결정적인 수단이다. 헤더로 보낸 쿠키가
     // 항아리보다 우선하므로(getRequestCookies.mjs의 병합 순서), 빈 값을
     // 명시해 다른 테스트의 로그인에 영향받지 않게 한다.
     const { response } = await provisionalApi.GET('/api/me', {
@@ -138,9 +138,10 @@ describe('MSW 인증 핸들러', () => {
 
     expect(response.status).toBe(401)
 
-    const me = await provisionalApi.GET('/api/me', {
-      headers: { cookie: `${SESSION_COOKIE}=` },
-    })
+    // 일부러 헤더 쿠키를 넘기지 않는다. 헤더는 항아리를 가리므로, 넘기면 실패한
+    // 로그인이 쿠키를 심었는지 확인할 수 없다. 이 파일에서 이 테스트까지 성공한 로그인이
+    // 없고 이후 테스트는 로그아웃으로 끝나 항아리는 비어 있다.
+    const me = await provisionalApi.GET('/api/me')
     expect(me.response.status).toBe(401)
   })
 
@@ -167,6 +168,10 @@ describe('MSW 인증 핸들러', () => {
     })
 
     expect(login.data?.role).toBe('ADMIN')
+
+    // 쿠키가 계정별로 심기고 읽히는지 본다. 로그인 응답의 role은 이메일 조회에서 온 값이다.
+    const me = await provisionalApi.GET('/api/me')
+    expect(me.data).toEqual({ id: 2, nickname: '관리자', role: 'ADMIN' })
 
     await provisionalApi.POST('/api/auth/logout')
   })

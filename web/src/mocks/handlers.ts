@@ -9,6 +9,11 @@ import {
 import { conceptTags, problems } from './fixtures/problems'
 import { mockAccounts, SESSION_COOKIE } from './fixtures/users'
 
+/** 비로그인·인증 실패 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
+function unauthorized() {
+  return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
+}
+
 /**
  * MSW 가짜 응답. 명세(#2)가 확정되면 응답 형태를 실제 명세에 맞춘다.
  *
@@ -18,11 +23,6 @@ import { mockAccounts, SESSION_COOKIE } from './fixtures/users'
  * 경로를 '*\/api/...'로 쓰는 이유: baseUrl이 window.location.origin이고 그 값이
  * 개발 서버와 jsdom에서 다르다. 와일드카드로 두면 양쪽에서 같은 핸들러가 걸린다.
  */
-/** 비로그인·권한 없음 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
-function unauthorized() {
-  return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
-}
-
 export const handlers: RequestHandler[] = [
   http.get('*/api/concept-tags', () => HttpResponse.json(conceptTags)),
 
