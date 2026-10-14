@@ -11,6 +11,7 @@ import java.util.HexFormat;
 import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -76,6 +77,13 @@ public class AuthTokenService {
         NewRefreshToken next = saveRefreshToken(user.getId(), current.getFamilyId());
         current.replaceWith(next.token(), now);
         return new IssuedTokens(accessToken(user), next.raw());
+    }
+
+    // 만료된 토큰은 어차피 거절되므로 매일 새벽에 행만 지운다.
+    @Scheduled(cron = "0 0 4 * * *")
+    @Transactional
+    public void deleteExpiredRefreshTokens() {
+        refreshTokens.deleteExpired(Instant.now());
     }
 
     private String accessToken(User user) {
