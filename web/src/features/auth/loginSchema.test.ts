@@ -12,9 +12,30 @@ describe('loginSchema', () => {
     expect(result.success).toBe(true)
   })
 
-  it('공백만 넣으면 거부한다', () => {
-    // .min(1)만 걸면 '   '가 통과해 공백 자격 증명이 서버로 나간다.
-    expect(loginSchema.safeParse({ email: '   ', password: '   ' }).success).toBe(false)
+  it('공백만 넣으면 두 필드 모두 해당 문구로 거부한다', () => {
+    // 이메일 문구가 형식 문구로 바뀌면(trim이 빠지면) 이 단언이 깨진다.
+    const result = loginSchema.safeParse({ email: '   ', password: '   ' })
+
+    expect(result.success).toBe(false)
+    const messages = result.error?.issues.map((i) => [String(i.path[0]), i.message])
+    expect(messages).toContainEqual(['email', '이메일을 입력해 주세요'])
+    expect(messages).toContainEqual(['password', '비밀번호를 입력해 주세요'])
+  })
+
+  it('비밀번호가 공백만이면 이메일이 맞아도 거부한다', () => {
+    // 이 단언이 없으면 공백 비밀번호가 서버까지 간다.
+    const result = loginSchema.safeParse({ email: 'a@b.co', password: '   ' })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.path[0]).toBe('password')
+    expect(result.error?.issues[0]?.message).toBe('비밀번호를 입력해 주세요')
+  })
+
+  it('비밀번호의 앞뒤 공백은 값의 일부로 그대로 둔다', () => {
+    // 비밀번호를 trim하면 앞뒤 공백이 실제 값인 계정이 로그인할 수 없게 된다. 다시 떼지 말 것.
+    const result = loginSchema.safeParse({ email: 'a@b.co', password: ' s3cret! ' })
+
+    expect(result.success && result.data.password).toBe(' s3cret! ')
   })
 
   it('앞뒤 공백을 떼고 돌려준다', () => {

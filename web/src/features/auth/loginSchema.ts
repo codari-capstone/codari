@@ -10,12 +10,14 @@ import { toUserMessage } from '@/constants/errors'
  * 그 자체가 비밀번호 길이를 알려 주는 단서가 된다 — COM-07이 실패 이유를 구분해
  * 주지 않기로 한 것과 어긋난다. 그 규칙은 가입·재설정 폼에서 쓴다.
  *
- * trim을 먼저 하는 이유: .min(1)만 걸면 공백 한 칸이 통과해 공백 자격 증명이
- * 서버로 나가 실패로 집계될 수 있다.
+ * 이메일은 앞뒤 공백을 떼고 검사한다. 복사·붙여넣기에서 딸려 온 공백이 흔하다.
+ * 비밀번호는 떼지 않는다. 비밀번호는 불투명한 비밀값이라, 앞뒤 공백이 실제 값의 일부인
+ * 계정이 있다. 값을 조용히 바꾸면 그 사용자는 영원히 로그인할 수 없고, COM-07의
+ * 단일 문구 때문에 이유를 알 방법도 없다. 그래서 공백만 있는지만 검사하고 값은 그대로 둔다.
  */
 export const loginSchema = z.object({
   email: z.string().trim().min(1, '이메일을 입력해 주세요').pipe(z.email('이메일 형식이 아닙니다')),
-  password: z.string().trim().min(1, '비밀번호를 입력해 주세요'),
+  password: z.string().refine((v) => v.trim().length > 0, '비밀번호를 입력해 주세요'),
 })
 
 export type LoginForm = z.infer<typeof loginSchema>
