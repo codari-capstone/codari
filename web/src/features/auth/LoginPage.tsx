@@ -7,22 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { loginRequest, ME_QUERY_KEY } from './authQuery'
 import { loginErrorMessage, loginSchema, type LoginForm } from './loginSchema'
+import { safeRedirect } from './safeRedirect'
 import { useAuth } from './useAuth'
-
-/**
- * 로그인 후 돌아갈 주소. 사이트 안 경로만 허용한다.
- *
- * state.from을 그대로 navigate에 넘기면 '//evil.com'이나 'https://evil.com'이
- * 외부로 보내는 통로(open redirect)가 된다. state에 무엇이 들어 있을지 이 파일은
- * 보장할 수 없으므로 값을 믿지 않고 모양을 검사한다.
- */
-// eslint-disable-next-line react-refresh/only-export-components -- 테스트가 직접 부르는 순수 함수라 화면과 한 파일에 둔다
-export function safeRedirect(from: unknown): string {
-  if (typeof from !== 'string') return '/problems'
-  if (!from.startsWith('/')) return '/problems'
-  if (from.startsWith('//')) return '/problems'
-  return from
-}
 
 /** 이메일 로그인 (COM-07). */
 export function Component() {

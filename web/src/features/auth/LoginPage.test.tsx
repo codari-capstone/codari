@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { server } from '@/mocks/server'
 import { logoutRequest } from './authQuery'
-import { Component as LoginPage, safeRedirect } from './LoginPage'
+import { Component as LoginPage } from './LoginPage'
+import { safeRedirect } from './safeRedirect'
 
 // MSW의 쿠키 저장소는 테스트 사이에 비워지지 않는다. 앞 테스트의 로그인이 남으면
 // 다음 테스트가 이미 로그인한 상태로 시작해 폼 대신 이동 화면을 만난다.
