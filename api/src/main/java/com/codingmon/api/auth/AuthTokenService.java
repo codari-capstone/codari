@@ -28,6 +28,8 @@ public class AuthTokenService {
 
     static final Duration ACCESS_TOKEN_TTL = Duration.ofMinutes(30);
     static final Duration REFRESH_TOKEN_TTL = Duration.ofDays(7);
+    // 여러 탭이 같은 refresh token으로 동시에 갱신해도 탈취로 보지 않는 시간
+    static final Duration REUSE_GRACE = Duration.ofSeconds(10);
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -54,18 +56,23 @@ public class AuthTokenService {
     @Transactional(noRollbackFor = ResponseStatusException.class)
     public IssuedTokens refresh(String rawRefreshToken) {
         Instant now = Instant.now();
-        RefreshToken current = refreshTokens.findByTokenHash(hash(rawRefreshToken)).orElseThrow(AuthTokenService::unauthorized);
+        String tokenHash = hash(rawRefreshToken);
+        Long userId = refreshTokens.findUserIdByTokenHash(tokenHash).orElseThrow(AuthTokenService::unauthorized);
+        // 같은 사용자의 갱신을 한 번에 하나씩 처리한다. 묶음 폐기 중에 새 토큰이 생겨 폐기에서 빠지지 않게 한다.
+        // 탈퇴하면 토큰 행도 함께 지워지므로 사용자는 항상 있다.
+        User user = users.findForUpdateById(userId).orElseThrow(AuthTokenService::unauthorized);
+        RefreshToken current = refreshTokens.findByTokenHash(tokenHash).orElseThrow(AuthTokenService::unauthorized);
         if (current.isReplaced()) {
-            // 이미 교체된 토큰이 다시 왔다면 탈취로 보고 같은 묶음을 모두 폐기한다.
-            // ponytail: 두 탭이 같은 토큰으로 동시에 갱신해도 여기 걸려 로그아웃된다. 문제가 되면 짧은 유예 시간을 둔다.
-            refreshTokens.revokeFamily(current.getFamilyId(), now);
+            // 방금 교체된 토큰이면 다른 탭의 동시 요청으로 보고 401만 준다. 프런트는 새 쿠키로 한 번 다시 시도한다.
+            // 그보다 오래된 토큰이 다시 왔다면 탈취로 보고 같은 묶음을 모두 폐기한다.
+            if (current.isReplacedBefore(now.minus(REUSE_GRACE))) {
+                refreshTokens.revokeFamily(current.getFamilyId(), now);
+            }
             throw unauthorized();
         }
         if (current.isRevoked() || current.isExpired(now)) {
             throw unauthorized();
         }
-        // 탈퇴하면 토큰 행도 함께 지워지므로 사용자는 항상 있다.
-        User user = users.findById(current.getUserId()).orElseThrow(AuthTokenService::unauthorized);
         NewRefreshToken next = saveRefreshToken(user.getId(), current.getFamilyId());
         current.replaceWith(next.token(), now);
         return new IssuedTokens(accessToken(user), next.raw());

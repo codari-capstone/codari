@@ -48,10 +48,6 @@ public class RefreshToken {
         replacedByTokenId = next.id;
     }
 
-    Long getUserId() {
-        return userId;
-    }
-
     UUID getFamilyId() {
         return familyId;
     }
@@ -66,5 +62,10 @@ public class RefreshToken {
 
     boolean isReplaced() {
         return replacedByTokenId != null;
+    }
+
+    // 교체할 때 revokedAt에 교체 시각을 남긴다.
+    boolean isReplacedBefore(Instant time) {
+        return isReplaced() && revokedAt.isBefore(time);
     }
 }
