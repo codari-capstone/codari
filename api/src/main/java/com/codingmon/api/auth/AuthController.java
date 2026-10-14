@@ -52,7 +52,7 @@ class AuthController {
                 .body(new AccessTokenResponse(issued.accessToken()));
     }
 
-    private static ResponseCookie refreshCookie(String value, Duration maxAge) {
+    static ResponseCookie refreshCookie(String value, Duration maxAge) {
         return ResponseCookie.from(REFRESH_COOKIE, value)
                 .httpOnly(true)
                 .secure(true)

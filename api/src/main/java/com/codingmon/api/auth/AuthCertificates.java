@@ -21,7 +21,7 @@ class AuthCertificates {
     static final String PURPOSE_CLAIM = "purpose";
 
     enum Purpose {
-        SIGNUP, PASSWORD_RESET
+        SIGNUP, PASSWORD_RESET, GITHUB_SIGNUP
     }
 
     private final JwtEncoder encoder;
