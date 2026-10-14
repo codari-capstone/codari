@@ -61,6 +61,8 @@ describe('RequireAuth', () => {
 
     expect(screen.getByRole('heading', { name: '로그인 화면' })).toBeInTheDocument()
     expect(router.state.location.state).toMatchObject({ from: '/submissions' })
+    // push면 뒤로 가기가 보호된 주소로 돌아가 다시 /login으로 튕기는 함정이 된다.
+    expect(router.state.historyAction).toBe('REPLACE')
   })
 
   it('쿼리 문자열까지 돌아갈 주소에 담는다', () => {
@@ -81,9 +83,10 @@ describe('RequireAuth', () => {
 describe('RequireAdmin', () => {
   it('USER는 권한 없음 화면으로 보낸다', () => {
     mockAuth({ user: { id: 1, nickname: '코다리', role: 'USER' }, isAuthenticated: true })
-    renderAt('/admin')
+    const router = renderAt('/admin')
 
     expect(screen.getByRole('heading', { name: '권한 없음 화면' })).toBeInTheDocument()
+    expect(router.state.historyAction).toBe('REPLACE')
   })
 
   it('ADMIN은 통과시킨다', () => {

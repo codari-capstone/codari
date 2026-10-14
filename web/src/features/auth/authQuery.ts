@@ -7,11 +7,9 @@ export const ME_QUERY_KEY = ['me'] as const
 /**
  * 오류를 ErrorState·toUserMessage가 읽을 수 있는 모양으로 올린다.
  *
- * features/problems/problemsQuery.ts의 unwrap과 비슷한 역할이지만 모양은 다르다.
- * unwrap은 result.error를 그대로 던져서 본문에 status가 없으면 같은 누락이 생긴다.
- * 그쪽은 이번 작업 범위 밖이라 그대로 두었다.
- * 공통 모듈로 빼지 않는 이유: 그쪽은 성공 본문이 반드시 있고, 여기는 204처럼
- * 본문이 없는 성공을 다뤄야 해서 분기가 다르다. 억지로 합치면 둘 다 복잡해진다.
+ * features/problems/problemsQuery.ts의 unwrap이 오류를 올리는 방식과 같다.
+ * 공통 모듈로 아직 빼지 않는다. 잠정 계약(provisionalApi)이 실제 API 명세가 나오면
+ * 교체될 예정이라, 그때 두 곳을 함께 손보는 편이 지금 모듈을 만들어 맞추는 것보다 싸다.
  *
  * 오류 본문의 status는 선택 항목이라 빠져 올 수 있는데, 화면은 이 값으로 문구를 고른다.
  * 그래서 본문에 있든 없든 HTTP 상태를 덮어 싣는다. 둘이 다르면 실제 응답인 HTTP 상태가 맞다.
@@ -29,8 +27,9 @@ function fail(result: { error?: unknown; response: Response }): never {
  * 401을 던지면 이걸 읽는 화면마다 "비로그인인가 서버가 죽었나"를 가려야 한다.
  * useAuth의 반환 타입에 error가 없는 것도 같은 판단이다.
  *
- * retry를 끄는 이유: 기본값은 3회라 비로그인 첫 화면이 /api/me를 네 번 때린다.
- * 401은 다시 보내도 401이다.
+ * retry를 끄는 이유: 401은 위에서 null로 돌려주므로 재시도 대상이 아니다. retry가 영향을
+ * 주는 것은 5xx와 네트워크 오류다. 기본값(3회)이면 서버가 죽은 동안 이 요청이 네 번 나가고,
+ * 그동안 useAuth가 isLoading이라 RequireAuth가 스켈레톤에 머문다.
  */
 export function meQuery() {
   return queryOptions({

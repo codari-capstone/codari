@@ -67,6 +67,41 @@ describe('problemListQuery', () => {
   })
 })
 
+describe('problemListQuery 본문에 status가 없는 오류', () => {
+  // 오류 본문의 모든 member는 선택이다. 판단 근거는 본문이 아니라 HTTP 상태여야 한다.
+  it('HTTP 상태를 덮어 싣는다', async () => {
+    server.use(
+      http.get('*/api/problems', () =>
+        HttpResponse.json({ type: '/auth/unauthorized', title: 'Unauthorized' }, { status: 401 }),
+      ),
+    )
+
+    const error = await client()
+      .fetchQuery(problemListQuery(DEFAULT_PARAMS))
+      .then(
+        () => {
+          throw new Error('거절되어야 한다')
+        },
+        (reason: unknown) => reason,
+      )
+
+    expect(error).toMatchObject({ type: '/auth/unauthorized', status: 401 })
+    expect(toUserMessage(error).title).toBe('로그인이 필요합니다')
+  })
+
+  it('본문의 status와 HTTP 상태가 다르면 HTTP 상태를 따른다', async () => {
+    server.use(
+      http.get('*/api/problems', () =>
+        HttpResponse.json({ title: 'x', status: 500 }, { status: 401 }),
+      ),
+    )
+
+    await expect(client().fetchQuery(problemListQuery(DEFAULT_PARAMS))).rejects.toMatchObject({
+      status: 401,
+    })
+  })
+})
+
 describe('problemListQuery 비JSON 오류 본문', () => {
   // openapi-fetch는 JSON이 아닌 본문을 문자열 그대로 error에 둔다. 그걸 던지면 status를
   // 잃어 게이트웨이가 돌려준 HTML 401도 일반 오류 문구가 된다.

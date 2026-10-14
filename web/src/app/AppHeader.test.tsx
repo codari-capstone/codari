@@ -71,7 +71,7 @@ describe('AppHeader', () => {
     const { container } = renderHeader()
 
     // jsdom에는 레이아웃이 없어 크기를 잴 수 없다. 자리 잡는 요소의 클래스로 확인한다.
-    expect(container.querySelector('[aria-hidden="true"].min-h-11.w-20')).toBeInTheDocument()
+    expect(container.querySelector('[aria-hidden="true"].min-h-11.w-14')).toBeInTheDocument()
   })
 
   it('USER에게는 관리자 링크를 보여 주지 않는다', () => {

@@ -70,10 +70,12 @@ export function AppHeader() {
         {isLoading ? (
           /*
             세션을 모르는 동안 자리만 잡는다. 아무것도 두지 않으면 화면을 불러올 때마다
-            로그인 버튼 -> 사용자 메뉴로 바뀌며 헤더 폭이 흔들린다. 높이는 로그인
-            버튼의 터치 영역(min-h-11)과 맞춘다.
+            로그인 버튼 -> 사용자 메뉴로 바뀌며 헤더 폭이 크게 흔들린다. 높이는 로그인
+            버튼의 터치 영역(min-h-11)과 맞춘다. 폭(w-14)은 실제 브라우저에서 잰 로그인
+            버튼 폭(55px)에 가깝게 잡은 값이다. 버튼이 글자 길이에 맞춰 크기가 정해지므로
+            정확히 맞출 수는 없고, 교체될 때 1px 안팎의 차이는 남는다.
           */
-          <div aria-hidden="true" className="min-h-11 w-20 shrink-0" />
+          <div aria-hidden="true" className="min-h-11 w-14 shrink-0" />
         ) : isAuthenticated && user ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

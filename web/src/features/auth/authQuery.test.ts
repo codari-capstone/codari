@@ -48,8 +48,18 @@ describe('meQuery', () => {
     await expect(runMeQuery()).rejects.toMatchObject({ status: 503 })
   })
 
-  it('retry를 끈다', () => {
-    expect(meQuery().retry).toBe(false)
+  it('5xx를 다시 보내지 않는다', async () => {
+    // 기본 retry였다면 지연을 두고 네 번 나간다. 한 번이어야 한다.
+    let hits = 0
+    server.use(
+      http.get('*/api/me', () => {
+        hits += 1
+        return HttpResponse.json({ status: 500, title: 'Server Error' }, { status: 500 })
+      }),
+    )
+
+    await expect(runMeQuery()).rejects.toMatchObject({ status: 500 })
+    expect(hits).toBe(1)
   })
 })
 

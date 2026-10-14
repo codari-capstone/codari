@@ -54,7 +54,7 @@ describe('safeRedirect', () => {
   })
 
   it('프로토콜 상대 주소를 거부한다', () => {
-    // '//evil.com'을 navigate에 넘기면 외부로 나간다.
+    // '//evil.com'은 사이트 밖을 가리킨다.
     expect(safeRedirect('//evil.com')).toBe('/problems')
   })
 
@@ -65,6 +65,13 @@ describe('safeRedirect', () => {
 
   it('절대 URL을 거부한다', () => {
     expect(safeRedirect('https://evil.com/x')).toBe('/problems')
+  })
+
+  it('탭·개행이 섞여 URL 파서가 지우면 외부가 되는 주소를 거부한다', () => {
+    // 접두사 검사는 '/\t/'를 통과시키지만 파서는 탭을 지워 'http://evil.com/'으로 읽는다.
+    expect(safeRedirect('/\t/evil.com')).toBe('/problems')
+    expect(safeRedirect('/\n/evil.com')).toBe('/problems')
+    expect(safeRedirect('/\r/evil.com')).toBe('/problems')
   })
 
   it('경로가 아니거나 없으면 문제 목록으로 보낸다', () => {
@@ -82,6 +89,35 @@ describe('로그인 화면', () => {
     await fillAndSubmit(user)
 
     expect(await screen.findByRole('heading', { name: '제출 기록 도착' })).toBeInTheDocument()
+  })
+
+  it('성공하면 로그인 화면을 기록에서 교체한다', async () => {
+    // push면 뒤로 가기가 /login으로 돌아오고, 로그인한 사람에게 폼이 다시 보인다.
+    const user = userEvent.setup()
+    const { router } = renderLogin({ from: '/submissions' })
+
+    await fillAndSubmit(user)
+
+    await screen.findByRole('heading', { name: '제출 기록 도착' })
+    expect(router.state.historyAction).toBe('REPLACE')
+  })
+
+  it('from이 //로 시작하면 무시하고 문제 목록으로 간다', async () => {
+    const user = userEvent.setup()
+    renderLogin({ from: '//evil.com' })
+
+    await fillAndSubmit(user)
+
+    expect(await screen.findByRole('heading', { name: '문제 목록 도착' })).toBeInTheDocument()
+  })
+
+  it('from이 역슬래시로 시작해도 무시하고 문제 목록으로 간다', async () => {
+    const user = userEvent.setup()
+    renderLogin({ from: String.raw`/\evil.com` })
+
+    await fillAndSubmit(user)
+
+    expect(await screen.findByRole('heading', { name: '문제 목록 도착' })).toBeInTheDocument()
   })
 
   it('from이 없으면 문제 목록으로 간다', async () => {

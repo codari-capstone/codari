@@ -54,7 +54,7 @@ describe('loginSchema', () => {
   })
 
   it('비밀번호 길이 규칙을 걸지 않는다', () => {
-    // 로그인은 형식만 본다(loginSchema.ts 주석 참고). 규칙이 바뀐 뒤 가입한 계정이 자기 비밀번호를 못 넣게 되고,
+    // 로그인은 형식만 본다(loginSchema.ts 주석 참고). 규칙을 강화하기 전에 만든 계정이 새 규칙에 걸려 자기 비밀번호를 못 넣게 되고,
     // 길이 거부가 그 계정의 비밀번호 길이를 알려 주는 단서가 된다.
     expect(loginSchema.safeParse({ email: 'a@b.co', password: 'a' }).success).toBe(true)
     expect(loginSchema.safeParse({ email: 'a@b.co', password: 'a'.repeat(99) }).success).toBe(true)

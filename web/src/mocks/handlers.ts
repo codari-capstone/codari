@@ -65,7 +65,7 @@ export const handlers: RequestHandler[] = [
     return account ? HttpResponse.json(account.user) : unauthorized()
   }),
 
-  // 목이 로그인 실패 횟수를 세지 않는다. 5회 제한은 서버가 센다(PR #87).
+  // 목이 로그인 실패 횟수를 세지 않는다. 시도 제한(COM-07)은 서버가 센다(PR #87).
   // 429가 필요한 테스트는 server.use로 이 핸들러를 덮어쓴다.
   http.post('*/api/auth/login', async ({ request }) => {
     const { email, password } = (await request.json()) as LoginRequest
