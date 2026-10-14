@@ -41,6 +41,9 @@ describe('라우터 보호 구조', () => {
   it('admin/*는 RequireAuth와 RequireAdmin 둘 다 아래에 있다', () => {
     expect(guardsOf('admin/*')).toContain('RequireAuth')
     expect(guardsOf('admin/*')).toContain('RequireAdmin')
+    // RequireAdmin은 역할만 본다. 바깥에 두면 비로그인이 로그인 화면 대신 403을 본다.
+    const guards = guardsOf('admin/*')
+    expect(guards.indexOf('RequireAuth')).toBeLessThan(guards.indexOf('RequireAdmin'))
   })
 
   it.each(['problems', 'problems/:id', 'login', 'forbidden', '*'])(
