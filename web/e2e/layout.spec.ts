@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test'
 
 test('상단 내비게이션이 보이고 공개 메뉴로 이동한다', async ({ page }) => {
-  await page.goto('/problems')
-  await expect(page.getByRole('heading', { name: '문제 목록' })).toBeVisible()
+  // 문제 목록이 아닌 곳에서 출발해야 클릭이 아무 일도 안 해도 통과하는 일이 없다.
+  await page.goto('/login')
+  await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
   await expect(page.getByRole('link', { name: 'Codari' })).toBeVisible()
 
   await page
