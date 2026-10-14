@@ -10,9 +10,14 @@ export const ME_QUERY_KEY = ['me'] as const
  * features/problems/problemsQuery.ts의 unwrap과 같은 이유로 같은 모양이다.
  * 공통 모듈로 빼지 않는 이유: 그쪽은 성공 본문이 반드시 있고, 여기는 204처럼
  * 본문이 없는 성공을 다뤄야 해서 분기가 다르다. 억지로 합치면 둘 다 복잡해진다.
+ *
+ * 오류 본문의 status는 선택 항목이라 빠져 올 수 있는데, 화면은 이 값으로 문구를 고른다.
+ * 그래서 본문에 있든 없든 HTTP 상태를 덮어 싣는다. 둘이 다르면 실제 응답인 HTTP 상태가 맞다.
  */
 function fail(result: { error?: unknown; response: Response }): never {
-  if (typeof result.error === 'object' && result.error !== null) throw result.error
+  if (typeof result.error === 'object' && result.error !== null) {
+    throw { ...result.error, status: result.response.status }
+  }
   throw { status: result.response.status }
 }
 
