@@ -5,7 +5,6 @@ import { createMemoryRouter, Outlet, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppShell } from './AppShell'
-import { Component as LoginPage } from './LoginPage'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
 import { ThemeProvider } from './ThemeProvider'
 
@@ -153,22 +152,5 @@ describe('RouteErrorBoundary', () => {
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.getAllByRole('banner')).toHaveLength(1)
-  })
-})
-
-describe('LoginPage', () => {
-  // 헤더의 로그인 버튼이 404로 떨어지면 깨진 링크다
-  it('준비 중임을 알리고 돌아갈 길을 준다', () => {
-    const router = createMemoryRouter([{ path: '/', Component: LoginPage }])
-    render(<RouterProvider router={router} />)
-
-    // 이 화면의 제목은 EmptyState가 그리는 것뿐이다. h2로 두면 h1 없는 화면이 된다.
-    expect(
-      screen.getByRole('heading', { level: 1, name: '로그인 준비 중입니다' }),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '문제 보러 가기' })).toHaveAttribute(
-      'href',
-      '/problems',
-    )
   })
 })

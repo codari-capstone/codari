@@ -1,6 +1,8 @@
 import { createBrowserRouter, redirect } from 'react-router'
 
 import { ProblemsLayout } from './ProblemsLayout'
+import { RequireAdmin } from './RequireAdmin'
+import { RequireAuth } from './RequireAuth'
 import { RootLayout } from './RootLayout'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
 
@@ -18,13 +20,29 @@ export const router = createBrowserRouter([
         children: [
           { index: true, loader: () => redirect('/problems') },
           { path: 'problems/:id', lazy: () => import('@/features/solve/SolvePage') },
-          { path: 'submissions', lazy: () => import('@/features/history/SubmissionHistoryPage') },
-          { path: 'submissions/:id', lazy: () => import('@/features/result/SubmissionResultPage') },
-          { path: 'me/report', lazy: () => import('@/features/report/ReportPage') },
-          // 헤더의 로그인 버튼이 가는 곳. 인증 방식(#18)이 정해지면 내용을 채운다.
-          { path: 'login', lazy: () => import('@/app/LoginPage') },
+          { path: 'login', lazy: () => import('@/features/auth/LoginPage') },
           { path: 'forbidden', lazy: () => import('@/app/ForbiddenPage') },
-          { path: 'admin/*', lazy: () => import('@/features/admin/AdminPage') },
+          {
+            // 로그인이 필요한 화면들 (COM-05). 가드는 막거나 통과시킬 뿐 AppShell을 만들지 않으므로,
+            // RootLayout 밖의 형제로 두면 헤더가 없어진다. 그래서 RootLayout의 자식으로 둔다.
+            Component: RequireAuth,
+            children: [
+              {
+                path: 'submissions',
+                lazy: () => import('@/features/history/SubmissionHistoryPage'),
+              },
+              {
+                path: 'submissions/:id',
+                lazy: () => import('@/features/result/SubmissionResultPage'),
+              },
+              { path: 'me/report', lazy: () => import('@/features/report/ReportPage') },
+              {
+                // RequireAdmin은 역할만 본다. 비로그인이 403을 보지 않도록 RequireAuth 안에 둔다.
+                Component: RequireAdmin,
+                children: [{ path: 'admin/*', lazy: () => import('@/features/admin/AdminPage') }],
+              },
+            ],
+          },
           { path: '*', lazy: () => import('@/app/NotFoundPage') },
         ],
       },

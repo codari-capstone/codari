@@ -120,16 +120,3 @@ for (const width of [320, 390, 430, 768]) {
     expect(headerOverflows, 'header가 세로로 넘쳤다').toBe(false)
   })
 }
-
-test('헤더의 로그인 버튼이 404로 떨어지지 않는다', async ({ page }) => {
-  await page.goto('/problems')
-
-  // 범위를 헤더로 좁힌다. /problems 본문에도 비로그인 안내의 '로그인' 링크가 있어
-  // 범위 없는 조회는 strict mode 위반이 된다. 이 테스트가 보는 건 헤더 버튼이다.
-  await page.getByRole('banner').getByRole('link', { name: '로그인' }).click()
-
-  await expect(page).toHaveURL(/\/login$/)
-  // 다른 모든 라우트 화면은 h1을 가진다. 이 화면만 예외가 되면 안 된다.
-  await expect(page.getByRole('heading', { level: 1, name: '로그인 준비 중입니다' })).toBeVisible()
-  await expect(page.getByRole('link', { name: '문제 보러 가기' })).toBeVisible()
-})
