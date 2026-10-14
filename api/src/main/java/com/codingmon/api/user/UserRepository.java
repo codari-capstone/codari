@@ -10,6 +10,15 @@ import org.springframework.data.jpa.repository.Query;
 
 public interface UserRepository extends JpaRepository<User, Long> {
 
+    @Query("select u from User u where lower(u.email) = lower(:email)")
+    Optional<User> findByEmail(String email);
+
+    @Query("select count(u) > 0 from User u where lower(u.email) = lower(:email)")
+    boolean existsByEmail(String email);
+
+    @Query("select count(u) > 0 from User u where lower(u.nickname) = lower(:nickname)")
+    boolean existsByNickname(String nickname);
+
     @Query("select u.tokenVersion from User u where u.id = :id")
     Optional<Integer> findTokenVersionById(Long id);
 
