@@ -1,11 +1,42 @@
 import { expect, test } from '@playwright/test'
 
-test('상단 내비게이션이 보이고 메뉴로 이동한다', async ({ page }) => {
+test('상단 내비게이션이 보이고 공개 메뉴로 이동한다', async ({ page }) => {
+  await page.goto('/problems')
+  await expect(page.getByRole('heading', { name: '문제 목록' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Codari' })).toBeVisible()
+
+  await page
+    .getByRole('navigation', { name: '주요 메뉴' })
+    .getByRole('link', { name: '문제' })
+    .click()
+  await expect(page.getByRole('heading', { name: '문제 목록' })).toBeVisible()
+  await expect(page).toHaveURL(/\/problems$/)
+})
+
+// 클릭 직후에는 URL이 먼저 /submissions가 되고, 로그인으로 밀려나는 건 라우트 청크와
+// 세션 조회가 끝난 뒤다. 그 사이 URL만 보면 타이밍에 따라 통과하므로 로그인 폼이 뜬
+// 정착 상태를 기다린다.
+test('비로그인이 보호된 메뉴를 누르면 로그인 화면에 닿는다', async ({ page }) => {
+  await page.goto('/problems')
+  await expect(page.getByRole('heading', { name: '문제 목록' })).toBeVisible()
+
+  await page.getByRole('link', { name: '제출 기록' }).click()
+
+  await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
+  await expect(page).toHaveURL(/\/login$/)
+  await expect(page.getByRole('heading', { name: '제출 기록' })).toHaveCount(0)
+})
+
+// 헤더 링크가 404로 떨어지면 URL만 맞아서는 못 잡는다. 폼이 실제로 그려지는지 본다.
+test('헤더의 로그인 링크가 로그인 폼이 있는 화면으로 간다', async ({ page }) => {
   await page.goto('/problems')
 
-  await expect(page.getByRole('link', { name: 'Codari' })).toBeVisible()
-  await page.getByRole('link', { name: '제출 기록' }).click()
-  await expect(page).toHaveURL(/\/submissions$/)
+  await page.getByRole('banner').getByRole('link', { name: '로그인' }).click()
+
+  await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
+  await expect(page.getByLabel('이메일')).toBeVisible()
+  await expect(page.getByLabel('비밀번호')).toBeVisible()
+  await expect(page).toHaveURL(/\/login$/)
 })
 
 test('테마를 바꾸면 새로고침해도 유지된다', async ({ page }) => {
