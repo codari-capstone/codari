@@ -1,17 +1,34 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import * as useAuthModule from '@/features/auth/useAuth'
 import { AppHeader } from './AppHeader'
 import { ThemeProvider } from './ThemeProvider'
 
+// vite.config.ts에 restoreMocks가 없다. 파일마다 직접 되돌린다.
+afterEach(() => vi.restoreAllMocks())
+
+function mockAuth(state: Partial<ReturnType<typeof useAuthModule.useAuth>>) {
+  vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    ...state,
+  })
+}
+
 function renderHeader() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <ThemeProvider>
-      <MemoryRouter>
-        <AppHeader />
-      </MemoryRouter>
-    </ThemeProvider>,
+    <QueryClientProvider client={client}>
+      <ThemeProvider>
+        <MemoryRouter>
+          <AppHeader />
+        </MemoryRouter>
+      </ThemeProvider>
+    </QueryClientProvider>,
   )
 }
 
@@ -30,8 +47,8 @@ describe('AppHeader', () => {
     expect(screen.getByRole('button', { name: '다크 모드로 전환' })).toBeInTheDocument()
   })
 
-  // useAuth가 지금은 비로그인 고정이므로 로그인 링크가 나와야 한다 (#18에서 바뀐다)
   it('비로그인이면 로그인 링크를 보여 준다', () => {
+    mockAuth({})
     renderHeader()
 
     expect(screen.getByRole('link', { name: '로그인' })).toBeInTheDocument()

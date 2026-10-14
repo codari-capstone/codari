@@ -321,7 +321,7 @@ describe('ProblemListPage', () => {
 
   it('로그인하면 안내가 사라지고 풀이 상태 열이 보인다', async () => {
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
-      user: { id: 'u1', nickname: '찬우', role: 'USER' },
+      user: { id: 1, nickname: '찬우', role: 'USER' },
       isAuthenticated: true,
       isLoading: false,
     })
