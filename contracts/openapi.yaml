@@ -227,6 +227,96 @@ paths:
         '204':
           description: 로그아웃됨
 
+  /api/auth/password-reset/email-code:
+    post:
+      operationId: sendPasswordResetCode
+      summary: 비밀번호 재설정 인증번호 발송 (COM-08)
+      description: |
+        일반 가입 계정에만 보낸다. 이메일 형식이 틀리면 400 `INVALID_EMAIL`. 가입되지 않은 이메일(GitHub 가입 계정 포함)이면 404 `EMAIL_NOT_FOUND`.
+        인증번호 규칙과 발송 제한은 회원가입과 같고, 횟수는 가입과 따로 센다.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmailRequest'
+      responses:
+        '204':
+          description: 발송함
+        '400':
+          $ref: '#/components/responses/Problem'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
+
+  /api/auth/password-reset/email-code/verify:
+    post:
+      operationId: verifyPasswordResetCode
+      summary: 비밀번호 재설정 인증번호 확인 (COM-08)
+      description: |
+        맞으면 10분 동안 쓸 수 있는 `resetToken`을 준다. 오류 `code`는 회원가입 인증번호 확인과 같다.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, code]
+              properties:
+                email:
+                  type: string
+                code:
+                  type: string
+                  pattern: '^[0-9]{6}$'
+      responses:
+        '200':
+          description: 인증 성공
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resetToken]
+                properties:
+                  resetToken:
+                    type: string
+        '400':
+          $ref: '#/components/responses/Problem'
+
+  /api/auth/password-reset:
+    post:
+      operationId: resetPassword
+      summary: 새 비밀번호 설정 (COM-08)
+      description: |
+        비밀번호를 바꾸고 모든 기기에서 로그아웃시킨다(발급된 access·refresh token 모두 무효). 로그인은 다시 해야 한다.
+        오류 `code`: `RESET_EXPIRED`(인증 후 10분 지남 또는 이미 쓴 resetToken), `INVALID_PASSWORD`, `PASSWORD_MISMATCH`.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [resetToken, password, passwordConfirm]
+              properties:
+                resetToken:
+                  type: string
+                password:
+                  type: string
+                  description: 10~20자, 영문 대문자·소문자·숫자·특수문자 각 1개 이상
+                passwordConfirm:
+                  type: string
+      responses:
+        '204':
+          description: 재설정됨
+        '400':
+          $ref: '#/components/responses/Problem'
+
 components:
   securitySchemes:
     bearerAuth:
