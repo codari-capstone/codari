@@ -50,6 +50,7 @@ describe('RequireAuth', () => {
     const router = renderAt('/submissions')
 
     expect(router.state.location.pathname).toBe('/submissions')
+    expect(screen.getByRole('status')).toHaveTextContent('불러오는 중')
     expect(screen.queryByRole('heading', { name: '로그인 화면' })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '제출 기록 본문' })).not.toBeInTheDocument()
   })
@@ -95,8 +96,10 @@ describe('RequireAdmin', () => {
   it('비로그인은 권한 없음이 아니라 로그인 화면으로 간다', () => {
     // 부모인 RequireAuth가 먼저 잡는다. 403을 보여 주면 로그인하면 된다는 걸 알 수 없다.
     mockAuth({})
-    renderAt('/admin')
+    const router = renderAt('/admin')
 
     expect(screen.getByRole('heading', { name: '로그인 화면' })).toBeInTheDocument()
+    // RequireAdmin은 from을 쓰지 않는다. 돌아갈 주소가 있다는 것은 부모가 리다이렉트했다는 뜻이다.
+    expect(router.state.location.state).toMatchObject({ from: '/admin' })
   })
 })
