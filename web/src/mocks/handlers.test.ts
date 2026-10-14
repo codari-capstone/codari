@@ -8,6 +8,7 @@ import {
   type ProblemSummary,
 } from '@/api/provisional'
 import { conceptTags } from './fixtures/problems'
+import { SESSION_COOKIE } from './fixtures/users'
 import { server } from './server'
 
 async function fetchProblems(query: ProblemListQuery): Promise<Page<ProblemSummary>> {
@@ -115,5 +116,58 @@ describe('MSW 문제 목록 핸들러', () => {
     expect(captured).toContain('difficulty=EASY')
     expect(captured).toContain('difficulty=HARD')
     expect(captured).not.toContain('EASY%2CHARD')
+  })
+})
+
+describe('MSW 인증 핸들러', () => {
+  it('세션 쿠키가 비어 있으면 /api/me가 401이다', async () => {
+    // 쿠키 항아리를 비우는 공개 API가 없다(명세 3.8). 헤더로 보낸 쿠키가
+    // 항아리보다 우선하므로(getRequestCookies.mjs의 병합 순서), 빈 값을
+    // 명시해 다른 테스트의 로그인에 영향받지 않게 한다.
+    const { response } = await provisionalApi.GET('/api/me', {
+      headers: { cookie: `${SESSION_COOKIE}=` },
+    })
+
+    expect(response.status).toBe(401)
+  })
+
+  it('자격 증명이 틀리면 401이고 세션을 심지 않는다', async () => {
+    const { response } = await provisionalApi.POST('/api/auth/login', {
+      body: { email: 'user@codari.test', password: '틀린비밀번호1!' },
+    })
+
+    expect(response.status).toBe(401)
+
+    const me = await provisionalApi.GET('/api/me', {
+      headers: { cookie: `${SESSION_COOKIE}=` },
+    })
+    expect(me.response.status).toBe(401)
+  })
+
+  it('로그인하면 쿠키로 세션이 유지되고 로그아웃하면 끊긴다', async () => {
+    const login = await provisionalApi.POST('/api/auth/login', {
+      body: { email: 'user@codari.test', password: 'Codari!test1' },
+    })
+    expect(login.data).toEqual({ id: 1, nickname: '코다리', role: 'USER' })
+
+    // 쿠키를 직접 넘기지 않는다. MSW 항아리가 돌려주는 것을 확인하는 것이 요점이다.
+    const me = await provisionalApi.GET('/api/me')
+    expect(me.data).toEqual({ id: 1, nickname: '코다리', role: 'USER' })
+
+    const logout = await provisionalApi.POST('/api/auth/logout')
+    expect(logout.response.status).toBe(204)
+
+    const after = await provisionalApi.GET('/api/me')
+    expect(after.response.status).toBe(401)
+  })
+
+  it('ADMIN 계정은 role이 ADMIN이다', async () => {
+    const login = await provisionalApi.POST('/api/auth/login', {
+      body: { email: 'admin@codari.test', password: 'Codari!admin1' },
+    })
+
+    expect(login.data?.role).toBe('ADMIN')
+
+    await provisionalApi.POST('/api/auth/logout')
   })
 })

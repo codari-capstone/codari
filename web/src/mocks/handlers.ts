@@ -1,7 +1,13 @@
 import { http, HttpResponse, type RequestHandler } from 'msw'
 
-import { DIFFICULTY_RANK, type Difficulty, type SolveStatus } from '@/api/provisional'
+import {
+  DIFFICULTY_RANK,
+  type Difficulty,
+  type LoginRequest,
+  type SolveStatus,
+} from '@/api/provisional'
 import { conceptTags, problems } from './fixtures/problems'
+import { mockAccounts, SESSION_COOKIE } from './fixtures/users'
 
 /**
  * MSW 가짜 응답. 명세(#2)가 확정되면 응답 형태를 실제 명세에 맞춘다.
@@ -12,6 +18,11 @@ import { conceptTags, problems } from './fixtures/problems'
  * 경로를 '*\/api/...'로 쓰는 이유: baseUrl이 window.location.origin이고 그 값이
  * 개발 서버와 jsdom에서 다르다. 와일드카드로 두면 양쪽에서 같은 핸들러가 걸린다.
  */
+/** 비로그인·권한 없음 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
+function unauthorized() {
+  return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
+}
+
 export const handlers: RequestHandler[] = [
   http.get('*/api/concept-tags', () => HttpResponse.json(conceptTags)),
 
@@ -47,5 +58,31 @@ export const handlers: RequestHandler[] = [
     if (direction === 'desc') sorted.reverse()
 
     return HttpResponse.json({ content: sorted, totalElements: sorted.length })
+  }),
+
+  http.get('*/api/me', ({ cookies }) => {
+    const account = mockAccounts.find((item) => String(item.user.id) === cookies[SESSION_COOKIE])
+    return account ? HttpResponse.json(account.user) : unauthorized()
+  }),
+
+  // 목이 로그인 실패 횟수를 세지 않는다. 5회 제한은 서버가 센다(PR #87).
+  // 429가 필요한 테스트는 server.use로 이 핸들러를 덮어쓴다.
+  http.post('*/api/auth/login', async ({ request }) => {
+    const { email, password } = (await request.json()) as LoginRequest
+    const account = mockAccounts.find((item) => item.email === email && item.password === password)
+    if (!account) return unauthorized()
+
+    // HttpResponse(= msw의 클래스)여야 한다. 평범한 Response로는 쿠키가 저장되지 않는다 —
+    // msw는 생성 시점에 init.headers의 set-cookie를 심볼로 옮겨 두고 그것만 항아리에 넣는다.
+    return HttpResponse.json(account.user, {
+      headers: { 'Set-Cookie': `${SESSION_COOKIE}=${account.user.id}; Path=/; SameSite=Lax` },
+    })
+  }),
+
+  http.post('*/api/auth/logout', () => {
+    return new HttpResponse(null, {
+      status: 204,
+      headers: { 'Set-Cookie': `${SESSION_COOKIE}=; Path=/; Max-Age=0` },
+    })
   }),
 ]

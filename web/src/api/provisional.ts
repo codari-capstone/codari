@@ -12,14 +12,14 @@ import { clientOptions } from './client'
  *
  * 사라지는 것 — ProvisionalPaths, ProblemListQuery, provisionalApi.
  *   gen:api가 만든 schema.d.ts의 paths와 @/api/client의 api가 대신한다.
- *   화면 코드에서 provisionalApi를 쓰는 곳은 features/problems/problemsQuery.ts
- *   하나뿐이다. 테스트도 같은 클라이언트로 요청하므로 함께 바꾼다.
+ *   화면 코드에서 provisionalApi를 쓰는 곳은 features 폴더 아래의 Query.ts 파일들이다.
+ *   테스트도 같은 클라이언트로 요청하므로 함께 바꾼다.
  *
- * 남는 것 — Difficulty, SolveStatus, ConceptTag, ProblemSummary는 생성된
- *   components['schemas']에서 별칭으로 다시 잇는다. DIFFICULTIES·SOLVE_STATUSES·
- *   DIFFICULTY_RANK는 손으로 유지한다 — OpenAPI는 값 목록이나 정렬 순위를 만들어
- *   주지 않는다. 화면·목 데이터·테스트가 이 심볼들을 여러 곳에서 직접 import하므로
- *   파일을 통째로 지우면 전부 깨진다.
+ * 남는 것 — Difficulty, SolveStatus, ConceptTag, ProblemSummary, Role, AuthUser,
+ *   LoginRequest는 생성된 components['schemas']에서 별칭으로 다시 잇는다.
+ *   DIFFICULTIES·SOLVE_STATUSES·DIFFICULTY_RANK는 손으로 유지한다 — OpenAPI는
+ *   값 목록이나 정렬 순위를 만들어 주지 않는다. 화면·목 데이터·테스트가 이
+ *   심볼들을 직접 import하므로 파일을 통째로 지우면 전부 깨진다.
  *
  *   Page<T>도 남지만 애매하게 남는다 — ProvisionalPaths 안에서만 쓰여 그 타입과
  *   함께 죽는 '사라지는 것' 성격도 있고, problemsQuery.ts·client.test.ts·
@@ -77,6 +77,20 @@ export interface Page<T> {
   totalElements: number
 }
 
+export type Role = 'USER' | 'ADMIN'
+
+/** 로그인한 사용자. GET /api/me와 로그인 응답이 같은 모양을 돌려준다. */
+export interface AuthUser {
+  id: number
+  nickname: string
+  role: Role
+}
+
+export interface LoginRequest {
+  email: string
+  password: string
+}
+
 export interface ProvisionalPaths {
   '/api/problems': {
     get: {
@@ -96,6 +110,28 @@ export interface ProvisionalPaths {
   '/api/concept-tags': {
     get: {
       responses: { 200: { content: { 'application/json': ConceptTag[] } } }
+    }
+  }
+  /**
+   * 현재 세션. 비로그인이면 401이다.
+   *
+   * 200 + null도 가능한 계약이지만 401로 걸었다. contracts/auth-proposal.md에
+   * 이 추측을 적어 두었다 — 서버가 다르게 가면 authQuery의 분기 한 줄이 바뀐다.
+   */
+  '/api/me': {
+    get: {
+      responses: { 200: { content: { 'application/json': AuthUser } } }
+    }
+  }
+  '/api/auth/login': {
+    post: {
+      requestBody: { content: { 'application/json': LoginRequest } }
+      responses: { 200: { content: { 'application/json': AuthUser } } }
+    }
+  }
+  '/api/auth/logout': {
+    post: {
+      responses: { 204: { content?: never } }
     }
   }
 }
