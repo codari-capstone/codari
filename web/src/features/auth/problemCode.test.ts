@@ -34,6 +34,32 @@ describe('problemMessage', () => {
     expect(problemMessage(undefined)).not.toBe('')
   })
 
+  it('code 없는 5xx의 detail은 내부 정보일 수 있어 보여 주지 않는다', () => {
+    const message = problemMessage({
+      status: 500,
+      detail: 'java.lang.NullPointerException: null at com.codingmon…',
+    })
+    expect(message).not.toContain('NullPointerException')
+  })
+
+  it('code가 있는 503은 detail을 그대로 보여 준다 (MAIL_FAILED)', () => {
+    // 상태가 아니라 code로 가른다. MAIL_FAILED는 503이지만 사용자용 문구를 담는다.
+    const detail = '메일을 보내지 못했어요. 1분 뒤 다시 시도해 주세요'
+    expect(problemMessage({ status: 503, code: 'MAIL_FAILED', detail })).toBe(detail)
+  })
+
+  it('detail이 공백뿐이면 일반 문구로 떨어진다', () => {
+    expect(problemMessage({ status: 400, detail: '   ' })).not.toBe('   ')
+    expect(problemMessage({ status: 400, detail: '   ' }).trim()).not.toBe('')
+  })
+
+  it('detail이 문자열이 아니면 일반 문구로 떨어진다', () => {
+    const message = problemMessage({ status: 400, code: 'CODE_MISMATCH', detail: 42 })
+    expect(typeof message).toBe('string')
+    expect(message).not.toBe('42')
+    expect(message).not.toBe('')
+  })
+
   it('detail이 빈 문자열이면 일반 문구로 떨어진다', () => {
     // 빈 문구를 그대로 그리면 사용자는 아무 설명 없이 실패만 본다.
     expect(problemMessage({ status: 400, detail: '' })).not.toBe('')

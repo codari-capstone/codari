@@ -16,11 +16,12 @@ export interface UserMessage {
 }
 
 /**
- * type별 문구. 서버가 detail을 주지 않거나 사용자에게 보여 줄 문장이 아닐 때 쓴다.
+ * type별 문구. 서버의 detail은 영어 기술 문장일 수 있어 toUserMessage는 detail을 쓰지 않고,
+ * 여기 적은 한국어 문구만 쓴다. 원문은 DEV에서만 화면에 접어 두고 보여 준다(ErrorState).
  *
  * 인증 API(contracts/openapi.yaml)는 다르다 — 거기 detail은 한국어 사용자 문구이고,
  * 계약이 "화면에 그대로 보여 줄 문구"로 정했다. 그 화면들은 problemCode.ts의
- * problemMessage를 쓴다. 이 표는 detail이 없을 때의 받침이다.
+ * problemMessage를 쓰도록 한다. 이 표는 code 없는 응답과 그 밖의 엔드포인트의 받침이다.
  */
 const BY_TYPE: Record<string, UserMessage> = {
   '/problems/judge-unavailable': {
