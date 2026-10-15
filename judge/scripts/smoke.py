@@ -10,6 +10,7 @@ Python·C++17 hello world, 호출자가 바꾸면 안 되는 값의 거절(422/4
 
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from judge0_client import CPP_COMPILER_OPTIONS, CPP_ID, PYTHON_ID, Judge0Client  # noqa: E402
@@ -89,20 +90,28 @@ def main():
     for key in REQUIRED_CONFIG_KEYS:
         c.check(key in info and key in conf, f"{key} 대조됨")
 
-    print("[언어·워커]")
+    print("[언어]")
     _, langs = client.request("GET", "/languages")
     names = {lang["id"]: lang["name"] for lang in (langs or [])}
     for lang_id, name in LANGUAGES.items():
         c.check(names.get(lang_id) == name, f"언어 {lang_id} = {name}", f"실제 {names.get(lang_id)!r}")
-    _, workers = client.request("GET", "/workers")
-    available = sum(q.get("available", 0) for q in (workers or []))
-    c.check(available == 2, "실행 슬롯(available) 2", f"실제 {workers!r}")
 
     print("[실행]")
     py = client.run(PY_HELLO, PYTHON_ID)
     c.check(py["status"]["id"] == 3 and py["stdout"] == "hello 3.8.1\n", "Python hello → status 3", repr(py))
     cpp = client.run(CPP_HELLO, CPP_ID, compiler_options=CPP_COMPILER_OPTIONS)
     c.check(cpp["status"]["id"] == 3 and cpp["stdout"] == "hello 201703 3\n", "C++17 hello → status 3", repr(cpp))
+
+    print("[워커]")
+    # /workers는 큐가 생긴 뒤(첫 실행 이후)에만 항목을 돌려주므로 실행 확인 뒤에 본다.
+    # 재시작 직후에는 워커가 아직 등록되지 않아 available 0이 올 수 있어 최대 60초 기다린다
+    for _ in range(30):
+        _, workers = client.request("GET", "/workers")
+        available = sum(q.get("available", 0) for q in (workers or []))
+        if available >= 2:
+            break
+        time.sleep(2)
+    c.check(available == 2, "실행 슬롯(available) 2", f"실제 {workers!r}")
 
     print("[호출자가 바꿀 수 없는 값]")
     base = client.submission_body(PY_HELLO, PYTHON_ID)
