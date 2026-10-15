@@ -6,7 +6,7 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 - 샌드박스 네트워크를 끈다(`ENABLE_NETWORK=false`, `ALLOW_ENABLE_NETWORK=false`).
 - 시간·메모리 제한, 컴파일 옵션, 네트워크, 추가 파일은 API 서버가 정한다. 브라우저에서 온 값은 Judge0에 넘기지 않는다.
 - 채점 VM에는 서비스 DB 자격 증명과 AI 키를 두지 않는다.
-- Judge0 1.13.1 이미지는 linux/amd64 전용이고 cgroup v1 호스트가 필요하다. Apple Silicon 맥에서는 실행할 수 없다.
+- Judge0 1.13.1 이미지는 linux/amd64 전용이고 cgroup v1 호스트가 필요하다. 맥에서는 Docker Desktop을 cgroup v1 모드로 바꿔 기능 확인용으로만 띄운다("맥(Apple Silicon)에서 실행" 절).
 
 ## 파일
 
@@ -18,11 +18,11 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 | `scripts/preflight.sh` | 기동 전 확인: x86_64, cgroup v1, Docker·Compose, `.env`, conf에 비밀값 키가 없는지 |
 | `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 2개, 금지 요청 거절 |
 | `scripts/judge0_client.py` | 표준 라이브러리 클라이언트. smoke·실측·검증이 함께 쓴다 |
-| `tests/` | 클라이언트 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
+| `tests/` | 클라이언트·smoke 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
 
 ## 설치·기동
 
-채점 VM 준비(amd64 Ubuntu 22.04, cgroup v1, Docker)는 "채점 VM 준비" 절을 따른다. 그다음 VM에서:
+채점 VM(amd64 Ubuntu 22.04, cgroup v1, Docker)을 준비하는 절차는 #63에서 이 문서에 추가한다. 준비된 VM에서:
 
 ```bash
 git clone https://github.com/codari-capstone/codingmon.git ~/codingmon
