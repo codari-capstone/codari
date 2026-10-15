@@ -80,6 +80,8 @@ class PasswordResetService {
             Long userId = users.findByEmail(email).orElseThrow(PasswordResetService::expired).getId();
             refreshTokens.revokeAllOfUser(userId, Instant.now());
         });
+        // 이메일 인증을 마친 본인이므로, 비밀번호를 잊어 걸린 로그인 잠금도 푼다.
+        limiter.resetLoginFailures(email);
     }
 
     private static ErrorResponseException expired() {
