@@ -60,7 +60,7 @@ paths:
         6자리 인증번호를 메일로 보낸다. 5분 뒤 만료되고, 다시 보내면 이전 번호는 무효다.
         이메일 형식이 틀리면 400 `INVALID_EMAIL`. 이미 가입된 이메일이면 보내지 않고 409 `EMAIL_TAKEN`을 준다.
         제한: 같은 이메일 1분 간격·하루 5회(UTC), 같은 IP 하루 20회. 걸리면 429 `TOO_MANY_REQUESTS`.
-        메일 서버 오류로 발송에 실패하면 500. 번호는 만들어진 채라 1분 뒤 다시 받아야 하고, 하루 5회에도 센다.
+        메일 서버 오류로 발송에 실패하면 503 `MAIL_FAILED`. 번호는 만들어진 채라 1분 뒤 다시 받아야 하고, 하루 5회에도 센다.
       tags: [auth]
       security: []
       requestBody:
@@ -77,6 +77,8 @@ paths:
         '409':
           $ref: '#/components/responses/Problem'
         '429':
+          $ref: '#/components/responses/Problem'
+        '503':
           $ref: '#/components/responses/Problem'
 
   /api/auth/signup/email-code/verify:
