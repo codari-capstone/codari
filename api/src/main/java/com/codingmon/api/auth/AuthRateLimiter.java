@@ -40,6 +40,10 @@ class AuthRateLimiter {
     void recordLoginFailure(String email, Instant now) {
         startNewDayIfNeeded();
         loginFailures.compute(key(email), (key, current) -> {
+            // 동시에 들어와 잠금 검사를 먼저 통과한 요청이 걸려 있는 잠금을 지우지 않게 한다.
+            if (current != null && current.lockedUntil() != null && now.isBefore(current.lockedUntil())) {
+                return current;
+            }
             // 잠금이 풀렸으면 처음부터 다시 센다.
             int count = current == null || current.lockedUntil() != null ? 1 : current.count() + 1;
             return count >= LOGIN_MAX_FAILURES ? new LoginFailures(count, now.plus(LOGIN_LOCK)) : new LoginFailures(count, null);
