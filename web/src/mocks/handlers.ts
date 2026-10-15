@@ -6,8 +6,27 @@ import {
   type LoginRequest,
   type SolveStatus,
 } from '@/api/provisional'
+import { EMAIL_PATTERN, isValidNickname, isValidPassword } from '@/features/auth/accountRules'
+import {
+  consumeToken,
+  markCodeSent,
+  verifyMockCode,
+  type VerifyResult,
+} from './fixtures/emailCodes'
 import { conceptTags, problems } from './fixtures/problems'
 import { mockAccounts, SESSION_COOKIE } from './fixtures/users'
+
+/** 인증번호 오류의 문구. 실제 서버(EmailCodeService.java)의 문구와 같게 맞춘다. */
+const CODE_DETAIL: Record<Extract<VerifyResult, { ok: false }>['code'], string> = {
+  CODE_EXPIRED: '인증번호가 만료됐어요. 인증번호를 다시 받아 주세요',
+  CODE_MISMATCH: '인증번호가 맞지 않아요',
+  CODE_ATTEMPTS_EXCEEDED: '입력 횟수를 초과했어요. 인증번호를 다시 받아 주세요',
+}
+
+/** 오류 응답. 실제 서버의 RFC 9457 본문과 같은 자리에 code와 detail을 둔다. */
+function problem(status: number, code: string, detail: string) {
+  return HttpResponse.json({ status, code, detail }, { status })
+}
 
 /** 비로그인·인증 실패 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
 function unauthorized() {
@@ -84,5 +103,123 @@ export const handlers: RequestHandler[] = [
       status: 204,
       headers: { 'Set-Cookie': `${SESSION_COOKIE}=; Path=/; Max-Age=0` },
     })
+  }),
+
+  // --- 회원가입 (COM-06) ---
+
+  http.post('*/api/auth/signup/email-code', async ({ request }) => {
+    const { email } = (await request.json()) as { email: string }
+    if (!EMAIL_PATTERN.test(email)) {
+      return problem(400, 'INVALID_EMAIL', '이메일 형식이 올바르지 않아요')
+    }
+    if (mockAccounts.some((item) => item.email === email)) {
+      return problem(409, 'EMAIL_TAKEN', '이미 가입된 이메일이에요')
+    }
+    markCodeSent('SIGNUP', email)
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  http.post('*/api/auth/signup/email-code/verify', async ({ request }) => {
+    const { email, code } = (await request.json()) as { email: string; code: string }
+    const result = verifyMockCode('SIGNUP', email, code)
+    if (!result.ok) return problem(400, result.code, CODE_DETAIL[result.code])
+    return HttpResponse.json({ verificationToken: result.token })
+  }),
+
+  http.get('*/api/auth/nickname-availability', ({ request }) => {
+    const nickname = new URL(request.url).searchParams.get('nickname') ?? ''
+    if (!isValidNickname(nickname)) {
+      return problem(400, 'INVALID_NICKNAME', '닉네임은 2~16자의 한글·영문·숫자만 쓸 수 있어요')
+    }
+    // 대소문자를 구분하지 않는다 ('Alice'와 'alice'는 같은 닉네임).
+    const taken = mockAccounts.some(
+      (item) => item.user.nickname.toLowerCase() === nickname.toLowerCase(),
+    )
+    return HttpResponse.json({ available: !taken })
+  }),
+
+  http.post('*/api/auth/signup', async ({ request }) => {
+    const body = (await request.json()) as {
+      verificationToken?: unknown
+      nickname?: string
+      password?: string
+      passwordConfirm?: string
+    }
+    if (consumeToken(body.verificationToken) === null) {
+      return problem(
+        400,
+        'VERIFICATION_EXPIRED',
+        '인증 시간이 지났어요. 이메일을 다시 인증해 주세요',
+      )
+    }
+    if (!isValidNickname(body.nickname ?? '')) {
+      return problem(400, 'INVALID_NICKNAME', '닉네임은 2~16자의 한글·영문·숫자만 쓸 수 있어요')
+    }
+    if (
+      mockAccounts.some(
+        (item) => item.user.nickname.toLowerCase() === (body.nickname ?? '').toLowerCase(),
+      )
+    ) {
+      return problem(409, 'NICKNAME_TAKEN', '이미 사용 중인 닉네임이에요')
+    }
+    if (!isValidPassword(body.password ?? '')) {
+      return problem(
+        400,
+        'INVALID_PASSWORD',
+        '비밀번호는 10~20자이고 영문 대문자·소문자·숫자·특수문자를 각각 하나 이상 넣어야 해요',
+      )
+    }
+    if (body.password !== body.passwordConfirm) {
+      return problem(400, 'PASSWORD_MISMATCH', '비밀번호가 일치하지 않아요')
+    }
+    // 가입시키지 않는다 — 계약이 204만 주고 토큰을 주지 않는다. 목도 계정을 늘리지 않는다.
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  // --- 비밀번호 재설정 (COM-08) ---
+
+  http.post('*/api/auth/password-reset/email-code', async ({ request }) => {
+    const { email } = (await request.json()) as { email: string }
+    if (!EMAIL_PATTERN.test(email)) {
+      return problem(400, 'INVALID_EMAIL', '이메일 형식이 올바르지 않아요')
+    }
+    if (!mockAccounts.some((item) => item.email === email)) {
+      return problem(
+        404,
+        'EMAIL_NOT_FOUND',
+        '가입되지 않은 이메일이에요. 이메일을 정확히 입력해 주세요',
+      )
+    }
+    markCodeSent('RESET', email)
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  http.post('*/api/auth/password-reset/email-code/verify', async ({ request }) => {
+    const { email, code } = (await request.json()) as { email: string; code: string }
+    const result = verifyMockCode('RESET', email, code)
+    if (!result.ok) return problem(400, result.code, CODE_DETAIL[result.code])
+    return HttpResponse.json({ resetToken: result.token })
+  }),
+
+  http.post('*/api/auth/password-reset', async ({ request }) => {
+    const body = (await request.json()) as {
+      resetToken?: unknown
+      password?: string
+      passwordConfirm?: string
+    }
+    if (consumeToken(body.resetToken) === null) {
+      return problem(400, 'RESET_EXPIRED', '인증 시간이 지났어요. 인증번호를 다시 받아 주세요')
+    }
+    if (!isValidPassword(body.password ?? '')) {
+      return problem(
+        400,
+        'INVALID_PASSWORD',
+        '비밀번호는 10~20자이고 영문 대문자·소문자·숫자·특수문자를 각각 하나 이상 넣어야 해요',
+      )
+    }
+    if (body.password !== body.passwordConfirm) {
+      return problem(400, 'PASSWORD_MISMATCH', '비밀번호가 일치하지 않아요')
+    }
+    return new HttpResponse(null, { status: 204 })
   }),
 ]
