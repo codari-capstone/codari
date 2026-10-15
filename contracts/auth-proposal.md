@@ -60,7 +60,7 @@
 | -------------------- | ----------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | 세션 모델            | access token을 응답 본문으로 받아 **메모리에만** 두고 `Authorization: Bearer`로 보낸다. refresh token은 쿠키    | 서버가 심은 세션 쿠키. 프론트는 토큰을 들지 않는다               | `web/src/api/client.ts`(헤더를 싣는 방법, 쿠키 옵션), `authQuery.ts`(로그인 응답에서 토큰을 받아 보관), `useLogout.ts`, `web/src/api/provisional.ts`(`ProvisionalPaths`와 `AuthUser`), `web/src/mocks/handlers.ts`·`web/src/mocks/fixtures/users.ts`(쿠키 세션을 구현하고 갱신 핸들러가 없다), 그리고 `['me']` 캐시를 직접 채우는 테스트(`web/src/features/auth/useLogout.test.tsx`)   |
 | 로그인 상태 확인     | 계약에 `/api/me`가 없다                                                                                           | `/api/me`로 묻는다. `meQuery`의 `staleTime`이 60초라 전체 로드 때, 또는 데이터가 낡은 뒤 마운트될 때 나간다 (`authQuery.ts` 44행)                | `authQuery.ts`의 `meQuery`, `useAuth.ts`. 3절의 열린 질문이 정해져야 한다                                               |
-| 토큰 갱신 (COM-04)   | `POST /api/auth/refresh`가 명세돼 있다. 4절에 요약                                                                | 구현하지 않았다                                                  | `client.ts`에 401을 받으면 갱신하고 한 번 다시 보내는 층을 더한다                                                       |
+| 토큰 갱신 (COM-04)   | `POST /api/auth/refresh`가 명세돼 있다. 5절에 요약                                                                | 구현하지 않았다                                                  | `client.ts`에 401을 받으면 갱신하고 한 번 다시 보내는 층을 더한다                                                       |
 | 오류 본문            | RFC 9457이고 `ProblemDetail`에 `instance`가 있다                                                                  | `ProblemDetail`에 `instance`가 없다 (`web/src/constants/errors.ts` 2~7행) | `errors.ts`에 `instance?: string`을 더한다. 프론트가 읽지 않는 필드라 없어도 동작은 같다. 기록만 해 둔다                |
 | 보호된 화면의 접근   | 문제 목록·개념 태그만 비로그인 가능, 문제 상세는 로그인 필요                                                      | 라우터가 문제 상세를 `RequireAuth` 아래에 둔다 (`router.tsx`)    | 다르지 않다. 계약이 `/api/problems/{id}`를 명세하면 맞는지 확인한다                                                     |
 
@@ -71,11 +71,13 @@
    않을 가능성이 높다. 그러면 `loginRequest`의 반환과 `LoginPage.tsx`의 캐시 채우기가 바뀐다.
 2. **로그아웃 엔드포인트.** 역시 프론트의 추측이다. refresh token 쿠키의 `Path`가 `/api/auth`이므로
    (`contracts/openapi.yaml`의 `info.description`) 브라우저는 그 아래 경로로 가는 요청에만 쿠키를 싣는다.
-   로그아웃이 refresh token을 폐기하려면 그 경로에 있어야 한다는 뜻이다. 그런데 `/api/auth/**`는
-   `Authorization` 헤더를 읽지 않으므로(`api/src/main/java/com/codingmon/api/auth/SecurityConfig.java`
-   50~56행) 거기 둔 엔드포인트는 refresh 쿠키만으로 인증된다.
+   로그아웃이 그 쿠키로 refresh token을 폐기한다면 그 경로에 있어야 한다. 그런데 `/api/auth/**`는
+   인증 필터 밖이다. `Authorization` 헤더를 읽지 않으므로 거기 둔 엔드포인트는 스프링이 호출자를 확인해
+   주지 않고, 쿠키로 스스로 확인해야 한다. `SecurityConfig.java`(50~52행)는 이를 "`/api/auth/**` 아래에는
+   로그인이 필요한 API를 두지 않는다"로 적어 두었다.
 3. **닉네임과 역할이 프론트에 오는 길.** 헤더의 사용자 메뉴와 관리자 메뉴가 둘 다 필요하다.
-   길은 두 가지다 — access token이 JWT이므로 클레임에 담거나, 별도 엔드포인트(`/api/me` 등)를 둔다.
+   길은 크게 두 가지다 — access token이 JWT이므로 클레임에 담거나, 별도 엔드포인트(`/api/me` 등)를 둔다.
+   로그인·갱신 응답에 사용자 객체를 함께 담는 길도 있다.
    지금 `AuthTokenService.java`가 발급하는 클레임은 `sub`(사용자 id), `role`, 토큰 버전이고
    닉네임은 없다 (`accessToken` 메서드, 89~100행). 클레임은 발급 시점에 고정되므로, 닉네임을
    담으면 사용자가 닉네임을 바꿔도 토큰이 만료될 때까지 옛 값이 남는다. 엔드포인트로 가면 요청이
@@ -115,8 +117,8 @@ COM-07은 실패 이유와 관계없이 같은 문구를 보여 주라고 정한
 
 - 평소 요청의 401은 두 가지 이유로 온다. access token이 만료됐거나, 비밀번호 재설정으로 access token이
   무효가 된 경우다 (`contracts/openapi.yaml`의 `info.description`). 어느 쪽이든 `POST /api/auth/refresh`로
-  갱신하고, 갱신도 401이면 로그인 화면으로 보낸다. 재설정 뒤에는 갱신이 한 번 더 성공할 수 있는지가
-  계약에 적혀 있지 않으므로, 갱신 층은 401의 이유를 가정하지 말고 갱신 결과로만 판단해야 한다.
+  갱신하고, 갱신도 401이면 로그인 화면으로 보낸다. 재설정하면 모든 기기에서 로그아웃되고 발급된
+  로그인 유지 토큰이 폐기되므로(`docs/feature-spec.md` COM-08), 재설정 뒤의 갱신은 실패한다.
 - **갱신 층은 `POST /api/auth/login`의 401에 적용하면 안 된다.** 그 401은 자격 증명 실패이므로 갱신하지
   않고 COM-07 문구를 그대로 보여 줘야 한다 (`loginSchema.ts`의 `loginErrorMessage`, 38~40행). `client.ts`에
   층을 더할 때 로그인 요청을 제외해야 한다.
