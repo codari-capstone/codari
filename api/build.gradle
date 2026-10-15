@@ -40,4 +40,5 @@ tasks.named('test') {
 	// 테스트 전용 가짜 키. 실제 키는 환경 변수 JWT_SECRET으로 받는다.
 	systemProperty 'app.jwt.secret', 'dGVzdC1vbmx5LWp3dC1zZWNyZXQtbm90LWZvci1wcm9kIQ=='
 	systemProperty 'app.mail.log-codes', 'true'
+	systemProperty 'app.web.base-url', 'http://localhost:5173'
 }
