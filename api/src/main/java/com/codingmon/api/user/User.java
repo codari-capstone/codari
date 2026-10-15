@@ -53,6 +53,14 @@ public class User {
         return passwordHash;
     }
 
+    public String getNickname() {
+        return nickname;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
+    }
+
     public int getTokenVersion() {
         return tokenVersion;
     }
