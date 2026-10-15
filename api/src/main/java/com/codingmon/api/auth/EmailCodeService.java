@@ -16,6 +16,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -89,6 +90,13 @@ class EmailCodeService {
             throw AuthErrors.error(HttpStatus.BAD_REQUEST, "CODE_MISMATCH", "인증번호가 맞지 않아요");
         }
         active.use(now);
+    }
+
+    // 발송 제한은 오늘(UTC)과 최근 1분만, 인증번호는 5분만 보므로 하루 지난 행은 쓰이지 않는다. 매일 새벽에 지운다.
+    @Scheduled(cron = "0 0 4 * * *")
+    @Transactional
+    public void deleteOldCodes() {
+        codes.deleteCreatedBefore(Instant.now().minus(Duration.ofDays(1)));
     }
 
     private String hash(String code) {

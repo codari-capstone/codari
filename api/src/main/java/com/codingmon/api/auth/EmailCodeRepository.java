@@ -26,4 +26,8 @@ interface EmailCodeRepository extends JpaRepository<EmailCode, Long> {
     @Modifying
     @Query("update EmailCode c set c.usedAt = :now where lower(c.email) = lower(:email) and c.purpose = :purpose and c.usedAt is null")
     void invalidateActive(String email, EmailCode.Purpose purpose, Instant now);
+
+    @Modifying
+    @Query("delete from EmailCode c where c.createdAt < :before")
+    void deleteCreatedBefore(Instant before);
 }
