@@ -53,6 +53,7 @@ describe('라우터 보호 구조', () => {
   it('보호된 화면도 AppShell을 쓰는 레이아웃 아래에 있다', () => {
     // 형제로 두면 헤더가 사라진다. RootLayout이 조상에 있어야 한다.
     expect(guardsOf('submissions')).toContain('RootLayout')
+    expect(guardsOf('problems/:id')).toContain('RootLayout')
     expect(guardsOf('admin/*')).toContain('RootLayout')
   })
 })
