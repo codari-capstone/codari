@@ -32,11 +32,21 @@ class JwtConfig {
     private final SecretKey key;
 
     JwtConfig(@Value("${app.jwt.secret}") String base64Secret) {
-        byte[] secret = Base64.getDecoder().decode(base64Secret);
+        this.key = new SecretKeySpec(decodeSecret(base64Secret), "HmacSHA256");
+    }
+
+    // 이 키를 쓰는 빈(EmailCodeService 등)이 먼저 만들어져도 같은 안내가 나오도록 여기서만 해석한다.
+    static byte[] decodeSecret(String base64Secret) {
+        byte[] secret;
+        try {
+            secret = Base64.getDecoder().decode(base64Secret);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("app.jwt.secret은 Base64여야 한다 (openssl rand -base64 32로 생성)", e);
+        }
         if (secret.length < 32) {
             throw new IllegalStateException("app.jwt.secret은 32바이트 이상이어야 한다 (HS256)");
         }
-        this.key = new SecretKeySpec(secret, "HmacSHA256");
+        return secret;
     }
 
     @Bean

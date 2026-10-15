@@ -8,7 +8,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.Base64;
 import java.util.HexFormat;
 
 import javax.crypto.Mac;
@@ -39,7 +38,7 @@ class EmailCodeService {
     EmailCodeService(EmailCodeRepository codes, EmailSender sender, @Value("${app.jwt.secret}") String base64Secret) {
         this.codes = codes;
         this.sender = sender;
-        this.hmacKey = new SecretKeySpec(Base64.getDecoder().decode(base64Secret), "HmacSHA256");
+        this.hmacKey = new SecretKeySpec(JwtConfig.decodeSecret(base64Secret), "HmacSHA256");
     }
 
     @Transactional
