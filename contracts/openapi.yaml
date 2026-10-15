@@ -394,6 +394,23 @@ paths:
         '409':
           $ref: '#/components/responses/Problem'
 
+  /api/users/me:
+    get:
+      operationId: getCurrentUser
+      summary: 로그인한 사용자 정보 (COM-01, COM-05)
+      description: |
+        상단의 사용자 메뉴(닉네임)와 관리자 메뉴(`role`)에 쓴다. 닉네임은 바뀔 수 있어 토큰이 아니라 이 API로 받는다.
+      tags: [users]
+      responses:
+        '200':
+          description: 로그인한 사용자
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -409,6 +426,22 @@ components:
         email:
           type: string
           format: email
+
+    CurrentUser:
+      type: object
+      required: [id, nickname, role]
+      properties:
+        id:
+          type: integer
+          format: int64
+        nickname:
+          type: string
+        role:
+          type: string
+          enum: [USER, ADMIN]
+        avatarUrl:
+          type: [string, 'null']
+          description: GitHub 가입 계정의 프로필 이미지. 없으면 null
 
     AccessTokenResponse:
       type: object
