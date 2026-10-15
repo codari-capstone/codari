@@ -234,6 +234,7 @@ paths:
       description: |
         일반 가입 계정에만 보낸다. 이메일 형식이 틀리면 400 `INVALID_EMAIL`. 가입되지 않은 이메일(GitHub 가입 계정 포함)이면 404 `EMAIL_NOT_FOUND`.
         인증번호 규칙과 발송 제한은 회원가입과 같고, 횟수는 가입과 따로 센다.
+        메일 서버 오류로 발송에 실패하면 503 `MAIL_FAILED`(회원가입과 같음, 1분 뒤 다시 받아야 함).
       tags: [auth]
       security: []
       requestBody:
@@ -250,6 +251,8 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
         '429':
+          $ref: '#/components/responses/Problem'
+        '503':
           $ref: '#/components/responses/Problem'
 
   /api/auth/password-reset/email-code/verify:
