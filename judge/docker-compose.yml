@@ -1,0 +1,81 @@
+# codingmon 채점 서버 — Judge0 v1.13.1 (공식 docker-compose.yml 기반)
+# 원문: https://github.com/judge0/judge0/blob/v1.13.1/docker-compose.yml
+#
+# 공식 파일과 다른 점 (이유는 judge/README.md "설정 요약")
+# - 이미지를 태그+digest로 고정한다. 공식 파일은 judge0 이미지를 latest로 적어 둔다.
+# - 비밀값은 judge0.conf가 아니라 .env에서 주입한다(.env.example 참고). db·redis에는 자기 비밀번호만 넘긴다.
+# - 2358은 JUDGE0_BIND_ADDR(기본 127.0.0.1)에만 게시하고, DB·Redis 포트는 게시하지 않는다.
+# - db·redis healthcheck가 통과한 뒤 server·workers를 띄운다.
+#
+# Judge0 이미지는 linux/amd64 전용이고 cgroup v1 호스트가 필요하다. Apple Silicon 맥에서는 실행할 수 없다.
+
+name: judge0
+
+x-logging: &default-logging
+  logging:
+    driver: json-file
+    options:
+      # 시작 스크립트가 환경 변수(비밀값 포함)를 로그에 남기므로 로그를 작게 유지하고 외부에 공유하지 않는다.
+      max-size: 10m
+      max-file: "3"
+
+x-judge0: &judge0
+  image: judge0/judge0:1.13.1@sha256:6b5d6a66aa19a8e878a52ea3c6a560afc1086734d96e2885b561fd5c6018f082
+  platform: linux/amd64
+  volumes:
+    - ./judge0.conf:/judge0.conf:ro
+  env_file: .env # AUTHN_TOKEN·AUTHZ_TOKEN·REDIS_PASSWORD·POSTGRES_PASSWORD
+  privileged: true # isolate 샌드박스가 cgroup을 다루려면 필요하다(공식 구성과 동일)
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: always
+  <<: *default-logging
+
+services:
+  server:
+    <<: *judge0
+    ports:
+      - "${JUDGE0_BIND_ADDR:-127.0.0.1}:2358:2358"
+
+  workers:
+    <<: *judge0
+    command: ["./scripts/workers"]
+
+  db:
+    image: postgres:16.2@sha256:4aea012537edfad80f98d870a36e6b90b4c09b27be7f4b4759d72db863baeebb
+    env_file: judge0.conf
+    environment:
+      # db에는 자기 비밀번호만 넘긴다. 값은 같은 폴더의 .env에서 보간되고, 없으면 기동 전에 실패한다
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?judge/.env에 POSTGRES_PASSWORD가 필요하다}
+    volumes:
+      - data:/var/lib/postgresql/data/
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U judge0 -d judge0"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: always
+    <<: *default-logging
+
+  redis:
+    image: redis:7.2.4@sha256:5a93f6b2e391b78e8bd3f9e7e1e1e06aeb5295043b4703fb88392835cec924a0
+    command: [
+      "bash", "-c",
+      'docker-entrypoint.sh --appendonly no --requirepass "$$REDIS_PASSWORD"'
+    ]
+    env_file: judge0.conf
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?judge/.env에 REDIS_PASSWORD가 필요하다}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: always
+    <<: *default-logging
+
+volumes:
+  data:
