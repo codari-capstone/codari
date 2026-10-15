@@ -64,7 +64,8 @@ class GitHubClient {
                 .body(JSON);
         Object accessToken = token == null ? null : token.get("access_token");
         if (accessToken == null) {
-            throw new IllegalStateException("GitHub access token을 받지 못했다");
+            // GitHub는 실패해도 200에 error(bad_verification_code, incorrect_client_credentials 등)를 담아 준다.
+            throw new IllegalStateException("GitHub access token을 받지 못했다: " + (token == null ? null : token.get("error")));
         }
         Map<String, Object> user = rest.get()
                 .uri("https://api.github.com/user")
