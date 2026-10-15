@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.ErrorResponseException;
 
 import com.codingmon.api.user.User;
 import com.codingmon.api.user.UserRepository;
@@ -60,7 +61,7 @@ class GitHubLoginService {
         String nickname = AccountRules.nickname(rawNickname);
         String githubId = jwt.getClaimAsString(GITHUB_ID_CLAIM);
         if (accounts.findByProviderAndProviderUserId(OAuthAccount.GITHUB, githubId).isPresent()) {
-            throw AuthErrors.error(HttpStatus.CONFLICT, "ALREADY_REGISTERED", "이미 가입한 GitHub 계정이에요. GitHub 로그인을 다시 해 주세요");
+            throw alreadyRegistered();
         }
         try {
             User user = users.saveAndFlush(User.github(nickname, jwt.getClaimAsString(AVATAR_CLAIM)));
@@ -70,8 +71,12 @@ class GitHubLoginService {
                 throw AccountService.nicknameTaken();
             }
             // 같은 GitHub 계정으로 동시에 가입했다.
-            throw AuthErrors.error(HttpStatus.CONFLICT, "ALREADY_REGISTERED", "이미 가입한 GitHub 계정이에요. GitHub 로그인을 다시 해 주세요");
+            throw alreadyRegistered();
         }
+    }
+
+    private static ErrorResponseException alreadyRegistered() {
+        return AuthErrors.error(HttpStatus.CONFLICT, "ALREADY_REGISTERED", "이미 가입한 GitHub 계정이에요. GitHub 로그인을 다시 해 주세요");
     }
 
     private String signupCertificate(GitHubClient.Profile profile) {
