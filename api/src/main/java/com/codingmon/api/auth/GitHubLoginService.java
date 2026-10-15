@@ -67,7 +67,7 @@ class GitHubLoginService {
             User user = users.saveAndFlush(User.github(nickname, jwt.getClaimAsString(AVATAR_CLAIM)));
             accounts.saveAndFlush(new OAuthAccount(user.getId(), githubId, jwt.getClaimAsString(LOGIN_CLAIM)));
         } catch (DataIntegrityViolationException e) {
-            if (String.valueOf(e.getMostSpecificCause().getMessage()).contains("users_nickname_lower_idx")) {
+            if (AccountService.isNicknameConflict(e)) {
                 throw AccountService.nicknameTaken();
             }
             // 같은 GitHub 계정으로 동시에 가입했다.

@@ -82,7 +82,7 @@ class AccountService {
             users.saveAndFlush(new User(email, passwordEncoder.encode(password), nickname));
         } catch (DataIntegrityViolationException e) {
             // 중복 확인 뒤 다른 사람이 먼저 가입했다. 증명서가 유효한 동안 닉네임만 다시 입력받는다.
-            if (String.valueOf(e.getMostSpecificCause().getMessage()).contains("users_nickname_lower_idx")) {
+            if (isNicknameConflict(e)) {
                 throw nicknameTaken();
             }
             throw emailTaken();
@@ -122,6 +122,11 @@ class AccountService {
 
     static ErrorResponseException emailTaken() {
         return AuthErrors.error(HttpStatus.CONFLICT, "EMAIL_TAKEN", "이미 가입된 이메일이에요");
+    }
+
+    // 닉네임 유일 인덱스(V1의 users_nickname_lower_idx) 위반인지 본다. 인덱스 이름을 바꾸면 여기만 고친다.
+    static boolean isNicknameConflict(DataIntegrityViolationException e) {
+        return String.valueOf(e.getMostSpecificCause().getMessage()).contains("users_nickname_lower_idx");
     }
 
     static ErrorResponseException nicknameTaken() {
