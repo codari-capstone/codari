@@ -46,17 +46,6 @@ describe('EmailCodeStep', () => {
     expect(sendCode).not.toHaveBeenCalled()
   })
 
-  it('이메일의 앞뒤 공백을 떼고 보낸다', async () => {
-    // 서버는 strip해서 받는다. 떼지 않으면 확인에 보내는 값이 달라 CODE_EXPIRED가 난다.
-    const user = userEvent.setup()
-    const { sendCode } = setup()
-
-    await user.type(screen.getByLabelText('이메일'), '  new@codari.test  ')
-    await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
-
-    expect(sendCode).toHaveBeenCalledWith('new@codari.test')
-  })
-
   it('발송에 성공하면 인증번호 칸이 열린다', async () => {
     const user = userEvent.setup()
     setup()
@@ -148,7 +137,61 @@ describe('EmailCodeStep', () => {
     expect(await screen.findByText(/메일을 보내지 못했어요/)).toBeInTheDocument()
     expect(screen.getByLabelText('인증번호')).toBeInTheDocument()
     // 실패해도 쿨다운은 돈다. 서버는 번호를 만들었으므로 1분 안에 또 보내면 429를 맞는다.
-    expect(screen.getByRole('button', { name: /다시 받기/ })).toBeDisabled()
+    const resend = screen.getByRole('button', { name: /다시 받기/ })
+    expect(resend).toBeDisabled()
+    expect(resend).toHaveTextContent(/\(\d+초\)/)
+  })
+
+  it('번호가 가지 않은 발송 오류(EMAIL_TAKEN)에서는 바로 다시 보낼 수 있고 칸은 닫혀 있다', async () => {
+    // 번호를 보내지 않았으므로 쿨다운을 돌리면 오타를 고친 사용자가 이유도 모른 채 막힌다.
+    const user = userEvent.setup()
+    setup({
+      sendCode: vi.fn().mockRejectedValue({
+        status: 409,
+        code: 'EMAIL_TAKEN',
+        detail: '이미 가입된 이메일이에요',
+      }),
+    })
+
+    await user.type(screen.getByLabelText('이메일'), 'user@codari.test')
+    await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
+    await screen.findByText('이미 가입된 이메일이에요')
+
+    expect(screen.getByRole('button', { name: '인증번호 받기' })).toBeEnabled()
+    expect(screen.queryByLabelText('인증번호')).not.toBeInTheDocument()
+  })
+
+  it('TOO_MANY_REQUESTS에서는 카운트다운이 보이고 칸은 닫혀 있다', async () => {
+    const user = userEvent.setup()
+    setup({
+      sendCode: vi.fn().mockRejectedValue({
+        status: 429,
+        code: 'TOO_MANY_REQUESTS',
+        detail: '잠시 후 다시 시도해 주세요',
+      }),
+    })
+
+    await user.type(screen.getByLabelText('이메일'), 'new@codari.test')
+    await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
+    await screen.findByText('잠시 후 다시 시도해 주세요')
+
+    const button = screen.getByRole('button', { name: /인증번호 받기/ })
+    expect(button).toBeDisabled()
+    expect(button).toHaveTextContent(/\(\d+초\)/)
+    expect(screen.queryByLabelText('인증번호')).not.toBeInTheDocument()
+  })
+
+  it('인증 뒤 이메일을 바꾸면 이전 주소의 쿨다운을 물려받지 않는다', async () => {
+    const user = userEvent.setup()
+    setup()
+
+    await user.type(screen.getByLabelText('이메일'), 'new@codari.test')
+    await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
+    await user.type(await screen.findByLabelText('인증번호'), '123456')
+    await user.click(screen.getByRole('button', { name: '확인' }))
+    await user.click(screen.getByRole('button', { name: '이메일 바꾸기' }))
+
+    expect(screen.getByRole('button', { name: '인증번호 받기' })).toBeEnabled()
   })
 
   describe('쿨다운', () => {
@@ -167,7 +210,8 @@ describe('EmailCodeStep', () => {
 
       const resend = await screen.findByRole('button', { name: /다시 받기/ })
       expect(resend).toBeDisabled()
-      expect(resend.textContent).toMatch(/60/)
+      // 실제 시계가 흐르므로 느린 환경에서는 59로 보일 수 있다.
+      expect(resend.textContent).toMatch(/\((60|5\d)초\)/)
     })
   })
 })

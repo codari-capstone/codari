@@ -26,6 +26,39 @@ describe('useResendCooldown', () => {
     expect(result.current.remaining).toBe(0)
   })
 
+  it('다시 start하면 처음 값으로 돌아가고 인터벌은 하나만 돈다', () => {
+    const { result } = renderHook(() => useResendCooldown(5))
+
+    act(() => result.current.start())
+    act(() => void vi.advanceTimersByTime(2000))
+    expect(result.current.remaining).toBe(3)
+
+    act(() => result.current.start())
+    expect(result.current.remaining).toBe(5)
+
+    // 이전 인터벌이 남아 있으면 1초에 두 번 줄어 3이 된다.
+    act(() => void vi.advanceTimersByTime(1000))
+    expect(result.current.remaining).toBe(4)
+  })
+
+  it('reset하면 0이 되고 타이머가 멈춘다', () => {
+    const { result } = renderHook(() => useResendCooldown(5))
+    act(() => result.current.start())
+
+    act(() => result.current.reset())
+    expect(result.current.remaining).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('0에 닿으면 타이머가 멈춘다', () => {
+    const { result } = renderHook(() => useResendCooldown(2))
+    act(() => result.current.start())
+
+    act(() => void vi.advanceTimersByTime(2000))
+    expect(result.current.remaining).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('언마운트하면 타이머를 정리한다', () => {
     // 정리하지 않으면 언마운트된 컴포넌트의 state를 갱신한다 (Review Focus 4).
     const { result, unmount } = renderHook(() => useResendCooldown(60))

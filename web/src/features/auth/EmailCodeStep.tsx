@@ -37,27 +37,39 @@ export function EmailCodeStep({
   const [code, setCode] = useState('')
   const [codeError, setCodeError] = useState<string | null>(null)
   const [verified, setVerified] = useState(false)
-  const { remaining, start } = useResendCooldown(RESEND_SECONDS)
+  const { remaining, start, reset } = useResendCooldown(RESEND_SECONDS)
+
+  // type="email" 입력은 앞뒤 공백을 HTML 값 정리 규칙으로 이미 떼어 준다. 이 trim은
+  // 코드로 넣은 값을 위한 안전망이며, 어떤 UI 테스트로도 실패시킬 수 없어 일부러 테스트로
+  // 고정하지 않는다. 한 번만 계산해 발송·확인·부모에게 올리는 값이 서로 같게 한다.
+  const trimmedEmail = email.trim()
 
   const send = useMutation({
-    mutationFn: () => sendCode(email.trim()),
+    mutationFn: () => sendCode(trimmedEmail),
     onSuccess: () => {
       setCodeOpen(true)
       start()
     },
     onError: (error) => {
-      // 번호는 만들어진 채다(계약). 칸을 열어 두어 방금 온 메일을 쓸 수 있게 한다.
-      if (problemCode(error) === 'MAIL_FAILED') setCodeOpen(true)
-      start()
+      const failed = problemCode(error)
+      // 서버가 번호를 만들었거나 횟수에 센 경우만 쿨다운을 돈다 (계정 규칙).
+      // - MAIL_FAILED: 번호는 만들어진 채다(계약). 칸을 열어 방금 온 메일을 쓰게 하고,
+      //   1분 안에 또 보내면 429이므로 쿨다운도 돈다.
+      // - TOO_MANY_REQUESTS: 이미 제한에 걸렸다. 언제 풀리는지 모르니 카운트다운과 서버 문구로 보인다.
+      // - EMAIL_TAKEN·EMAIL_NOT_FOUND·INVALID_EMAIL: 번호를 보내지 않았다. 가입 여부 조회는
+      //   IP 하루 상한에만 세고 이메일당 1분 간격에는 세지 않으므로, 막으면 오타를 고친
+      //   사용자가 이유도 모른 채 기다리게 된다.
+      if (failed === 'MAIL_FAILED') setCodeOpen(true)
+      if (failed === 'MAIL_FAILED' || failed === 'TOO_MANY_REQUESTS') start()
     },
   })
 
   const verify = useMutation({
-    mutationFn: () => verifyCode({ email: email.trim(), code }),
+    mutationFn: () => verifyCode({ email: trimmedEmail, code }),
     onSuccess: (token) => {
       setVerified(true)
       setCodeError(null)
-      onVerified(token, email.trim())
+      onVerified(token, trimmedEmail)
     },
     onError: (error) => {
       const failed = problemCode(error)
@@ -67,8 +79,7 @@ export function EmailCodeStep({
   })
 
   function handleSend() {
-    const trimmed = email.trim()
-    if (!EMAIL_PATTERN.test(trimmed)) {
+    if (!EMAIL_PATTERN.test(trimmedEmail)) {
       setEmailError('이메일 형식이 아닙니다')
       return
     }
@@ -90,7 +101,11 @@ export function EmailCodeStep({
     setCodeOpen(false)
     setCode('')
     setCodeError(null)
+    // 제한은 이메일마다 따로 센다. 다른 주소가 이전 주소의 쿨다운을 물려받으면 안 된다.
+    reset()
     // 부모가 들고 있는 증명서를 버리게 한다. 안 버리면 다른 이메일로 받은 증명서로 가입된다.
+    // 인증을 푸는 곳이 여기뿐인 것은 인증된 동안 이메일 칸이 readOnly이기 때문이다. readOnly를
+    // 없애면 편집할 때도 증명서를 버려야 한다. 아니면 바뀐 주소가 이전 주소의 증명서를 쥔다.
     onVerified('', '')
   }
 
@@ -120,11 +135,9 @@ export function EmailCodeStep({
               disabled={send.isPending || remaining > 0}
               onClick={handleSend}
             >
-              {codeOpen
-                ? remaining > 0
-                  ? `다시 받기 (${remaining}초)`
-                  : '다시 받기'
-                : '인증번호 받기'}
+              {/* 꺼진 버튼에 이유가 없으면 죽은 버튼으로 보인다. 카운트다운이 그 이유다. */}
+              {codeOpen ? '다시 받기' : '인증번호 받기'}
+              {remaining > 0 ? ` (${remaining}초)` : ''}
             </Button>
           )}
         </div>
