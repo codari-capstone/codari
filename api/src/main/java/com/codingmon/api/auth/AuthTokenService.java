@@ -79,6 +79,18 @@ public class AuthTokenService {
         return new IssuedTokens(accessToken(user), next.raw());
     }
 
+    // 이 기기의 로그인만 끝낸다(COM-03). 모르는 토큰이면 할 일이 없다.
+    @Transactional
+    public void logout(String rawRefreshToken) {
+        String tokenHash = hash(rawRefreshToken);
+        refreshTokens.findUserIdByTokenHash(tokenHash).ifPresent(userId -> {
+            // 갱신과 마찬가지로 사용자 행을 잠근 뒤 묶음을 폐기한다.
+            users.findForUpdateById(userId);
+            refreshTokens.findByTokenHash(tokenHash)
+                    .ifPresent(token -> refreshTokens.revokeFamily(token.getFamilyId(), Instant.now()));
+        });
+    }
+
     // 만료된 토큰은 어차피 거절되므로 매일 새벽에 행만 지운다.
     @Scheduled(cron = "0 0 4 * * *")
     @Transactional

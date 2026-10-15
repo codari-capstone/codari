@@ -1,5 +1,7 @@
 package com.codingmon.api.auth;
 
+import java.time.Duration;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -33,17 +35,30 @@ class AuthController {
         return withTokens(tokens.refresh(refreshToken));
     }
 
-    // 로그인(#89)도 이 응답 형태를 쓴다.
+    @PostMapping("/logout")
+    ResponseEntity<Void> logout(@CookieValue(name = REFRESH_COOKIE, required = false) String refreshToken) {
+        if (refreshToken != null) {
+            tokens.logout(refreshToken);
+        }
+        return ResponseEntity.noContent()
+                .header(HttpHeaders.SET_COOKIE, refreshCookie("", Duration.ZERO).toString())
+                .build();
+    }
+
+    // 가입·로그인도 이 응답 형태를 쓴다.
     static ResponseEntity<AccessTokenResponse> withTokens(AuthTokenService.IssuedTokens issued) {
-        ResponseCookie cookie = ResponseCookie.from(REFRESH_COOKIE, issued.refreshToken())
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshCookie(issued.refreshToken(), AuthTokenService.REFRESH_TOKEN_TTL).toString())
+                .body(new AccessTokenResponse(issued.accessToken()));
+    }
+
+    private static ResponseCookie refreshCookie(String value, Duration maxAge) {
+        return ResponseCookie.from(REFRESH_COOKIE, value)
                 .httpOnly(true)
                 .secure(true)
                 .sameSite("Strict")
                 .path("/api/auth")
-                .maxAge(AuthTokenService.REFRESH_TOKEN_TTL)
+                .maxAge(maxAge)
                 .build();
-        return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, cookie.toString())
-                .body(new AccessTokenResponse(issued.accessToken()));
     }
 }

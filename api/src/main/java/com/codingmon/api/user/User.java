@@ -40,6 +40,10 @@ public class User {
         return id;
     }
 
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
     public int getTokenVersion() {
         return tokenVersion;
     }
