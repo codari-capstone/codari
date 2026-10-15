@@ -19,6 +19,7 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 | `scripts/preflight.sh` | 기동 전 확인: x86_64, cgroup v1, Docker·Compose, `.env`, conf에 비밀값 키가 없는지 |
 | `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), AUTHZ(403·삭제 200), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 `COUNT`개, 금지 요청 거절 |
 | `scripts/judge0_client.py` | 표준 라이브러리 클라이언트. smoke·실측·검증이 함께 쓴다 |
+| `bench/` | 실행 시간·메모리 실측(#65): 워크로드 `workloads/`, 입력 생성 `gen_input.py`, 실행기 `run_bench.py`, 결과 `results/` |
 | `verify/` | 격리·자원 제한 검증(#66): 케이스 `cases/`·`cases.json`, 실행기 `run_verify.py`, 동시 실행 `concurrency_check.py`, 결과 `results/`, 케이스별 응답 `observed/` |
 | `tests/` | 클라이언트·smoke·검증 로직 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
 
@@ -145,6 +146,45 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | C++ | 54 | GCC 9.2.0 | `-O2 -std=c++17` (API 서버가 고정해 보낸다) |
 
 Judge0 1.13.1에는 Python 3.10 이상이 없다. `match` 문 같은 3.10+ 문법은 쓸 수 없다.
+
+## 실행 시간·메모리 실측 (#65)
+
+**채점 VM에서만 측정한다.** 맥 Docker Desktop은 Apple 칩에서 amd64 명령을 Rosetta로 번역해 실행하므로 시간과 Python/C++ 비율이 서버와 다르다. 맥에서는 하네스가 동작하는지만 확인했다(2026-10-15, 모든 워크로드·크기에서 status 3, 두 언어 출력 일치).
+
+```bash
+cd judge
+python3 bench/run_bench.py --label ec2-<인스턴스 타입> --results   # bench/results/<날짜>-<label>.md 생성
+```
+
+| 워크로드 | 내용 | 입력 크기 N (소·중·대) |
+|---|---|---|
+| `io_sort_prefix` | 정수 N개 읽기 → 정렬 → 누적합 | 10⁴, 10⁵, 10⁶ |
+| `nested_loop` | O(N²) 순수 반복 | 1000, 2000, 4000 |
+| `dict_count` | 해시 맵 빈도 집계 | 10⁴, 10⁵, 10⁶ |
+| `recursion_dfs` | 깊이 N 재귀 | 1000, 10⁴, 5×10⁴ |
+| `io_print` | N줄 출력 | 10⁴, 5×10⁴, 10⁵ |
+| `empty` | 빈 프로그램(언어 기본 비용) | — |
+
+- 조합마다 예열 1회를 버리고 5회 측정한다. 한 번에 하나씩 제출하고 언어 순서를 번갈아 바꾼다. 측정이 잘리지 않게 상한값(CPU 20초, 메모리 512 MB)으로 요청한다.
+- 두 언어의 출력이 같은지 확인한다(다르면 결과의 '문제'에 나온다). 입력은 고정 시드 합성 데이터다.
+- 측정 조건(Judge0·isolate 버전, CPU 모델, vCPU, 메모리, 시각)은 결과 파일 머리에 자동으로 적힌다. 버스트 인스턴스(t3)는 측정 전후 CPU 크레딧 잔량(CloudWatch `CPUCreditBalance`)을 손으로 적는다.
+
+**Python 보정 배수 정하는 법**: 출발점은 계획서의 시간 ×3 + 2초, 메모리 ×2다.
+
+- 결과 표는 입력마다 C++ 기준 제한 L을 잡는다. C++ 최댓값 × 2를 0.5초 단위로 올린 값이고 최소 1초다. 그리고 Python 최댓값이 3L + 2초 안에 드는지(통과 열)를 보여 준다.
+- `io_sort_prefix`·`dict_count`·`recursion_dfs`·`io_print`가 모두 통과하면 ×3 + 2초를 유지한다. 통과하지 못하는 조합이 있으면 통과하는 최소 배수를 후보로 올린다.
+- `nested_loop` 같은 순수 반복은 Python이 수십 배 느려 배수로 맞추지 않는다(백준도 같다). 비율은 기록만 한다.
+- 메모리는 사용량 비율이 아니라 문제의 메모리 제한 기준으로 판단한다. 정수 10⁶개를 담는 워크로드는 Python 객체 오버헤드로 사용량이 C++의 9배를 넘지만, 256 MB 제한 문제라면 Python 제한 512 MB 안에 충분히 든다.
+- 확정한 배수는 문제 등록 시 `problem_language_configs`에 언어별 값으로 저장한다. 제출 때 다시 곱하지 않는다.
+
+**하네스 밖에서 VM에서 함께 정할 것**
+
+- 컴파일 메모리: Judge0는 컴파일 단계의 메모리를 응답에 넣지 않는다. `#include <bits/stdc++.h>`를 쓰는 C++ 제출 2개를 동시에 넣고, `docker stats`로 workers 컨테이너의 최대 메모리를 적는다. `MAX_MEMORY_LIMIT`(512 MB)가 컴파일 한도이기도 하므로, 이 값을 줄일 수 있는지 판단하는 근거로 쓴다.
+- 큐 크기: `MAX_QUEUE_SIZE`(100)를 동시 사용자 목표와 묶음 제출 크기(20)로 다시 계산해 정한다.
+
+## 판정 매핑
+
+Judge0 응답(status·exit_code·memory·stderr)을 우리 판정 9가지와 런타임 에러 종류로 바꾸는 규칙은 [`docs/judge-verdict-mapping.md`](../docs/judge-verdict-mapping.md)에 있다. 아래 검증 결과가 그 근거다.
 
 ## 격리·자원 제한 검증 (#66)
 
