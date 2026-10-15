@@ -13,9 +13,12 @@ import java.util.HexFormat;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.mail.MailException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +34,7 @@ class EmailCodeService {
     static final int EMAIL_DAILY_LIMIT = 5;
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final Logger log = LoggerFactory.getLogger(EmailCodeService.class);
 
     private final EmailCodeRepository codes;
     private final EmailSender sender;
@@ -50,7 +54,12 @@ class EmailCodeService {
     // 발송에 실패하면 번호는 저장된 채 오류가 나고, 사용자는 1분 뒤 다시 받는다.
     void send(String email, EmailCode.Purpose purpose) {
         String code = transactions.execute(status -> issue(email, purpose));
-        sender.sendCode(email, purpose, code);
+        try {
+            sender.sendCode(email, purpose, code);
+        } catch (MailException e) {
+            log.warn("인증번호 메일 발송 실패", e);
+            throw AuthErrors.error(HttpStatus.SERVICE_UNAVAILABLE, "MAIL_FAILED", "메일을 보내지 못했어요. 1분 뒤 다시 시도해 주세요");
+        }
     }
 
     private String issue(String email, EmailCode.Purpose purpose) {
