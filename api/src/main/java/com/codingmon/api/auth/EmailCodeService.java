@@ -18,6 +18,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.ErrorResponseException;
 
 // 기능명세 '계정 규칙'의 인증번호와 이메일별 발송 제한. IP 제한과 가입 여부 확인은 호출하는 쪽에서 먼저 한다.
@@ -32,17 +33,26 @@ class EmailCodeService {
 
     private final EmailCodeRepository codes;
     private final EmailSender sender;
+    private final TransactionTemplate transactions;
     private final SecretKeySpec hmacKey;
 
     // 6자리는 경우의 수가 적어 일반 해시는 바로 복원되므로 서버 비밀키로 HMAC한다. JWT 키를 함께 쓴다.
-    EmailCodeService(EmailCodeRepository codes, EmailSender sender, @Value("${app.jwt.secret}") String base64Secret) {
+    EmailCodeService(EmailCodeRepository codes, EmailSender sender, TransactionTemplate transactions,
+            @Value("${app.jwt.secret}") String base64Secret) {
         this.codes = codes;
         this.sender = sender;
+        this.transactions = transactions;
         this.hmacKey = new SecretKeySpec(JwtConfig.decodeSecret(base64Secret), "HmacSHA256");
     }
 
-    @Transactional
-    public void send(String email, EmailCode.Purpose purpose) {
+    // 메일은 DB 트랜잭션이 끝나 연결을 돌려준 뒤에 보낸다. 메일 서버가 늦어도 DB 연결을 붙잡지 않는다.
+    // 발송에 실패하면 번호는 저장된 채 오류가 나고, 사용자는 1분 뒤 다시 받는다.
+    void send(String email, EmailCode.Purpose purpose) {
+        String code = transactions.execute(status -> issue(email, purpose));
+        sender.sendCode(email, purpose, code);
+    }
+
+    private String issue(String email, EmailCode.Purpose purpose) {
         Instant now = Instant.now();
         boolean tooSoon = codes.findLastSentAt(email, purpose).filter(last -> last.isAfter(now.minus(RESEND_INTERVAL))).isPresent();
         Instant todayStart = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
@@ -58,7 +68,7 @@ class EmailCodeService {
             // 같은 이메일로 동시에 보내면 유효한 인증번호는 하나만 둘 수 있어 한쪽이 여기서 막힌다.
             throw AuthErrors.tooManyRequests();
         }
-        sender.sendCode(email, purpose, code);
+        return code;
     }
 
     // 틀린 횟수는 실패 응답과 함께 남겨야 하므로 예외로 롤백하지 않는다.
