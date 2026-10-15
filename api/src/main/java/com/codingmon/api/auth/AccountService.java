@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.web.ErrorResponseException;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.codingmon.api.user.User;
 import com.codingmon.api.user.UserRepository;
@@ -107,7 +108,12 @@ class AccountService {
             throw loginFailed();
         }
         limiter.resetLoginFailures(email);
-        return tokens.issue(user);
+        try {
+            return tokens.issue(user);
+        } catch (ResponseStatusException e) {
+            // 그사이 비밀번호가 재설정됐다. 옛 비밀번호로는 로그인시키지 않는다.
+            throw loginFailed();
+        }
     }
 
     private static ErrorResponseException loginFailed() {
