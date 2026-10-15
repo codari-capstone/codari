@@ -1,4 +1,4 @@
-import { Link, NavLink } from 'react-router'
+import { Link, NavLink, useLocation } from 'react-router'
 
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/features/auth/useAuth'
+import { useLogout } from '@/features/auth/useLogout'
 
 const MENU = [
   { to: '/problems', label: '문제' },
@@ -18,9 +19,15 @@ const MENU = [
   { to: '/me/report', label: '내 학습' },
 ]
 
+/** ADMIN에게만 보이는 메뉴 (COM-05). */
+const ADMIN_MENU = { to: '/admin', label: '관리자' }
+
 /** COM-01 상단 내비게이션. 로그인 상태는 useAuth만 본다. */
 export function AppHeader() {
-  const { user, isAuthenticated } = useAuth()
+  const { user, isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
+  const { logout } = useLogout()
+  const menu = user?.role === 'ADMIN' ? [...MENU, ADMIN_MENU] : MENU
 
   return (
     <header className="border-border border-b">
@@ -46,7 +53,7 @@ export function AppHeader() {
           nav 전체가 둘째 줄로 내려간다 (UX-05).
         */}
         <nav aria-label="주요 메뉴" className="flex flex-auto gap-5 text-sm whitespace-nowrap">
-          {MENU.map((item) => (
+          {menu.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -61,7 +68,16 @@ export function AppHeader() {
 
         <ThemeToggle />
 
-        {isAuthenticated && user ? (
+        {isLoading ? (
+          /*
+            세션을 모르는 동안 자리만 잡는다. 아무것도 두지 않으면 화면을 불러올 때마다
+            로그인 버튼 -> 사용자 메뉴로 바뀌며 헤더 폭이 크게 흔들린다. 높이는 로그인
+            버튼의 터치 영역(min-h-11)과 맞춘다. 폭(w-14)은 실제 브라우저에서 잰 로그인
+            버튼 폭(55px)에 가깝게 잡은 값이다. 버튼이 글자 길이에 맞춰 크기가 정해지므로
+            정확히 맞출 수는 없고, 교체될 때 1px 안팎의 차이는 남는다.
+          */
+          <div aria-hidden="true" className="min-h-11 w-14 shrink-0" />
+        ) : isAuthenticated && user ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="sm" aria-label={`사용자 메뉴 · ${user.nickname}`}>
@@ -77,12 +93,19 @@ export function AppHeader() {
               <DropdownMenuItem asChild>
                 <Link to="/me/report">내 학습</Link>
               </DropdownMenuItem>
-              <DropdownMenuItem>로그아웃</DropdownMenuItem>
+              <DropdownMenuItem onSelect={logout}>로그아웃</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
           <Button asChild size="sm" className="min-h-11">
-            <Link to="/login">로그인</Link>
+            {/*
+              지금 주소를 함께 보낸다. 싣지 않으면 로그인한 뒤 기본 목적지(/problems)로 가서
+              보고 있던 검색·필터가 사라진다 — COM-07은 '원래 보던 페이지로 돌아감'이다.
+              로그인 화면에서 이 버튼을 누른 경우는 safeRedirect가 걸러 낸다.
+            */}
+            <Link to="/login" state={{ from: `${location.pathname}${location.search}` }}>
+              로그인
+            </Link>
           </Button>
         )}
       </div>

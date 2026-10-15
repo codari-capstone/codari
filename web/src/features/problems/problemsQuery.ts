@@ -14,18 +14,23 @@ import { toQuery, type ProblemListParams } from './problemListParams'
  * 시도하고 실패하면 문자열을 그대로 error에 둔다(게이트웨이의 HTML 로그인 페이지 등).
  * 본문이 비어 있으면 JSON.parse('')가 던져 error가 ''가 된다. 둘 다 `??`로는 안 걸러지고,
  * 문자열을 던지면 toUserMessage가 status를 못 읽어 401도 일반 문구가 된다.
+ *
+ * 객체여도 status는 선택 항목이라 빠져 올 수 있다. 그래서 본문에 있든 없든 HTTP 상태를
+ * 덮어 싣는다(authQuery.ts의 fail과 같다). 둘이 다르면 실제 응답인 HTTP 상태가 맞다.
+ * 공통 모듈로 빼지 않는 이유는 fail의 주석 참고.
  */
 function unwrap<T>(result: { data?: T; error?: unknown; response: Response }): T {
   if (result.data !== undefined) return result.data
-  if (typeof result.error === 'object' && result.error !== null) throw result.error
+  if (typeof result.error === 'object' && result.error !== null)
+    throw { ...result.error, status: result.response.status }
   throw { status: result.response.status }
 }
 
 /**
  * 문제 목록. 필터가 queryKey에 들어가므로 필터마다 캐시가 따로 생긴다.
  *
- * 명세(#2)가 확정되면 provisionalApi를 @/api/client의 api로 바꾼다. 이 파일이
- * provisionalApi를 쓰는 유일한 곳이다 — 도메인 타입은 다른 파일들도 쓰므로
+ * 명세(#2)가 확정되면 provisionalApi를 @/api/client의 api로 바꾼다. authQuery.ts도
+ * provisionalApi를 쓰므로 함께 바꾼다. 도메인 타입은 다른 파일들도 쓰므로
  * @/api/provisional 자체는 남는다 (그 파일 머리 주석 참고). 호출 모양은 그대로다.
  */
 export function problemListQuery(params: ProblemListParams) {

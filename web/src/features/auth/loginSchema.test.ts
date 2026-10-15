@@ -1,0 +1,98 @@
+import { describe, expect, it } from 'vitest'
+
+import { loginErrorMessage, loginSchema } from './loginSchema'
+
+describe('loginSchema', () => {
+  it('올바른 입력을 통과시킨다', () => {
+    const result = loginSchema.safeParse({
+      email: 'user@codari.test',
+      password: 'Codari!test1',
+    })
+
+    expect(result.success).toBe(true)
+  })
+
+  it('공백만 넣으면 두 필드 모두 해당 문구로 거부한다', () => {
+    // 이메일 문구가 형식 문구로 바뀌면(trim이 빠지면) 이 단언이 깨진다.
+    const result = loginSchema.safeParse({ email: '   ', password: '   ' })
+
+    expect(result.success).toBe(false)
+    const messages = result.error?.issues.map((i) => [String(i.path[0]), i.message])
+    expect(messages).toContainEqual(['email', '이메일을 입력해 주세요'])
+    expect(messages).toContainEqual(['password', '비밀번호를 입력해 주세요'])
+  })
+
+  it('비밀번호가 공백만이면 이메일이 맞아도 거부한다', () => {
+    // 이 단언이 없으면 공백 비밀번호가 서버까지 간다.
+    const result = loginSchema.safeParse({ email: 'a@b.co', password: '   ' })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.path[0]).toBe('password')
+    expect(result.error?.issues[0]?.message).toBe('비밀번호를 입력해 주세요')
+  })
+
+  it('비밀번호의 앞뒤 공백은 값의 일부로 그대로 둔다', () => {
+    // 비밀번호를 trim하면 앞뒤 공백이 실제 값인 계정이 로그인할 수 없게 된다. 다시 떼지 말 것.
+    const result = loginSchema.safeParse({ email: 'a@b.co', password: ' s3cret! ' })
+
+    expect(result.success && result.data.password).toBe(' s3cret! ')
+  })
+
+  it('앞뒤 공백을 떼고 돌려준다', () => {
+    const result = loginSchema.safeParse({
+      email: '  user@codari.test  ',
+      password: 'Codari!test1',
+    })
+
+    expect(result.success && result.data.email).toBe('user@codari.test')
+  })
+
+  it('이메일 모양이 아니면 거부한다', () => {
+    expect(loginSchema.safeParse({ email: 'codari.test', password: 'Codari!test1' }).success).toBe(
+      false,
+    )
+  })
+
+  it('서버가 가입시켜 주는 주소를 로그인에서 막지 않는다', () => {
+    // 서버 가입 규칙은 AccountRules.java의 /^[^@\s]+@[^@\s]+\.[^@\s]+$/다. zod의 z.email()은
+    // 이보다 엄격해서 아래 두 주소를 거부한다. 그 규칙으로 가입한 사람이 로그인 폼을
+    // 통과할 수 없고, COM-07의 단일 문구 때문에 이유도 알 수 없다.
+    expect(
+      loginSchema.safeParse({ email: 'user!x@example.com', password: 'Codari!test1' }).success,
+    ).toBe(true)
+    expect(loginSchema.safeParse({ email: 'a@b.c', password: 'Codari!test1' }).success).toBe(true)
+  })
+
+  it('비밀번호 길이 규칙을 걸지 않는다', () => {
+    // docs/feature-spec.md '계정 규칙'이 로그인에서는 이 규칙을 검사하지 않기로 정했다.
+    // 규칙을 강화하기 전에 만든 계정이 새 규칙에 걸려 자기 비밀번호를 못 넣게 된다.
+    expect(loginSchema.safeParse({ email: 'a@b.co', password: 'a' }).success).toBe(true)
+    expect(loginSchema.safeParse({ email: 'a@b.co', password: 'a'.repeat(99) }).success).toBe(true)
+  })
+})
+
+describe('loginErrorMessage', () => {
+  it('401이면 자격 증명 불일치 문구를 준다', () => {
+    expect(loginErrorMessage({ status: 401 })).toBe(
+      '이메일 또는 비밀번호가 맞지 않아요. GitHub로 가입했다면 GitHub 로그인을 이용해 주세요',
+    )
+  })
+
+  it('429면 로그인 제한 문구를 준다', () => {
+    expect(loginErrorMessage({ status: 429 })).toBe(
+      '로그인 시도가 너무 많아요. 5분 후 다시 시도해 주세요',
+    )
+  })
+
+  it('그 밖의 오류는 일반 문구로 떨어진다', () => {
+    const message = loginErrorMessage({ status: 500 })
+
+    expect(message).not.toContain('이메일 또는 비밀번호가 맞지 않아요')
+    expect(message).not.toContain('로그인 시도가 너무 많아요')
+    expect(message.length).toBeGreaterThan(0)
+  })
+
+  it('모양을 알 수 없는 값도 문구를 준다', () => {
+    expect(loginErrorMessage(new Error('network')).length).toBeGreaterThan(0)
+  })
+})

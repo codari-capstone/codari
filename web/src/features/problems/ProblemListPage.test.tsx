@@ -23,6 +23,8 @@ function renderPage(initialUrl = '/problems') {
         Component: ProblemsLayout,
         children: [{ path: '/problems', Component: ProblemListPage }],
       },
+      // 안내 링크를 눌러 보는 테스트가 있다. 라우트가 없으면 이동이 404로 떨어진다.
+      { path: '/login', element: <h1>로그인 화면</h1> },
     ],
     { initialEntries: [initialUrl] },
   )
@@ -308,8 +310,44 @@ describe('ProblemListPage', () => {
     renderPage()
 
     // 헤더에도 '로그인' 링크가 있다. 본문으로 좁혀야 이 화면의 안내문을 집는다.
+    // 세션을 확인하기 전에는 안내를 그리지 않으므로(위 테스트) 나타날 때까지 기다린다.
     const main = screen.getByRole('main')
-    expect(within(main).getByRole('link', { name: /로그인/ })).toBeInTheDocument()
+    expect(await within(main).findByRole('link', { name: /로그인/ })).toBeInTheDocument()
+  })
+
+  it('안내의 로그인 링크도 지금 주소를 실어 보낸다 (COM-07)', async () => {
+    // 헤더의 로그인 버튼과 같은 이유다. 필터를 걸어 둔 채 이 링크를 누른 사람이
+    // 로그인 뒤 조건 없는 목록으로 떨어지지 않게 한다.
+    const user = userEvent.setup()
+    const router = renderPage('/problems?difficulty=EASY')
+
+    const main = screen.getByRole('main')
+    await user.click(await within(main).findByRole('link', { name: /로그인/ }))
+
+    expect(router.state.location.pathname).toBe('/login')
+    expect(router.state.location.state).toEqual({ from: '/problems?difficulty=EASY' })
+  })
+
+  it('세션 확인 중에 목록이 실패하면 오류만 보여 준다', async () => {
+    // 스켈레톤 조건에 세션 확인이 들어오면서 isPending과 error의 배타성이 깨졌다.
+    // 두 블록이 나란히 그려지면 "불러오는 중"과 "실패했다"가 같은 화면에 있게 된다.
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
+    })
+    server.use(
+      http.get('*/api/problems', () =>
+        HttpResponse.json({ status: 500, title: 'Server Error' }, { status: 500 }),
+      ),
+    )
+    renderPage()
+
+    // 앱 기본값이 retry: 1이라 두 번째 응답까지 기다려야 오류 상태가 된다.
+    expect(
+      await screen.findByRole('button', { name: '다시 시도' }, { timeout: 3000 }),
+    ).toBeInTheDocument()
+    expect(within(screen.getByRole('main')).queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('비로그인이면 풀이 상태 열이 표에 없다', async () => {
@@ -319,9 +357,36 @@ describe('ProblemListPage', () => {
     expect(screen.queryByRole('columnheader', { name: '풀이 상태' })).not.toBeInTheDocument()
   })
 
+  it('세션을 모르는 동안에는 안내도 표도 그리지 않는다', async () => {
+    // 비로그인으로 먼저 그리면, 로그인한 사람이 '로그인하면 …' 안내를 봤다가 풀이 상태
+    // 열이 뒤늦게 생기며 표가 움직인다. 세션을 알 때까지는 스켈레톤에 머문다.
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
+    })
+    let listCalls = 0
+    server.use(
+      http.get('*/api/problems', () => {
+        listCalls += 1
+        return HttpResponse.json({ content: [problems[0]], totalElements: 1 })
+      }),
+    )
+    renderPage()
+
+    // 목록 응답이 도착한 뒤에도 표가 없어야 한다. 도착 전에 단언하면 아무것도 증명하지 못한다.
+    await waitFor(() => expect(listCalls).toBe(1))
+    await act(async () => {})
+
+    const main = screen.getByRole('main')
+    expect(within(main).getByRole('status')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(within(main).queryByRole('link', { name: /로그인/ })).not.toBeInTheDocument()
+  })
+
   it('로그인하면 안내가 사라지고 풀이 상태 열이 보인다', async () => {
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
-      user: { id: 'u1', nickname: '찬우', role: 'USER' },
+      user: { id: 1, nickname: '찬우', role: 'USER' },
       isAuthenticated: true,
       isLoading: false,
     })

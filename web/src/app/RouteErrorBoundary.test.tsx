@@ -1,11 +1,25 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import { type ReactNode, useState } from 'react'
 import { createMemoryRouter, Outlet, RouterProvider } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AppShell } from './AppShell'
-import { Component as LoginPage } from './LoginPage'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
 import { ThemeProvider } from './ThemeProvider'
+
+// AppHeader가 useAuth로 세션을 조회하므로 QueryClient가 필요하다.
+// 테스트마다 새로 만들어 앞 테스트의 ['me'] 캐시가 새지 않게 한다.
+function TestProviders({ children }: { children: ReactNode }) {
+  const [client] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  )
+  return (
+    <QueryClientProvider client={client}>
+      <ThemeProvider>{children}</ThemeProvider>
+    </QueryClientProvider>
+  )
+}
 
 // 운영 라우터가 실제로 ErrorBoundary를 달고 있는지 검증하려면 청크 로드 실패를
 // 재현해야 한다. SubmissionHistoryPage의 동적 import를 강제로 실패시킨다.
@@ -27,9 +41,9 @@ function renderWithThrowingRoute(thrown: unknown) {
   ])
 
   return render(
-    <ThemeProvider>
+    <TestProviders>
       <RouterProvider router={router} />
-    </ThemeProvider>,
+    </TestProviders>,
   )
 }
 
@@ -110,9 +124,9 @@ describe('RouteErrorBoundary', () => {
     )
 
     render(
-      <ThemeProvider>
+      <TestProviders>
         <RouterProvider router={router} />
-      </ThemeProvider>,
+      </TestProviders>,
     )
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
@@ -131,29 +145,12 @@ describe('RouteErrorBoundary', () => {
     const { router } = await import('./router')
 
     render(
-      <ThemeProvider>
+      <TestProviders>
         <RouterProvider router={router} />
-      </ThemeProvider>,
+      </TestProviders>,
     )
 
     expect(await screen.findByRole('alert')).toBeInTheDocument()
     expect(screen.getAllByRole('banner')).toHaveLength(1)
-  })
-})
-
-describe('LoginPage', () => {
-  // 헤더의 로그인 버튼이 404로 떨어지면 깨진 링크다
-  it('준비 중임을 알리고 돌아갈 길을 준다', () => {
-    const router = createMemoryRouter([{ path: '/', Component: LoginPage }])
-    render(<RouterProvider router={router} />)
-
-    // 이 화면의 제목은 EmptyState가 그리는 것뿐이다. h2로 두면 h1 없는 화면이 된다.
-    expect(
-      screen.getByRole('heading', { level: 1, name: '로그인 준비 중입니다' }),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '문제 보러 가기' })).toHaveAttribute(
-      'href',
-      '/problems',
-    )
   })
 })
