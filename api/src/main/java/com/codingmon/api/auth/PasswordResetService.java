@@ -68,7 +68,7 @@ class PasswordResetService {
         AccountRules.password(password, passwordConfirm);
         String email = certificate.getClaimAsString(EMAIL_CLAIM);
         Number tokenVersion = certificate.getClaim(TOKEN_VERSION_CLAIM);
-        // UPDATE가 사용자 행을 잠그므로 refresh token 폐기와 갱신이 겹치지 않는다.
+        // UPDATE가 사용자 행을 잠그므로 refresh token 폐기와 갱신·로그인 발급이 겹치지 않는다.
         if (users.resetPassword(email, tokenVersion.intValue(), passwordEncoder.encode(password)) == 0) {
             throw expired();
         }

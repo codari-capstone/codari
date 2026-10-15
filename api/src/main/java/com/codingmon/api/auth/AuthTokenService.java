@@ -48,9 +48,15 @@ public class AuthTokenService {
     }
 
     /** 로그인에 성공한 사용자에게 새 토큰 묶음을 발급한다. */
+    // 비밀번호를 비교하는 사이 재설정됐으면 token_version이 달라 발급하지 않는다(401).
+    // 재설정과 같은 사용자 행을 잠가, 먼저 발급된 토큰은 재설정의 폐기에 함께 걸린다.
     @Transactional
     public IssuedTokens issue(User user) {
-        return new IssuedTokens(accessToken(user), saveRefreshToken(user.getId(), UUID.randomUUID()).raw());
+        User current = users.findForUpdateById(user.getId()).orElseThrow();
+        if (current.getTokenVersion() != user.getTokenVersion()) {
+            throw unauthorized();
+        }
+        return new IssuedTokens(accessToken(current), saveRefreshToken(current.getId(), UUID.randomUUID()).raw());
     }
 
     // 실패해도 묶음 폐기는 남겨야 하므로 예외로 롤백하지 않는다.
