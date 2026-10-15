@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
-import { MemoryRouter } from 'react-router'
+import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { server } from '@/mocks/server'
@@ -33,6 +33,25 @@ function renderHeader() {
       </ThemeProvider>
     </QueryClientProvider>,
   )
+}
+
+/** 로그인 링크가 어떤 state를 싣는지 보려면 실제로 이동시켜 봐야 한다. */
+function renderHeaderAt(url: string) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // path를 '*'로 두면 /login으로 이동해도 같은 헤더가 그려져, 라우트를 더 두지 않아도 된다.
+  const router = createMemoryRouter([{ path: '*', element: <AppHeader /> }], {
+    initialEntries: [url],
+  })
+
+  render(
+    <QueryClientProvider client={client}>
+      <ThemeProvider>
+        <RouterProvider router={router} />
+      </ThemeProvider>
+    </QueryClientProvider>,
+  )
+
+  return router
 }
 
 describe('AppHeader', () => {
@@ -72,6 +91,20 @@ describe('AppHeader', () => {
 
     // jsdom에는 레이아웃이 없어 크기를 잴 수 없다. 자리 잡는 요소의 클래스로 확인한다.
     expect(container.querySelector('[aria-hidden="true"].min-h-11.w-14')).toBeInTheDocument()
+  })
+
+  it('로그인 링크에 지금 주소를 실어 보낸다 (COM-07)', async () => {
+    // 싣지 않으면 로그인 뒤 기본 목적지로 가서 보고 있던 검색·필터가 사라진다.
+    mockAuth({})
+    const user = userEvent.setup()
+    const router = renderHeaderAt('/problems?difficulty=EASY&keyword=sum')
+
+    await user.click(screen.getByRole('link', { name: '로그인' }))
+
+    expect(router.state.location.pathname).toBe('/login')
+    expect(router.state.location.state).toEqual({
+      from: '/problems?difficulty=EASY&keyword=sum',
+    })
   })
 
   it('USER에게는 관리자 링크를 보여 주지 않는다', () => {

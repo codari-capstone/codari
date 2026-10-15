@@ -10,18 +10,32 @@
  * 읽는 '/\'. 그러나 위험한 접두사를 하나하나 나열하는 방식은 믿을 것이 못 된다. URL 파서는
  * 탭·개행을 지우고('/\t/evil.com'은 'http://evil.com/'이 된다) 그 밖에도 예상 못 한 변형이
  * 있을 수 있다. 그래서 마지막에 현재 origin 기준으로 풀어 보고 origin이 그대로인 값만 통과시킨다.
+ *
+ * 사이트 안이어도 '/login'은 거부한다. 헤더의 로그인 버튼이 지금 주소를 from에 실으므로,
+ * 로그인 화면에서 그 버튼을 누르면 '/login'이 들어온다. 그 값을 그대로 쓰면 로그인 화면이
+ * 자기 자신으로 이동한다.
  */
 export function safeRedirect(from: unknown): string {
   if (typeof from !== 'string') return '/problems'
   if (!from.startsWith('/')) return '/problems'
   if (from.startsWith('//') || from.startsWith('/\\')) return '/problems'
   if (!staysOnOrigin(from)) return '/problems'
+  if (isLoginPath(from)) return '/problems'
   return from
 }
 
 function staysOnOrigin(path: string): boolean {
   try {
     return new URL(path, window.location.origin).origin === window.location.origin
+  } catch {
+    return false
+  }
+}
+
+/** 쿼리·해시를 떼고 경로만 본다. '/login?x=1'도 로그인 화면이다. */
+function isLoginPath(path: string): boolean {
+  try {
+    return new URL(path, window.location.origin).pathname === '/login'
   } catch {
     return false
   }

@@ -120,14 +120,24 @@ export function Component() {
       */}
       {!isAuthenticated && !isSessionLoading ? (
         <p className="text-muted-foreground text-sm">
-          <Link to="/login" className="text-primary hover:underline">
+          {/* 헤더의 로그인 버튼과 같은 이유로 지금 주소를 싣는다 (AppHeader.tsx). */}
+          <Link
+            to="/login"
+            state={{ from: `${location.pathname}${location.search}` }}
+            className="text-primary hover:underline"
+          >
             로그인
           </Link>
           하면 내 풀이 상태가 함께 보입니다.
         </p>
       ) : null}
 
-      {isPending || isSessionLoading ? <ListSkeleton rows={8} /> : null}
+      {/*
+        error와 함께 켜지지 않게 막는다. isPending만 보던 때는 둘이 동시에 참일 수 없었지만,
+        세션 확인이 조건에 들어오면서 "목록은 오류로 끝났는데 /api/me는 아직"인 구간이
+        생겨 스켈레톤과 오류가 나란히 그려진다.
+      */}
+      {(isPending || isSessionLoading) && !error ? <ListSkeleton rows={8} /> : null}
 
       {error ? <ErrorState problem={error} onRetry={() => void refetch()} /> : null}
 

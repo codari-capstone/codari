@@ -1,4 +1,4 @@
-import { Link, NavLink } from 'react-router'
+import { Link, NavLink, useLocation } from 'react-router'
 
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,7 @@ const ADMIN_MENU = { to: '/admin', label: '관리자' }
 /** COM-01 상단 내비게이션. 로그인 상태는 useAuth만 본다. */
 export function AppHeader() {
   const { user, isAuthenticated, isLoading } = useAuth()
+  const location = useLocation()
   const { logout } = useLogout()
   const menu = user?.role === 'ADMIN' ? [...MENU, ADMIN_MENU] : MENU
 
@@ -97,7 +98,14 @@ export function AppHeader() {
           </DropdownMenu>
         ) : (
           <Button asChild size="sm" className="min-h-11">
-            <Link to="/login">로그인</Link>
+            {/*
+              지금 주소를 함께 보낸다. 싣지 않으면 로그인한 뒤 기본 목적지(/problems)로 가서
+              보고 있던 검색·필터가 사라진다 — COM-07은 '원래 보던 페이지로 돌아감'이다.
+              로그인 화면에서 이 버튼을 누른 경우는 safeRedirect가 걸러 낸다.
+            */}
+            <Link to="/login" state={{ from: `${location.pathname}${location.search}` }}>
+              로그인
+            </Link>
           </Button>
         )}
       </div>

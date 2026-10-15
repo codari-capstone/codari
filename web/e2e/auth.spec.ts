@@ -66,6 +66,20 @@ test('비로그인이 제출 기록에 가면 로그인 후 그 자리로 돌아
   await expect(page).toHaveURL(/\/submissions$/)
 })
 
+test('필터를 걸어 둔 채 헤더의 로그인을 누르면 그 목록으로 돌아온다 (COM-07)', async ({ page }) => {
+  await page.goto('/problems?difficulty=EASY')
+  await expect(page.getByRole('heading', { name: '문제 목록' })).toBeVisible()
+
+  // 목록 안내에도 '로그인' 링크가 있다. 헤더(banner) 안으로 좁혀야 버튼을 집는다.
+  await page.getByRole('banner').getByRole('link', { name: '로그인' }).click()
+  await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
+  await login(page, USER)
+
+  // 링크가 지금 주소를 싣지 않으면 조건이 사라진 /problems로 떨어진다.
+  await expect(page).toHaveURL(/\/problems\?difficulty=EASY$/)
+  await expect(userMenu(page)).toBeVisible()
+})
+
 test('비로그인이 문제 상세를 열면 로그인 화면으로 간다', async ({ page }) => {
   await page.goto('/problems/1')
 

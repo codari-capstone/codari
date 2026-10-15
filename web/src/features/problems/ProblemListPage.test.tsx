@@ -23,6 +23,8 @@ function renderPage(initialUrl = '/problems') {
         Component: ProblemsLayout,
         children: [{ path: '/problems', Component: ProblemListPage }],
       },
+      // 안내 링크를 눌러 보는 테스트가 있다. 라우트가 없으면 이동이 404로 떨어진다.
+      { path: '/login', element: <h1>로그인 화면</h1> },
     ],
     { initialEntries: [initialUrl] },
   )
@@ -311,6 +313,41 @@ describe('ProblemListPage', () => {
     // 세션을 확인하기 전에는 안내를 그리지 않으므로(위 테스트) 나타날 때까지 기다린다.
     const main = screen.getByRole('main')
     expect(await within(main).findByRole('link', { name: /로그인/ })).toBeInTheDocument()
+  })
+
+  it('안내의 로그인 링크도 지금 주소를 실어 보낸다 (COM-07)', async () => {
+    // 헤더의 로그인 버튼과 같은 이유다. 필터를 걸어 둔 채 이 링크를 누른 사람이
+    // 로그인 뒤 조건 없는 목록으로 떨어지지 않게 한다.
+    const user = userEvent.setup()
+    const router = renderPage('/problems?difficulty=EASY')
+
+    const main = screen.getByRole('main')
+    await user.click(await within(main).findByRole('link', { name: /로그인/ }))
+
+    expect(router.state.location.pathname).toBe('/login')
+    expect(router.state.location.state).toEqual({ from: '/problems?difficulty=EASY' })
+  })
+
+  it('세션 확인 중에 목록이 실패하면 오류만 보여 준다', async () => {
+    // 스켈레톤 조건에 세션 확인이 들어오면서 isPending과 error의 배타성이 깨졌다.
+    // 두 블록이 나란히 그려지면 "불러오는 중"과 "실패했다"가 같은 화면에 있게 된다.
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
+    })
+    server.use(
+      http.get('*/api/problems', () =>
+        HttpResponse.json({ status: 500, title: 'Server Error' }, { status: 500 }),
+      ),
+    )
+    renderPage()
+
+    // 앱 기본값이 retry: 1이라 두 번째 응답까지 기다려야 오류 상태가 된다.
+    expect(
+      await screen.findByRole('button', { name: '다시 시도' }, { timeout: 3000 }),
+    ).toBeInTheDocument()
+    expect(within(screen.getByRole('main')).queryByRole('status')).not.toBeInTheDocument()
   })
 
   it('비로그인이면 풀이 상태 열이 표에 없다', async () => {

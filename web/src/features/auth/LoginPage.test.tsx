@@ -94,6 +94,13 @@ describe('safeRedirect', () => {
     expect(safeRedirect('/\r/evil.com')).toBe('/problems')
   })
 
+  it("'/login'을 거부한다", () => {
+    // 헤더의 로그인 버튼이 지금 주소를 from에 실으므로, 로그인 화면에서 그 버튼을 누르면
+    // '/login'이 들어온다. 그대로 쓰면 로그인 화면이 자기 자신으로 이동한다.
+    expect(safeRedirect('/login')).toBe('/problems')
+    expect(safeRedirect('/login?from=%2Fsubmissions')).toBe('/problems')
+  })
+
   it('경로가 아니거나 없으면 문제 목록으로 보낸다', () => {
     expect(safeRedirect(undefined)).toBe('/problems')
     expect(safeRedirect(42)).toBe('/problems')
