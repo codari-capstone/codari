@@ -8,7 +8,6 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.ErrorResponseException;
 
 import com.codingmon.api.user.User;
@@ -67,8 +66,8 @@ class AccountService {
         return !users.existsByNickname(AccountRules.nickname(nickname));
     }
 
-    @Transactional
-    public void signUp(String verificationToken, String rawNickname, String password, String passwordConfirm) {
+    // 트랜잭션으로 감싸지 않는다. 비밀번호 해시를 계산하는 동안 DB 연결을 붙잡지 않고, 저장은 saveAndFlush 자체 트랜잭션으로 한다.
+    void signUp(String verificationToken, String rawNickname, String password, String passwordConfirm) {
         String email = certificates.verify(verificationToken, AuthCertificates.Purpose.SIGNUP)
                 .map(jwt -> jwt.getClaimAsString(EMAIL_CLAIM))
                 .orElseThrow(() -> AuthErrors.error(HttpStatus.BAD_REQUEST, "VERIFICATION_EXPIRED",
