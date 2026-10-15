@@ -37,6 +37,18 @@ python3 scripts/smoke.py      # 종료 코드 0이면 통과
 
 `depends_on` healthcheck로 기동이 안 되면 공식 릴리스 노트의 순서로 띄운다: `docker compose up -d db redis`, 10초 대기, `docker compose up -d`.
 
+## 맥(Apple Silicon)에서 실행
+
+Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 동작하지 않는다. cgroup v1 모드로 바꾸면 이 폴더의 설정 그대로 띄울 수 있다(amd64 이미지는 Rosetta로 실행된다). Docker Desktop 4.95에서 확인했다.
+
+1. Docker Desktop을 종료하고 `~/Library/Group Containers/group.com.docker/settings-store.json`에 `"DeprecatedCgroupv1": true`를 추가한 뒤 다시 실행한다.
+2. `docker info --format '{{.CgroupVersion}}'`이 `1`인지 확인한다.
+3. 위 "설치·기동"과 같이 `.env`를 만들고 `docker compose up -d`, `python3 scripts/smoke.py`를 실행한다. `preflight.sh`는 호스트가 x86_64인지 검사하는 VM용이라 맥에서는 실패한다.
+
+이 설정은 맥의 모든 컨테이너에 적용된다. 되돌리려면 키를 지우고 Docker Desktop을 다시 시작한다.
+
+맥에서 띄운 Judge0는 기능 확인과 격리·판정 동작 관찰에 쓴다. 실행 시간·메모리 실측과 실행 슬롯 2개의 메모리 여유는 Apple 칩·Rosetta 번역 때문에 서버와 값이 다르므로 amd64 채점 VM에서 잰다.
+
 ## 운영 명령
 
 | 할 일 | 명령 (`judge/`에서) |
