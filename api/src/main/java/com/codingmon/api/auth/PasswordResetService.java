@@ -8,7 +8,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.ErrorResponseException;
 
 import com.codingmon.api.user.UserRepository;
@@ -28,15 +28,18 @@ class PasswordResetService {
     private final AuthRateLimiter limiter;
     private final AuthCertificates certificates;
     private final PasswordEncoder passwordEncoder;
+    private final TransactionTemplate transactions;
 
     PasswordResetService(UserRepository users, RefreshTokenRepository refreshTokens, EmailCodeService codes,
-            AuthRateLimiter limiter, AuthCertificates certificates, PasswordEncoder passwordEncoder) {
+            AuthRateLimiter limiter, AuthCertificates certificates, PasswordEncoder passwordEncoder,
+            TransactionTemplate transactions) {
         this.users = users;
         this.refreshTokens = refreshTokens;
         this.codes = codes;
         this.limiter = limiter;
         this.certificates = certificates;
         this.passwordEncoder = passwordEncoder;
+        this.transactions = transactions;
     }
 
     // 가입되지 않은 이메일(GitHub 가입 계정 포함)이면 보내지 않고 알린다. 이 조회는 IP 기준에만 센다.
@@ -61,19 +64,22 @@ class PasswordResetService {
     }
 
     // 비밀번호를 바꾸고 token_version을 올려 모든 기기를 로그아웃시킨다.
-    @Transactional
-    public void reset(String resetToken, String password, String passwordConfirm) {
+    // 해시는 트랜잭션 밖에서 계산해 그동안 DB 연결을 붙잡지 않는다. 변경과 폐기만 한 트랜잭션으로 묶는다.
+    void reset(String resetToken, String password, String passwordConfirm) {
         Jwt certificate = certificates.verify(resetToken, AuthCertificates.Purpose.PASSWORD_RESET)
                 .orElseThrow(PasswordResetService::expired);
         AccountRules.password(password, passwordConfirm);
         String email = certificate.getClaimAsString(EMAIL_CLAIM);
         Number tokenVersion = certificate.getClaim(TOKEN_VERSION_CLAIM);
-        // UPDATE가 사용자 행을 잠그므로 refresh token 폐기와 갱신·로그인 발급이 겹치지 않는다.
-        if (users.resetPassword(email, tokenVersion.intValue(), passwordEncoder.encode(password)) == 0) {
-            throw expired();
-        }
-        Long userId = users.findByEmail(email).orElseThrow(PasswordResetService::expired).getId();
-        refreshTokens.revokeAllOfUser(userId, Instant.now());
+        String passwordHash = passwordEncoder.encode(password);
+        transactions.executeWithoutResult(status -> {
+            // UPDATE가 사용자 행을 잠그므로 refresh token 폐기와 갱신·로그인 발급이 겹치지 않는다.
+            if (users.resetPassword(email, tokenVersion.intValue(), passwordHash) == 0) {
+                throw expired();
+            }
+            Long userId = users.findByEmail(email).orElseThrow(PasswordResetService::expired).getId();
+            refreshTokens.revokeAllOfUser(userId, Instant.now());
+        });
     }
 
     private static ErrorResponseException expired() {
