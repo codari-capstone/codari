@@ -53,9 +53,19 @@ describe('loginSchema', () => {
     )
   })
 
+  it('서버가 가입시켜 주는 주소를 로그인에서 막지 않는다', () => {
+    // 서버 가입 규칙은 AccountRules.java의 /^[^@\s]+@[^@\s]+\.[^@\s]+$/다. zod의 z.email()은
+    // 이보다 엄격해서 아래 두 주소를 거부한다. 그 규칙으로 가입한 사람이 로그인 폼을
+    // 통과할 수 없고, COM-07의 단일 문구 때문에 이유도 알 수 없다.
+    expect(
+      loginSchema.safeParse({ email: 'user!x@example.com', password: 'Codari!test1' }).success,
+    ).toBe(true)
+    expect(loginSchema.safeParse({ email: 'a@b.c', password: 'Codari!test1' }).success).toBe(true)
+  })
+
   it('비밀번호 길이 규칙을 걸지 않는다', () => {
-    // 로그인은 형식만 본다(loginSchema.ts 주석 참고). 규칙을 강화하기 전에 만든 계정이 새 규칙에 걸려 자기 비밀번호를 못 넣게 되고,
-    // 길이 거부가 그 계정의 비밀번호 길이를 알려 주는 단서가 된다.
+    // docs/feature-spec.md '계정 규칙'이 로그인에서는 이 규칙을 검사하지 않기로 정했다.
+    // 규칙을 강화하기 전에 만든 계정이 새 규칙에 걸려 자기 비밀번호를 못 넣게 된다.
     expect(loginSchema.safeParse({ email: 'a@b.co', password: 'a' }).success).toBe(true)
     expect(loginSchema.safeParse({ email: 'a@b.co', password: 'a'.repeat(99) }).success).toBe(true)
   })

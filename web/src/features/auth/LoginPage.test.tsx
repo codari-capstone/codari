@@ -5,8 +5,11 @@ import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { parseParams } from '@/features/problems/problemListParams'
+import { problemListQuery } from '@/features/problems/problemsQuery'
+import { problems } from '@/mocks/fixtures/problems'
 import { server } from '@/mocks/server'
-import { logoutRequest } from './authQuery'
+import { logoutRequest, ME_QUERY_KEY } from './authQuery'
 import { Component as LoginPage } from './LoginPage'
 import { safeRedirect } from './safeRedirect'
 
@@ -21,9 +24,15 @@ const CREDENTIAL_MESSAGE =
   '이메일 또는 비밀번호가 맞지 않아요. GitHub로 가입했다면 GitHub 로그인을 이용해 주세요'
 const RATE_LIMIT_MESSAGE = '로그인 시도가 너무 많아요. 5분 후 다시 시도해 주세요'
 
-/** 로그인 후 도착지를 확인할 수 있게 /submissions에 표식을 둔 메모리 라우터. */
-function renderLogin(state?: unknown) {
+/**
+ * 로그인 후 도착지를 확인할 수 있게 /submissions에 표식을 둔 메모리 라우터.
+ *
+ * seed는 마운트 전에 캐시를 채운다. 렌더 뒤에 채우면 "이미 받아 둔 데이터가 있는 상태로
+ * 이 화면을 열었다"를 재현할 수 없다 — 첫 렌더가 이미 지나가 버린다.
+ */
+function renderLogin(state?: unknown, seed?: (client: QueryClient) => void) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  seed?.(client)
   const router = createMemoryRouter(
     [
       { path: '/login', Component: LoginPage },
@@ -39,10 +48,21 @@ function renderLogin(state?: unknown) {
     </QueryClientProvider>,
   )
 
-  return { router }
+  return { router, client }
+}
+
+/**
+ * 폼이 나타날 때까지 기다린다.
+ *
+ * 세션을 아직 모르는 동안 LoginPage는 폼 대신 스켈레톤을 그린다. 렌더 직후에 칸을 집으면
+ * 그 스켈레톤을 만나 "이메일 라벨이 없다"로 깨진다.
+ */
+function waitForLoginForm() {
+  return screen.findByRole('form', { name: '로그인' })
 }
 
 async function fillAndSubmit(user: ReturnType<typeof userEvent.setup>) {
+  await waitForLoginForm()
   await user.type(screen.getByLabelText('이메일'), 'user@codari.test')
   await user.type(screen.getByLabelText('비밀번호'), 'Codari!test1')
   await user.click(screen.getByRole('button', { name: '로그인' }))
@@ -204,6 +224,7 @@ describe('로그인 화면', () => {
   it('비밀번호 칸에서 Enter로 제출된다', async () => {
     const user = userEvent.setup()
     renderLogin({ from: '/submissions' })
+    await waitForLoginForm()
 
     await user.type(screen.getByLabelText('이메일'), 'user@codari.test')
     await user.type(screen.getByLabelText('비밀번호'), 'Codari!test1{Enter}')
@@ -215,6 +236,7 @@ describe('로그인 화면', () => {
     // 버튼 클릭을 거치지 않는 제출 경로다. onSubmit이 폼에 있어야 잡힌다.
     const user = userEvent.setup()
     renderLogin({ from: '/submissions' })
+    await waitForLoginForm()
 
     await user.type(screen.getByLabelText('이메일'), 'user@codari.test')
     await user.type(screen.getByLabelText('비밀번호'), 'Codari!test1')
@@ -236,6 +258,7 @@ describe('로그인 화면', () => {
     )
     const user = userEvent.setup()
     renderLogin()
+    await waitForLoginForm()
 
     await user.type(screen.getByLabelText('이메일'), 'user@codari.test')
     await user.type(screen.getByLabelText('비밀번호'), 'Codari!test1')
@@ -259,6 +282,7 @@ describe('로그인 화면', () => {
     )
     const user = userEvent.setup()
     renderLogin()
+    await waitForLoginForm()
 
     await user.click(screen.getByRole('button', { name: '로그인' }))
 
@@ -276,10 +300,80 @@ describe('로그인 화면', () => {
     expect(screen.queryByLabelText('비밀번호')).not.toBeInTheDocument()
   })
 
+  it('세션을 모르는 동안에는 폼을 그리지 않는다', async () => {
+    // 폼을 먼저 보여 주면, 이미 로그인한 사람이 입력을 시작한 뒤 /api/me가 도착하면서
+    // <Navigate>가 실행돼 입력하던 내용이 사라진 채 이동한다.
+    let release = () => {}
+    const inFlight = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.use(
+      http.get('*/api/me', async () => {
+        await inFlight
+        return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
+      }),
+    )
+
+    try {
+      renderLogin()
+
+      expect(await screen.findByRole('status')).toBeInTheDocument()
+      expect(screen.queryByLabelText('비밀번호')).not.toBeInTheDocument()
+      expect(screen.queryByRole('form', { name: '로그인' })).not.toBeInTheDocument()
+    } finally {
+      release()
+    }
+  })
+
+  it('로그인 전에 나간 /api/me가 늦게 끝나도 로그인 상태를 덮지 않는다', async () => {
+    // 비로그인으로 한 번 받아 둔 뒤(data = null) staleTime(60초)이 지난 상태로 이 화면을 열면,
+    // 배경 재조회가 나가면서도 데이터가 있으므로 폼이 바로 보인다. 그 사이에 로그인이
+    // 성공하면, 로그인 전 쿠키로 나간 그 요청이 401로 끝나며 null로 사용자를 덮는다.
+    let release = () => {}
+    const inFlight = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.use(
+      http.get('*/api/me', async () => {
+        await inFlight
+        return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
+      }),
+    )
+    const user = userEvent.setup()
+    const { client } = renderLogin({ from: '/submissions' }, (c) => {
+      c.setQueryData(ME_QUERY_KEY, null, { updatedAt: Date.now() - 120_000 })
+    })
+
+    await fillAndSubmit(user)
+    expect(await screen.findByRole('heading', { name: '제출 기록 도착' })).toBeInTheDocument()
+
+    release()
+    // 요청이 끝날 때까지 기다린 뒤 캐시를 본다. 취소했다면 이미 idle이고 아무것도 쓰이지 않는다.
+    await waitFor(() => expect(client.getQueryState(ME_QUERY_KEY)?.fetchStatus).toBe('idle'))
+    expect(client.getQueryData(ME_QUERY_KEY)).toEqual({ id: 1, nickname: '코다리', role: 'USER' })
+  })
+
+  it('로그인하면 비로그인으로 받아 둔 문제 목록 캐시를 버린다', async () => {
+    // 비로그인 응답에는 풀이 상태가 없다. 남겨 두면 staleTime(30초) 안에 다시 쓰여,
+    // 열은 생겼는데 값이 전부 '—'인 표가 보인다. 키는 problemsQuery의 것을 그대로 쓴다 —
+    // 그쪽이 키를 바꾸면 LoginPage의 제거 대상도 함께 바뀌어야 하고, 이 단언이 알려 준다.
+    const listKey = problemListQuery(parseParams(new URLSearchParams())).queryKey
+    const user = userEvent.setup()
+    const { client } = renderLogin(undefined, (c) => {
+      // 비로그인 응답이라 풀이 상태가 없는 행이다. 픽스처를 쓰면 타입이 실제 응답과 같다.
+      c.setQueryData(listKey, { content: [problems[0]!], totalElements: 1 })
+    })
+
+    await fillAndSubmit(user)
+    await screen.findByRole('heading', { name: '문제 목록 도착' })
+
+    expect(client.getQueryData(listKey)).toBeUndefined()
+  })
+
   it('목 계정을 화면에 노출하지 않는다', async () => {
     renderLogin()
 
-    await screen.findByRole('form', { name: '로그인' })
+    await waitForLoginForm()
     // textContent는 속성과 입력값을 보지 못한다. placeholder·value 같은 속성까지 보려고
     // 직렬화한 HTML 전체를 본다. 입력칸은 비어 있어야 하므로 값도 따로 확인한다.
     const html = document.body.innerHTML
@@ -294,7 +388,7 @@ describe('로그인 화면', () => {
     // 404로 떨어진다. 이 테스트는 헤더 없이 화면만 그리므로 링크가 있다면 모두 이 화면의 것이다.
     renderLogin()
 
-    await screen.findByRole('form', { name: '로그인' })
+    await waitForLoginForm()
     expect(screen.queryAllByRole('link')).toHaveLength(0)
   })
 })

@@ -32,7 +32,11 @@ export function Component() {
   // 만들어지는 좁은 경우다. 그 경우를 테스트로 재현하지는 못했으니, 정합성 보장이 아니라
   // 참조 안정성을 위한 방어로 읽으면 된다.
   const params = useMemo(() => parseParams(searchParams), [searchParams])
-  const { isAuthenticated } = useAuth()
+  // 세션을 아직 모르는 동안은 비로그인으로 그리지 않는다. 이 PR 전에는 useAuth가
+  // 비로그인으로 고정이어서 이 구간이 없었다. 지금은 로그인한 사람이 이 화면을 새로
+  // 열면 /api/me가 오기 전까지 아래 안내가 보이고, 풀이 상태 열과 필터가 없는 표가
+  // 그려진 뒤 열이 하나 늘며 표가 움직인다.
+  const { isAuthenticated, isLoading: isSessionLoading } = useAuth()
 
   const { data, isPending, isFetching, error, refetch } = useQuery({
     ...problemListQuery(params),
@@ -114,7 +118,7 @@ export function Component() {
         비로그인에게 풀이 상태는 없는 데이터다. 열과 필터를 숨기는 대신
         왜 안 보이는지 한 줄로 알려 준다 (COM-05).
       */}
-      {!isAuthenticated ? (
+      {!isAuthenticated && !isSessionLoading ? (
         <p className="text-muted-foreground text-sm">
           <Link to="/login" className="text-primary hover:underline">
             로그인
@@ -123,11 +127,11 @@ export function Component() {
         </p>
       ) : null}
 
-      {isPending ? <ListSkeleton rows={8} /> : null}
+      {isPending || isSessionLoading ? <ListSkeleton rows={8} /> : null}
 
       {error ? <ErrorState problem={error} onRetry={() => void refetch()} /> : null}
 
-      {data && !error ? (
+      {data && !error && !isSessionLoading ? (
         data.content.length === 0 ? (
           filtered ? (
             <EmptyState

@@ -308,8 +308,9 @@ describe('ProblemListPage', () => {
     renderPage()
 
     // 헤더에도 '로그인' 링크가 있다. 본문으로 좁혀야 이 화면의 안내문을 집는다.
+    // 세션을 확인하기 전에는 안내를 그리지 않으므로(위 테스트) 나타날 때까지 기다린다.
     const main = screen.getByRole('main')
-    expect(within(main).getByRole('link', { name: /로그인/ })).toBeInTheDocument()
+    expect(await within(main).findByRole('link', { name: /로그인/ })).toBeInTheDocument()
   })
 
   it('비로그인이면 풀이 상태 열이 표에 없다', async () => {
@@ -317,6 +318,33 @@ describe('ProblemListPage', () => {
 
     await screen.findByRole('link', { name: '두 수의 합' })
     expect(screen.queryByRole('columnheader', { name: '풀이 상태' })).not.toBeInTheDocument()
+  })
+
+  it('세션을 모르는 동안에는 안내도 표도 그리지 않는다', async () => {
+    // 비로그인으로 먼저 그리면, 로그인한 사람이 '로그인하면 …' 안내를 봤다가 풀이 상태
+    // 열이 뒤늦게 생기며 표가 움직인다. 세션을 알 때까지는 스켈레톤에 머문다.
+    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
+    })
+    let listCalls = 0
+    server.use(
+      http.get('*/api/problems', () => {
+        listCalls += 1
+        return HttpResponse.json({ content: [problems[0]], totalElements: 1 })
+      }),
+    )
+    renderPage()
+
+    // 목록 응답이 도착한 뒤에도 표가 없어야 한다. 도착 전에 단언하면 아무것도 증명하지 못한다.
+    await waitFor(() => expect(listCalls).toBe(1))
+    await act(async () => {})
+
+    const main = screen.getByRole('main')
+    expect(within(main).getByRole('status')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(within(main).queryByRole('link', { name: /로그인/ })).not.toBeInTheDocument()
   })
 
   it('로그인하면 안내가 사라지고 풀이 상태 열이 보인다', async () => {

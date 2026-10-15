@@ -3,6 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
 import { Navigate, useLocation, useNavigate } from 'react-router'
 
+import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { loginRequest, ME_QUERY_KEY } from './authQuery'
@@ -15,7 +16,7 @@ export function Component() {
   const location = useLocation()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isLoading } = useAuth()
 
   const target = safeRedirect((location.state as { from?: unknown } | null)?.from)
 
@@ -27,15 +28,29 @@ export function Component() {
 
   const login = useMutation({
     mutationFn: loginRequest,
-    onSuccess: (user) => {
+    onSuccess: async (user) => {
+      // 로그인 전 쿠키로 나간 /api/me가 아직 떠 있을 수 있다. 그게 늦게 401로 끝나면
+      // queryFn이 돌려주는 null이 바로 아래에서 넣은 사용자를 덮어써, 방금 로그인한
+      // 사람이 RequireAuth에 걸려 로그인 화면으로 되돌아온다. 먼저 취소한다.
+      await queryClient.cancelQueries({ queryKey: ME_QUERY_KEY })
       // 무효화만 하면 /api/me 왕복을 한 번 더 기다리며 헤더가 비로그인으로 한 번 더 그려진다.
       queryClient.setQueryData(ME_QUERY_KEY, user)
+      // 비로그인으로 받아 둔 문제 목록에는 이 사람의 풀이 상태가 없다. 지우지 않으면
+      // staleTime(30초) 안에는 그 응답을 다시 써서, 열은 생겼는데 값이 전부 '—'로 보인다
+      // (ProblemTable.tsx). 무효화가 아니라 제거다 — 무효화는 다시 받아 오는 동안 그
+      // 틀린 값을 화면에 남긴다. 사용자별 응답을 캐시하는 키가 늘면 여기도 늘어난다.
+      queryClient.removeQueries({ queryKey: ['problems'] })
       // 아래의 <Navigate> 분기도 setQueryData로 isAuthenticated가 바뀌면 같은 곳으로 보내므로
       // 이 호출이 없어도 도착한다. 그래도 두는 이유는 재렌더에 기대지 않고 바로 이동하기 위해서다.
       // replace를 빼면 /login이 기록에 남는다. LoginPage.test.tsx가 PUSH 여부로 이를 지킨다.
       void navigate(target, { replace: true })
     },
   })
+
+  // 아직 세션을 모른다. 폼을 먼저 보여 주면 이미 로그인한 사람이 입력을 시작한 뒤
+  // /api/me가 도착하면서 아래 <Navigate>가 실행돼, 입력하던 내용이 사라진 채 이동한다.
+  // RequireAuth와 같은 선택이다 (RequireAuth.tsx).
+  if (isLoading) return <ListSkeleton rows={3} />
 
   // 이미 로그인했으면 폼을 보여 주지 않는다. 로그인한 사람이 주소로 직접 들어오거나
   // 이 화면이 열려 있는 동안 세션이 생긴 경우다.

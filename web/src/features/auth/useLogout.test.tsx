@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import { server } from '@/mocks/server'
 import { ME_QUERY_KEY } from './authQuery'
+import { useAuth } from './useAuth'
 import { useLogout } from './useLogout'
 
 function LogoutButton() {
@@ -23,6 +24,41 @@ function renderLogout() {
     [
       { path: '/me/report', Component: LogoutButton },
       { path: '/problems', element: <h1>문제 목록 도착</h1> },
+    ],
+    { initialEntries: ['/me/report'] },
+  )
+
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
+
+  return { client }
+}
+
+/** 도착한 화면이 세션을 다시 묻는 것까지 보려면 useAuth를 쓰는 화면이 있어야 한다. */
+function SessionLabel() {
+  const { isAuthenticated, isLoading } = useAuth()
+  return <p>{isLoading ? '확인 중' : isAuthenticated ? '로그인 상태' : '비로그인'}</p>
+}
+
+function renderLogoutWithSessionLabel() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  client.setQueryData(ME_QUERY_KEY, { id: 1, nickname: '코다리', role: 'USER' })
+
+  const router = createMemoryRouter(
+    [
+      { path: '/me/report', Component: LogoutButton },
+      {
+        path: '/problems',
+        element: (
+          <>
+            <h1>문제 목록 도착</h1>
+            <SessionLabel />
+          </>
+        ),
+      },
     ],
     { initialEntries: ['/me/report'] },
   )
@@ -72,5 +108,24 @@ describe('useLogout', () => {
     // 실패를 삼키고 멈추면 로그아웃 버튼이 먹지 않는 것처럼 보인다.
     expect(await screen.findByRole('heading', { name: '문제 목록 도착' })).toBeInTheDocument()
     expect(client.getQueryData(ME_QUERY_KEY)).toBeUndefined()
+  })
+
+  it('요청이 실패하고 서버 세션이 살아 있으면 로그아웃을 꾸며 내지 않는다', async () => {
+    // 캐시를 비웠으므로 도착한 화면이 /api/me를 다시 묻는다. 세션이 남아 있으면 로그인
+    // 상태가 그대로 돌아온다. ['me']에 null을 심어 로그아웃된 것처럼 보이게 하지 않는다 —
+    // 공용 컴퓨터에서 "로그아웃됐다"고 본 사람의 세션이 실제로는 살아 있는 쪽이 더 위험하다.
+    server.use(
+      http.post('*/api/auth/logout', () =>
+        HttpResponse.json({ status: 500, title: 'Server Error' }, { status: 500 }),
+      ),
+      http.get('*/api/me', () => HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' })),
+    )
+    const user = userEvent.setup()
+    renderLogoutWithSessionLabel()
+
+    await user.click(screen.getByRole('button', { name: '로그아웃' }))
+
+    await screen.findByRole('heading', { name: '문제 목록 도착' })
+    expect(await screen.findByText('로그인 상태')).toBeInTheDocument()
   })
 })
