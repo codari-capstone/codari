@@ -16,7 +16,7 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 | `judge0.conf` | 공식 `judge0.conf` 원문에 아래 "설정 요약"의 값을 넣은 파일. 비밀값 키는 없다 |
 | `.env.example` | 비밀값 견본. VM에서 `.env`로 복사해 채운다(저장소에 올리지 않는다) |
 | `scripts/preflight.sh` | 기동 전 확인: x86_64, cgroup v1, Docker·Compose, `.env`, conf에 비밀값 키가 없는지 |
-| `scripts/smoke.py` | 기동 후 확인: 인증, `/config_info`와 conf 대조, 언어 71·54, 워커 2개, hello world, 금지 요청 거절 |
+| `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 2개, 금지 요청 거절 |
 | `scripts/judge0_client.py` | 표준 라이브러리 클라이언트. smoke·실측·검증이 함께 쓴다 |
 | `tests/` | 클라이언트 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
 
@@ -61,6 +61,8 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | Judge0 DB까지 삭제 | `docker compose down -v` — 제출 기록이 모두 지워진다. 일반 중지에 쓰지 않는다 |
 
 Judge0 시작 스크립트는 환경 변수 전체(비밀값 포함)를 로그에 남긴다. `docker compose logs` 원문은 PR·이슈·메신저에 붙이지 않는다.
+
+`GET /workers`는 워커 상태 확인에 쓰지 않는다. 호출할 때마다 서버 컨테이너가 Resque의 `prune_dead_workers`를 실행하는데, 워커 PID를 자기 컨테이너에서 찾다 못 찾으면 등록을 지운다. 그래서 워커가 뜬 지 60초가 지나면 `available`이 0으로 나온다. 작업은 계속 정상 처리된다. 워커가 살아 있는지는 `docker compose ps`와 실제 제출로 확인한다(smoke의 "실행 슬롯" 항목).
 
 ## 설정 요약
 

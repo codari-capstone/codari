@@ -3,14 +3,13 @@
 
   cd judge && python3 scripts/smoke.py
 
-확인 항목: 인증(401/200), /config_info가 judge0.conf와 같은지, 언어 71·54, 워커 2개,
-Python·C++17 hello world, 호출자가 바꾸면 안 되는 값의 거절(422/400), 권한(403).
+확인 항목: 인증(401/200), /system_info, /config_info가 judge0.conf와 같은지, 언어 71·54,
+Python·C++17 hello world, 동시 실행 2개, 호출자가 바꾸면 안 되는 값의 거절(422/400), 권한(403).
 토큰은 JUDGE0_AUTHN_TOKEN·JUDGE0_AUTHZ_TOKEN, 없으면 judge/.env의 AUTHN_TOKEN·AUTHZ_TOKEN을 쓴다.
 """
 
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from judge0_client import CPP_COMPILER_OPTIONS, CPP_ID, PYTHON_ID, Judge0Client  # noqa: E402
@@ -30,6 +29,10 @@ CPP_HELLO = (
     "int main(){ auto [a, b] = std::pair<int,int>(1, 2);\n"
     "  if constexpr (__cplusplus >= 201703L) std::printf(\"hello %ld %d\\n\", __cplusplus, a + b);\n}\n"
 )
+# 2초씩 자며 샌드박스 안 시각으로 실행 구간을 찍는다. 3개를 함께 넣으면 슬롯 2개에서는 2개까지만 겹친다
+SLOT_PROBE = "import time\nstart = time.time()\ntime.sleep(2)\nprint(start, time.time())\n"
+SLOT_PROBE_JOBS = 3
+EXPECTED_SLOTS = 2
 
 
 def read_kv(path):
@@ -41,6 +44,16 @@ def read_kv(path):
                 key, value = line.split("=", 1)
                 values[key.strip()] = value.strip().strip('"')
     return values
+
+
+def max_overlap(intervals):
+    """(시작, 끝) 구간들이 한 시각에 최대 몇 개 겹치는지. 끝과 시작이 같은 시각이면 겹치지 않은 것으로 본다."""
+    events = sorted([(start, 1) for start, _ in intervals] + [(end, -1) for _, end in intervals])
+    current = best = 0
+    for _, delta in events:
+        current += delta
+        best = max(best, current)
+    return best
 
 
 def normalize(value):
@@ -79,6 +92,13 @@ def main():
     status, _ = client.request("GET", "/submissions")
     c.check(status == 403, "AUTHZ 없이 제출 목록 → 403", f"실제 {status}")
 
+    print("[시스템] /system_info")
+    status, sysinfo = client.request("GET", "/system_info")
+    sysinfo = sysinfo if isinstance(sysinfo, dict) else {}
+    c.check(status == 200 and sysinfo.get("Architecture") == "x86_64", "/system_info → 200, x86_64",
+            f"실제 {status} {sysinfo.get('Architecture')!r}")
+    print(f"       CPU {sysinfo.get('CPU(s)')}개, 모델 {sysinfo.get('Model name', '-')}")
+
     print("[설정] /config_info 와 judge0.conf 대조")
     _, info = client.request("GET", "/config_info")
     info = info or {}
@@ -102,16 +122,19 @@ def main():
     cpp = client.run(CPP_HELLO, CPP_ID, compiler_options=CPP_COMPILER_OPTIONS)
     c.check(cpp["status"]["id"] == 3 and cpp["stdout"] == "hello 201703 3\n", "C++17 hello → status 3", repr(cpp))
 
-    print("[워커]")
-    # /workers는 큐가 생긴 뒤(첫 실행 이후)에만 항목을 돌려주므로 실행 확인 뒤에 본다.
-    # 재시작 직후에는 워커가 아직 등록되지 않아 available 0이 올 수 있어 최대 60초 기다린다
-    for _ in range(30):
-        _, workers = client.request("GET", "/workers")
-        available = sum(q.get("available", 0) for q in (workers or []))
-        if available >= 2:
-            break
-        time.sleep(2)
-    c.check(available == 2, "실행 슬롯(available) 2", f"실제 {workers!r}")
+    print("[실행 슬롯]")
+    # /workers는 쓰지 않는다. 호출할 때마다 서버 컨테이너가 Resque prune_dead_workers를 돌리는데,
+    # 워커 PID를 자기 컨테이너에서 찾다 못 찾아 등록을 지운다. 워커 기동 60초 뒤부터 available이 0으로 온다
+    # (작업은 정상 처리된다). 그래서 실제로 함께 돈 개수를 잰다.
+    tokens = [client.submit(SLOT_PROBE, PYTHON_ID) for _ in range(SLOT_PROBE_JOBS)]
+    runs = [client.wait(token) for token in tokens]
+    try:
+        intervals = [tuple(float(v) for v in run["stdout"].split()) for run in runs]
+        overlap = max_overlap(intervals)
+    except (AttributeError, TypeError, ValueError):
+        overlap = None
+    c.check(overlap == EXPECTED_SLOTS, f"{SLOT_PROBE_JOBS}개 제출 → 동시 실행 {EXPECTED_SLOTS}개, 나머지는 대기",
+            f"실제 {overlap} / {[(r['status']['id'], r['stdout']) for r in runs]!r}")
 
     print("[호출자가 바꿀 수 없는 값]")
     base = client.submission_body(PY_HELLO, PYTHON_ID)
