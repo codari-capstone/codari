@@ -37,7 +37,8 @@ class GitHubLoginController {
     GitHubLoginController(GitHubClient github, GitHubLoginService logins, @Value("${app.web.base-url}") String webBaseUrl) {
         this.github = github;
         this.logins = logins;
-        this.webBaseUrl = webBaseUrl;
+        // 끝에 '/'를 붙여 넣어도 '//login/github'가 되지 않게 지운다.
+        this.webBaseUrl = webBaseUrl.replaceAll("/+$", "");
     }
 
     record SignupRequest(String nickname) {
