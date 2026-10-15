@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "label": "mac-rosetta-cgroupv1",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "run_at": "20261015-120625"
+  },
+  "case": {
+    "id": "exc_value_py",
+    "group": "exceptions",
+    "file": "exc_value.py",
+    "expect": {
+      "status": [
+        11
+      ],
+      "stderr_has": [
+        "ValueError"
+      ]
+    },
+    "observe": true
+  },
+  "result": {
+    "stdout": null,
+    "time": "0.074",
+    "memory": 9728,
+    "stderr": "Traceback (most recent call last):\n  File \"script.py\", line 1, in <module>\n    n = int(\"1 2\")\nValueError: invalid literal for int() with base 10: '1 2'\n",
+    "compile_output": null,
+    "exit_code": 1,
+    "exit_signal": null,
+    "message": "Exited with error status 1",
+    "wall_time": "0.085",
+    "status": {
+      "id": 11,
+      "description": "Runtime Error (NZEC)"
+    }
+  }
+}

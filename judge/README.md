@@ -19,7 +19,8 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 | `scripts/preflight.sh` | 기동 전 확인: x86_64, cgroup v1, Docker·Compose, `.env`, conf에 비밀값 키가 없는지 |
 | `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), AUTHZ(403·삭제 200), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 `COUNT`개, 금지 요청 거절 |
 | `scripts/judge0_client.py` | 표준 라이브러리 클라이언트. smoke·실측·검증이 함께 쓴다 |
-| `tests/` | 클라이언트·smoke 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
+| `verify/` | 격리·자원 제한 검증(#66): 케이스 `cases/`·`cases.json`, 실행기 `run_verify.py`, 동시 실행 `concurrency_check.py`, 결과 `results/`, 케이스별 응답 `observed/` |
+| `tests/` | 클라이언트·smoke·검증 로직 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
 
 ## 설치·기동
 
@@ -109,3 +110,44 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | C++ | 54 | GCC 9.2.0 | `-O2 -std=c++17` (API 서버가 고정해 보낸다) |
 
 Judge0 1.13.1에는 Python 3.10 이상이 없다. `match` 문 같은 3.10+ 문법은 쓸 수 없다.
+
+## 격리·자원 제한 검증 (#66)
+
+```bash
+cd judge
+python3 verify/run_verify.py --label <환경 이름> --observed verify/observed   # 종료 코드 = 실패 수
+python3 verify/concurrency_check.py                                         # 실행 슬롯 2개
+```
+
+`run_verify.py`는 `verify/cases.json`의 케이스 45개(네트워크·파일·프로세스·시간·메모리·재귀·출력·예외)를 제출해 기대값과 대조한다. 네트워크 케이스는 같은 코드를 호스트에서도 실행해, 샌드박스 밖에서는 닿는 대상만 차단 근거로 인정한다. 예외 케이스는 판정 매핑의 근거로 기록만 한다(`observe`). 제한값은 `judge0.conf` 기본값(CPU 2초, wall 5초, 메모리 256 MB, 출력 1024 KB)이다.
+
+### 결과: 맥 Docker Desktop (cgroup v1, Rosetta) — 2026-10-15
+
+전체 표는 `verify/results/2026-10-15-mac-rosetta-cgroupv1.md`, 케이스별 응답은 `verify/observed/mac-rosetta-cgroupv1/`에 있다. 실패 0건(44건 통과, 환경에 따라 다른 관찰 1건).
+
+| 묶음 | 결과 |
+|---|---|
+| 네트워크 | Python·C++ 모두 DNS(example.com)·TCP(1.1.1.1:53, 8.8.8.8:53) 차단. 같은 대상이 호스트에서는 닿는 것을 대조 실행으로 확인 |
+| 파일 | `docker.sock`·`/judge0.conf`·`/api/environment`(Judge0 비밀값이 담긴 파일)·isolate 작업 폴더가 보이지 않음. `/etc/shadow` 읽기 거부, `/etc`·`/usr` 쓰기 거부 |
+| 프로세스 | uid 60000번대로 실행. `/proc`에는 샌드박스 안 프로세스만 보임. fork는 58개에서 막힘(`-p 60`) |
+| 시간 | 무한 반복(Python·C++) → status 5, CPU 2.1초. 무한 `sleep` → status 5, wall 5.0초 |
+| 메모리 | 큰 리스트·배열·벡터 → status 11, exit_code 137(SIGKILL), `memory` = 제한값(262144 KB) |
+| 재귀 | Python 기본 한도 → `RecursionError`. 깊이 10⁵(Python)·10⁶(C++)은 통과. 끝없는 재귀는 스택이 메모리에 포함되어 메모리 제한에서 SIGKILL |
+| 출력 | C++ 무한 출력 → status 11, exit_code 153(SIGXFSZ). Python 무한 출력 → `OSError: [Errno 27] File too large`, exit_code 1. stderr 무한 출력 → exit_code 120. 제한 바로 아래 출력(900 KB)과 비UTF-8 출력은 정상 |
+| 동시 실행 | CPU 1.5초 작업 4개 → 샌드박스 실행 구간 최대 2개 겹침, 나머지는 큐 대기. 450 MiB 작업 2개 동시 실행 정상 |
+
+판정 매핑에 영향을 주는 관찰:
+
+- Judge0는 프로그램을 `/bin/bash run` 스크립트로 감싸 실행한다. 그래서 신호로 끝난 프로그램도 isolate에는 bash의 비정상 종료로 보여 **status 11(NZEC)에 `exit_code` = 128 + 신호 번호**로 온다. `exit_signal`은 비어 있다. 세그폴트 139, 0 나누기 136, abort(예외·assert) 134, 출력 초과 153, 메모리 kill 137. Judge0 문서의 status 7~10은 이 구성에서 나오지 않았다.
+- 신호로 끝나면 stderr 끝에 bash의 `run: line 1: … Killed …/python3 script.py` 같은 줄이 붙는다. 사용자에게 에러 원문을 보여 줄 때는 이 줄을 지운다.
+- `new`로 4 TB를 요청하는 케이스는 Docker Desktop VM의 `vm.overcommit_memory=1` 때문에 할당이 성공했다. Ubuntu 기본값(0)에서는 `bad_alloc` → abort(134)가 예상된다.
+- `/workers`는 호출할 때마다 워커 등록을 지워 `working`·`available`이 0으로 온다(운영 명령 절). 동시 실행 수는 샌드박스 안 시각으로 잰다.
+
+### 채점 VM에서 다시 할 것
+
+맥 결과는 amd64 명령을 Rosetta로 번역해 실행한 것이다. 채점 VM(amd64, Ubuntu 22.04)이 준비되면 같은 명령을 `--label ec2-<타입>`으로 다시 실행해 결과를 이 절에 추가한다.
+
+- `concurrency_check.py`의 호스트 메모리 여유(MemAvailable 최소 256 MiB)와 컨테이너 재시작 여부 — 맥에서는 재지 않는다
+- EC2 메타데이터(169.254.169.254) 차단의 대조 실행 — 맥 호스트에는 해당 주소가 없다
+- `mle_badalloc_cpp`가 `bad_alloc`으로 끝나는지
+- 신호가 status 11 + `exit_code` 128+N으로 오는 동작이 같은지

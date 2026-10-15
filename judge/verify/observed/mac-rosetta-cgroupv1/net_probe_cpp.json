@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "label": "mac-rosetta-cgroupv1",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "run_at": "20261015-120625"
+  },
+  "case": {
+    "id": "net_probe_cpp",
+    "group": "network",
+    "file": "net_probe.cpp",
+    "expect": {
+      "status": [
+        3
+      ],
+      "stdout_not": [
+        "REACHED"
+      ]
+    }
+  },
+  "result": {
+    "stdout": "dns_example.com BLOCKED\ntcp_1.1.1.1:53 BLOCKED\ntcp_8.8.8.8:53 BLOCKED\nimds_169.254.169.254:80 BLOCKED\n",
+    "time": "0.037",
+    "memory": 4896,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": null,
+    "wall_time": "0.045",
+    "status": {
+      "id": 3,
+      "description": "Accepted"
+    }
+  }
+}

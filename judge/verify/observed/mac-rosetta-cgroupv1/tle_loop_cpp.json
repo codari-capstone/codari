@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "label": "mac-rosetta-cgroupv1",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "run_at": "20261015-120625"
+  },
+  "case": {
+    "id": "tle_loop_cpp",
+    "group": "time",
+    "file": "tle_loop.cpp",
+    "expect": {
+      "status": [
+        5
+      ]
+    }
+  },
+  "result": {
+    "stdout": null,
+    "time": "2.098",
+    "memory": 4848,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": "Time limit exceeded",
+    "wall_time": "2.106",
+    "status": {
+      "id": 5,
+      "description": "Time Limit Exceeded"
+    }
+  }
+}
