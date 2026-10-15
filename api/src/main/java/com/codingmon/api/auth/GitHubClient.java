@@ -2,11 +2,13 @@ package com.codingmon.api.auth;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
@@ -22,11 +24,18 @@ class GitHubClient {
     private static final ParameterizedTypeReference<Map<String, Object>> JSON = new ParameterizedTypeReference<>() {
     };
 
-    private final RestClient rest = RestClient.create();
+    private static final Duration TIMEOUT = Duration.ofSeconds(5);
+
+    private final RestClient rest;
     private final String clientId;
     private final String clientSecret;
 
     GitHubClient(@Value("${app.github.client-id}") String clientId, @Value("${app.github.client-secret}") String clientSecret) {
+        // GitHub가 응답하지 않아도 콜백 요청이 무한정 기다리지 않게 한다. 시간을 넘기면 로그인 실패로 처리된다.
+        SimpleClientHttpRequestFactory requests = new SimpleClientHttpRequestFactory();
+        requests.setConnectTimeout(TIMEOUT);
+        requests.setReadTimeout(TIMEOUT);
+        this.rest = RestClient.builder().requestFactory(requests).build();
         this.clientId = clientId;
         this.clientSecret = clientSecret;
     }
