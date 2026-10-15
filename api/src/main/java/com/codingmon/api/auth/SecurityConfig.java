@@ -11,6 +11,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -35,6 +37,7 @@ class SecurityConfig {
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
+                        .bearerTokenResolver(bearerTokenResolver())
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
                         .authenticationEntryPoint(unauthorized)
                         .accessDeniedHandler(forbidden))
@@ -42,6 +45,14 @@ class SecurityConfig {
                         .authenticationEntryPoint(unauthorized)
                         .accessDeniedHandler(forbidden));
         return http.build();
+    }
+
+    // Bearer 필터는 permitAll 경로에서도 헤더의 토큰을 검증하고, 실패하면 401로 막는다.
+    // 만료된 access token을 붙인 갱신 요청이 막히지 않도록 /api/auth/**에서는 헤더를 읽지 않는다.
+    // 그래서 /api/auth/** 아래에는 로그인이 필요한 API를 두지 않는다(예: 비밀번호 변경은 /api/users/me/...).
+    private static BearerTokenResolver bearerTokenResolver() {
+        DefaultBearerTokenResolver resolver = new DefaultBearerTokenResolver();
+        return request -> request.getRequestURI().startsWith("/api/auth/") ? null : resolver.resolve(request);
     }
 
     private static JwtAuthenticationConverter jwtAuthenticationConverter() {
