@@ -31,7 +31,7 @@ function guardsOf(path: string): string[] {
 }
 
 describe('라우터 보호 구조', () => {
-  it.each(['submissions', 'submissions/:id', 'me/report'])(
+  it.each(['problems/:id', 'submissions', 'submissions/:id', 'me/report'])(
     '%s는 RequireAuth 아래에 있다',
     (path) => {
       expect(guardsOf(path)).toContain('RequireAuth')
@@ -46,12 +46,9 @@ describe('라우터 보호 구조', () => {
     expect(guards.indexOf('RequireAuth')).toBeLessThan(guards.indexOf('RequireAdmin'))
   })
 
-  it.each(['problems', 'problems/:id', 'login', 'forbidden', '*'])(
-    '%s는 보호하지 않는다',
-    (path) => {
-      expect(guardsOf(path)).not.toContain('RequireAuth')
-    },
-  )
+  it.each(['problems', 'login', 'forbidden', '*'])('%s는 보호하지 않는다', (path) => {
+    expect(guardsOf(path)).not.toContain('RequireAuth')
+  })
 
   it('보호된 화면도 AppShell을 쓰는 레이아웃 아래에 있다', () => {
     // 형제로 두면 헤더가 사라진다. RootLayout이 조상에 있어야 한다.

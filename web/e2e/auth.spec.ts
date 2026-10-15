@@ -66,6 +66,14 @@ test('비로그인이 제출 기록에 가면 로그인 후 그 자리로 돌아
   await expect(page).toHaveURL(/\/submissions$/)
 })
 
+test('비로그인이 문제 상세를 열면 로그인 화면으로 간다', async ({ page }) => {
+  await page.goto('/problems/1')
+
+  // 가드의 리다이렉트가 끝나기 전에도 URL은 이미 바뀌어 있을 수 있어, 폼이 보인 뒤에 URL을 본다.
+  await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
+  await expect(page).toHaveURL(/\/login$/)
+})
+
 const LOGIN_FAILED =
   '이메일 또는 비밀번호가 맞지 않아요. GitHub로 가입했다면 GitHub 로그인을 이용해 주세요'
 

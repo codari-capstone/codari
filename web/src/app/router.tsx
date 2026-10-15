@@ -19,7 +19,6 @@ export const router = createBrowserRouter([
         Component: RootLayout,
         children: [
           { index: true, loader: () => redirect('/problems') },
-          { path: 'problems/:id', lazy: () => import('@/features/solve/SolvePage') },
           { path: 'login', lazy: () => import('@/features/auth/LoginPage') },
           { path: 'forbidden', lazy: () => import('@/app/ForbiddenPage') },
           {
@@ -27,6 +26,7 @@ export const router = createBrowserRouter([
             // RootLayout 밖의 형제로 두면 헤더가 없어진다. 그래서 RootLayout의 자식으로 둔다.
             Component: RequireAuth,
             children: [
+              { path: 'problems/:id', lazy: () => import('@/features/solve/SolvePage') },
               {
                 path: 'submissions',
                 lazy: () => import('@/features/history/SubmissionHistoryPage'),
