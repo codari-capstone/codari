@@ -91,6 +91,10 @@ class AccountService {
 
     AuthTokenService.IssuedTokens login(String rawEmail, String password) {
         String email = rawEmail == null ? "" : rawEmail.strip();
+        // 가입할 수 없는 길이라 계정이 있을 수 없다. 실패 기록에 긴 문자열이 쌓이지 않게 조회·기록 없이 같은 문구로 답한다.
+        if (email.length() > AccountRules.EMAIL_MAX_LENGTH) {
+            throw loginFailed();
+        }
         Instant now = Instant.now();
         if (limiter.isLoginLocked(email, now)) {
             throw AuthErrors.error(HttpStatus.TOO_MANY_REQUESTS, "LOGIN_LOCKED", "로그인 시도가 너무 많아요. 5분 후 다시 시도해 주세요");
@@ -101,10 +105,14 @@ class AccountService {
         if (user == null || user.getPasswordHash() == null || !matches) {
             // 없는 이메일, GitHub 가입 계정, 비밀번호 불일치 모두 같은 문구로 답한다.
             limiter.recordLoginFailure(email, now);
-            throw AuthErrors.error(HttpStatus.UNAUTHORIZED, "LOGIN_FAILED", LOGIN_FAILED);
+            throw loginFailed();
         }
         limiter.resetLoginFailures(email);
         return tokens.issue(user);
+    }
+
+    private static ErrorResponseException loginFailed() {
+        return AuthErrors.error(HttpStatus.UNAUTHORIZED, "LOGIN_FAILED", LOGIN_FAILED);
     }
 
     static ErrorResponseException emailTaken() {

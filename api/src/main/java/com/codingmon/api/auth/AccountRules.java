@@ -7,6 +7,9 @@ import org.springframework.http.HttpStatus;
 // 기능명세 '계정 규칙'. DB 제약이 아니라 서버에서 검사한다.
 final class AccountRules {
 
+    // DB의 users.email·email_tokens.email 컬럼 길이(VARCHAR(320))와 같다.
+    static final int EMAIL_MAX_LENGTH = 320;
+
     private static final Pattern EMAIL = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
     private static final Pattern NICKNAME = Pattern.compile("^[가-힣A-Za-z0-9]{2,16}$");
     private static final Pattern UPPER = Pattern.compile("[A-Z]");
@@ -20,7 +23,7 @@ final class AccountRules {
 
     static String email(String email) {
         String trimmed = email == null ? "" : email.strip();
-        if (trimmed.length() > 320 || !EMAIL.matcher(trimmed).matches()) {
+        if (trimmed.length() > EMAIL_MAX_LENGTH || !EMAIL.matcher(trimmed).matches()) {
             throw AuthErrors.error(HttpStatus.BAD_REQUEST, "INVALID_EMAIL", "이메일 형식이 올바르지 않아요");
         }
         return trimmed;
