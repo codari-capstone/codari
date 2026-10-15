@@ -266,14 +266,156 @@ describe('가입·재설정 목', () => {
     const ok = await api.POST('/api/auth/signup', { body: { verificationToken, ...form } })
     expect(ok.response.status).toBe(204)
 
-    // 같은 토큰은 한 번만 쓸 수 있다.
-    const reused = await api.POST('/api/auth/signup', { body: { verificationToken, ...form } })
-    expect((reused.error as { code?: string }).code).toBe('VERIFICATION_EXPIRED')
-
     const stale = await api.POST('/api/auth/signup', {
       body: { verificationToken: 'not-a-token', ...form },
     })
     expect((stale.error as { code?: string }).code).toBe('VERIFICATION_EXPIRED')
+  })
+})
+
+const code = (r: { error?: unknown }) => (r.error as { code?: string }).code
+const GOOD = { nickname: '새사람', password: 'Codari!test1', passwordConfirm: 'Codari!test1' }
+
+async function signupToken(email = 'new@codari.test') {
+  await api.POST('/api/auth/signup/email-code', { body: { email } })
+  const v = await api.POST('/api/auth/signup/email-code/verify', {
+    body: { email, code: MOCK_CODE },
+  })
+  return v.data!.verificationToken
+}
+
+async function resetToken(email = mockAccounts[0]!.email) {
+  await api.POST('/api/auth/password-reset/email-code', { body: { email } })
+  const v = await api.POST('/api/auth/password-reset/email-code/verify', {
+    body: { email, code: MOCK_CODE },
+  })
+  return v.data!.resetToken
+}
+
+describe('가입 완료의 토큰·오류 규칙', () => {
+  afterEach(() => resetEmailCodes())
+
+  it('비밀번호가 규칙에 어긋나도 같은 토큰으로 다시 보내면 가입된다 (토큰이 오류에 닳으면 화면이 막힌다)', async () => {
+    const verificationToken = await signupToken()
+    const bad = await api.POST('/api/auth/signup', {
+      body: { verificationToken, ...GOOD, password: 'short', passwordConfirm: 'short' },
+    })
+    expect(code(bad)).toBe('INVALID_PASSWORD')
+    const ok = await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    expect(ok.response.status).toBe(204)
+  })
+
+  it('이미 쓰는 닉네임이면 NICKNAME_TAKEN이고 같은 토큰에 새 닉네임으로 가입된다', async () => {
+    const verificationToken = await signupToken()
+    const taken = await api.POST('/api/auth/signup', {
+      body: { verificationToken, ...GOOD, nickname: mockAccounts[0]!.user.nickname },
+    })
+    expect(taken.response.status).toBe(409)
+    expect(code(taken)).toBe('NICKNAME_TAKEN')
+    const ok = await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    expect(ok.response.status).toBe(204)
+  })
+
+  it('비밀번호 확인이 다르면 PASSWORD_MISMATCH다', async () => {
+    const verificationToken = await signupToken()
+    const res = await api.POST('/api/auth/signup', {
+      body: { verificationToken, ...GOOD, passwordConfirm: 'Codari!other1' },
+    })
+    expect(code(res)).toBe('PASSWORD_MISMATCH')
+  })
+
+  it('규칙에 어긋난 닉네임으로 가입하면 INVALID_NICKNAME이다', async () => {
+    const verificationToken = await signupToken()
+    const res = await api.POST('/api/auth/signup', {
+      body: { verificationToken, ...GOOD, nickname: 'a' },
+    })
+    expect(code(res)).toBe('INVALID_NICKNAME')
+  })
+
+  it('가입을 마친 뒤 같은 토큰으로 또 가입하면 409 EMAIL_TAKEN이다 (VERIFICATION_EXPIRED가 아니다)', async () => {
+    const verificationToken = await signupToken()
+    await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    const again = await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    expect(again.response.status).toBe(409)
+    expect(code(again)).toBe('EMAIL_TAKEN')
+  })
+
+  it('가입은 mockAccounts를 늘리지 않는다', async () => {
+    const before = mockAccounts.length
+    const verificationToken = await signupToken()
+    await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    expect(mockAccounts).toHaveLength(before)
+  })
+
+  it('앞뒤 공백이 있는 이메일도 같은 이메일로 본다', async () => {
+    const res = await api.POST('/api/auth/signup/email-code', {
+      body: { email: ` ${mockAccounts[0]!.email} ` },
+    })
+    expect(code(res)).toBe('EMAIL_TAKEN')
+  })
+
+  it('인증번호 확인에 형식이 틀린 이메일을 보내면 400 INVALID_EMAIL이다', async () => {
+    const res = await api.POST('/api/auth/signup/email-code/verify', {
+      body: { email: 'not-an-email', code: MOCK_CODE },
+    })
+    expect(res.response.status).toBe(400)
+    expect(code(res)).toBe('INVALID_EMAIL')
+  })
+
+  it('규칙에 어긋난 닉네임은 available:false가 아니라 400 INVALID_NICKNAME이다', async () => {
+    const res = await api.GET('/api/auth/nickname-availability', {
+      params: { query: { nickname: 'a' } },
+    })
+    expect(res.response.status).toBe(400)
+    expect(code(res)).toBe('INVALID_NICKNAME')
+  })
+})
+
+describe('비밀번호 재설정 목', () => {
+  afterEach(() => resetEmailCodes())
+
+  it('가입된 이메일로 번호를 받아 확인하고 재설정하면 204다 (RESET 키와 resetToken 필드를 묶는다)', async () => {
+    const token = await resetToken()
+    const res = await api.POST('/api/auth/password-reset', { body: { resetToken: token, ...GOOD } })
+    expect(res.response.status).toBe(204)
+  })
+
+  it('같은 토큰으로 두 번 재설정하면 두 번째는 RESET_EXPIRED다', async () => {
+    const token = await resetToken()
+    await api.POST('/api/auth/password-reset', { body: { resetToken: token, ...GOOD } })
+    const again = await api.POST('/api/auth/password-reset', {
+      body: { resetToken: token, ...GOOD },
+    })
+    expect(code(again)).toBe('RESET_EXPIRED')
+  })
+
+  it('비밀번호 오류 뒤에도 같은 토큰으로 다시 재설정된다 (오류에 토큰이 닳으면 화면이 막힌다)', async () => {
+    const token = await resetToken()
+    const bad = await api.POST('/api/auth/password-reset', {
+      body: { resetToken: token, ...GOOD, passwordConfirm: 'Codari!other1' },
+    })
+    expect(code(bad)).toBe('PASSWORD_MISMATCH')
+    const weak = await api.POST('/api/auth/password-reset', {
+      body: { resetToken: token, password: 'short', passwordConfirm: 'short' },
+    })
+    expect(code(weak)).toBe('INVALID_PASSWORD')
+    const ok = await api.POST('/api/auth/password-reset', { body: { resetToken: token, ...GOOD } })
+    expect(ok.response.status).toBe(204)
+  })
+
+  it('가입 토큰으로는 재설정할 수 없다 (목적이 섞이면 RESET_EXPIRED여야 한다)', async () => {
+    const verificationToken = await signupToken()
+    const res = await api.POST('/api/auth/password-reset', {
+      body: { resetToken: verificationToken, ...GOOD },
+    })
+    expect(code(res)).toBe('RESET_EXPIRED')
+  })
+
+  it('재설정 인증번호 확인에 형식이 틀린 이메일을 보내면 400 INVALID_EMAIL이다', async () => {
+    const res = await api.POST('/api/auth/password-reset/email-code/verify', {
+      body: { email: 'x', code: MOCK_CODE },
+    })
+    expect(code(res)).toBe('INVALID_EMAIL')
   })
 })
 

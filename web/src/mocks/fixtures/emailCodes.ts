@@ -19,7 +19,11 @@ interface CodeState {
 }
 
 const sent = new Map<string, CodeState>()
-const issuedTokens = new Set<string>()
+/** 발급된 토큰 → 발급 대상. 서버의 증명서는 JWT라 읽어도 닳지 않는다. 무효화는 재설정 성공에서만 한다. */
+const issuedTokens = new Map<string, { purpose: CodePurpose; email: string }>()
+/** 가입을 마친 이메일. 서버의 existsByEmail 자리다. mockAccounts는 건드리지 않는다. */
+const signedUp = new Set<string>()
+let tokenSeq = 0
 
 function key(purpose: CodePurpose, email: string) {
   return `${purpose}:${email}`
@@ -48,20 +52,38 @@ export function verifyMockCode(purpose: CodePurpose, email: string, code: string
   }
 
   sent.delete(key(purpose, email))
-  const token = `mock-${purpose.toLowerCase()}-${email}`
-  issuedTokens.add(token)
+  tokenSeq += 1
+  const token = `mock-${purpose.toLowerCase()}-${tokenSeq}-${email}`
+  issuedTokens.set(token, { purpose, email })
   return { ok: true, token }
 }
 
-/** 토큰이 이 목이 발급한 것인지. 쓰면 사라진다 — 실제 토큰도 한 번만 쓸 수 있다. */
-export function consumeToken(token: unknown): string | null {
-  if (typeof token !== 'string' || !issuedTokens.has(token)) return null
+/**
+ * 토큰이 발급된 이메일. 읽어도 토큰은 닳지 않는다 — 서버의 증명서는 상태 없는 JWT여서
+ * 닉네임·비밀번호 오류 뒤에 같은 토큰으로 다시 보낼 수 있다. 모르는 토큰이면 null.
+ */
+export function tokenEmail(token: unknown, purpose: CodePurpose): string | null {
+  if (typeof token !== 'string') return null
+  const issued = issuedTokens.get(token)
+  return issued && issued.purpose === purpose ? issued.email : null
+}
+
+/** 재설정이 성공했을 때만 부른다. 서버는 token_version을 올려 같은 토큰을 0행 갱신으로 만든다. */
+export function invalidateToken(token: string): void {
   issuedTokens.delete(token)
-  return token
+}
+
+export function markSignedUp(email: string): void {
+  signedUp.add(email)
+}
+
+export function isSignedUp(email: string): boolean {
+  return signedUp.has(email)
 }
 
 /** 테스트 사이에 상태를 비운다. 남으면 앞 테스트의 시도 횟수가 다음 테스트에 이어진다. */
 export function resetEmailCodes(): void {
   sent.clear()
   issuedTokens.clear()
+  signedUp.clear()
 }

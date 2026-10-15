@@ -8,8 +8,11 @@ import {
 } from '@/api/provisional'
 import { EMAIL_PATTERN, isValidNickname, isValidPassword } from '@/features/auth/accountRules'
 import {
-  consumeToken,
+  invalidateToken,
+  isSignedUp,
   markCodeSent,
+  markSignedUp,
+  tokenEmail,
   verifyMockCode,
   type VerifyResult,
 } from './fixtures/emailCodes'
@@ -88,7 +91,9 @@ export const handlers: RequestHandler[] = [
   // 429가 필요한 테스트는 server.use로 이 핸들러를 덮어쓴다.
   http.post('*/api/auth/login', async ({ request }) => {
     const { email, password } = (await request.json()) as LoginRequest
-    const account = mockAccounts.find((item) => item.email === email && item.password === password)
+    const account = mockAccounts.find(
+      (item) => item.email === email.trim() && item.password === password,
+    )
     if (!account) return unauthorized()
 
     // HttpResponse(= msw의 클래스)여야 한다. 평범한 Response로는 쿠키가 저장되지 않는다 —
@@ -108,7 +113,7 @@ export const handlers: RequestHandler[] = [
   // --- 회원가입 (COM-06) ---
 
   http.post('*/api/auth/signup/email-code', async ({ request }) => {
-    const { email } = (await request.json()) as { email: string }
+    const email = ((await request.json()) as { email: string }).email.trim()
     if (!EMAIL_PATTERN.test(email)) {
       return problem(400, 'INVALID_EMAIL', '이메일 형식이 올바르지 않아요')
     }
@@ -120,7 +125,12 @@ export const handlers: RequestHandler[] = [
   }),
 
   http.post('*/api/auth/signup/email-code/verify', async ({ request }) => {
-    const { email, code } = (await request.json()) as { email: string; code: string }
+    const body = (await request.json()) as { email: string; code: string }
+    const email = body.email.trim()
+    const { code } = body
+    if (!EMAIL_PATTERN.test(email)) {
+      return problem(400, 'INVALID_EMAIL', '이메일 형식이 올바르지 않아요')
+    }
     const result = verifyMockCode('SIGNUP', email, code)
     if (!result.ok) return problem(400, result.code, CODE_DETAIL[result.code])
     return HttpResponse.json({ verificationToken: result.token })
@@ -145,7 +155,8 @@ export const handlers: RequestHandler[] = [
       password?: string
       passwordConfirm?: string
     }
-    if (consumeToken(body.verificationToken) === null) {
+    const signupEmail = tokenEmail(body.verificationToken, 'SIGNUP')
+    if (signupEmail === null) {
       return problem(
         400,
         'VERIFICATION_EXPIRED',
@@ -172,14 +183,18 @@ export const handlers: RequestHandler[] = [
     if (body.password !== body.passwordConfirm) {
       return problem(400, 'PASSWORD_MISMATCH', '비밀번호가 일치하지 않아요')
     }
-    // 가입시키지 않는다 — 계약이 204만 주고 토큰을 주지 않는다. 목도 계정을 늘리지 않는다.
+    if (isSignedUp(signupEmail) || mockAccounts.some((item) => item.email === signupEmail)) {
+      return problem(409, 'EMAIL_TAKEN', '이미 가입된 이메일이에요')
+    }
+    markSignedUp(signupEmail)
+    // 토큰은 닳지 않는다(JWT). 가입시키지 않는다 — 계약이 204만 주고 토큰을 주지 않는다. 목도 계정을 늘리지 않는다.
     return new HttpResponse(null, { status: 204 })
   }),
 
   // --- 비밀번호 재설정 (COM-08) ---
 
   http.post('*/api/auth/password-reset/email-code', async ({ request }) => {
-    const { email } = (await request.json()) as { email: string }
+    const email = ((await request.json()) as { email: string }).email.trim()
     if (!EMAIL_PATTERN.test(email)) {
       return problem(400, 'INVALID_EMAIL', '이메일 형식이 올바르지 않아요')
     }
@@ -195,7 +210,12 @@ export const handlers: RequestHandler[] = [
   }),
 
   http.post('*/api/auth/password-reset/email-code/verify', async ({ request }) => {
-    const { email, code } = (await request.json()) as { email: string; code: string }
+    const body = (await request.json()) as { email: string; code: string }
+    const email = body.email.trim()
+    const { code } = body
+    if (!EMAIL_PATTERN.test(email)) {
+      return problem(400, 'INVALID_EMAIL', '이메일 형식이 올바르지 않아요')
+    }
     const result = verifyMockCode('RESET', email, code)
     if (!result.ok) return problem(400, result.code, CODE_DETAIL[result.code])
     return HttpResponse.json({ resetToken: result.token })
@@ -207,7 +227,8 @@ export const handlers: RequestHandler[] = [
       password?: string
       passwordConfirm?: string
     }
-    if (consumeToken(body.resetToken) === null) {
+    const resetToken = body.resetToken
+    if (typeof resetToken !== 'string' || tokenEmail(resetToken, 'RESET') === null) {
       return problem(400, 'RESET_EXPIRED', '인증 시간이 지났어요. 인증번호를 다시 받아 주세요')
     }
     if (!isValidPassword(body.password ?? '')) {
@@ -220,6 +241,8 @@ export const handlers: RequestHandler[] = [
     if (body.password !== body.passwordConfirm) {
       return problem(400, 'PASSWORD_MISMATCH', '비밀번호가 일치하지 않아요')
     }
+    // 필드 오류에서는 토큰이 남는다. 성공해야 닳는다(서버는 token_version을 올린다).
+    invalidateToken(resetToken)
     return new HttpResponse(null, { status: 204 })
   }),
 ]
