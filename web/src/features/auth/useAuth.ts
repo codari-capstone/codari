@@ -14,8 +14,10 @@ export interface AuthState {
  * 로그인 상태. 화면은 이 훅만 본다.
  *
  * Context를 따로 두지 않는다. TanStack Query 캐시가 이미 전역 공유 저장소라,
- * 같은 때 여러 곳에서 마운트해도 진행 중인 /api/me 요청은 하나로 합쳐진다(staleTime 60초가 지나면 포커스 복귀 때 다시 나간다). Context를 더하면
- * 같은 상태가 두 겹이 되고 무효화 경로도 둘이 된다.
+ * 같은 때 여러 곳에서 마운트해도 진행 중인 /api/me 요청은 하나로 합쳐진다.
+ * staleTime(60초)이 지난 뒤에는 새로 마운트될 때 다시 나간다. 창 포커스로는 나가지 않는다.
+ * 앱 기본값이 refetchOnWindowFocus: false이기 때문이다(app/queryClient.ts).
+ * Context를 더하면 같은 상태가 두 겹이 되고 무효화 경로도 둘이 된다.
  *
  * isLoading에 isPending을 쓰는 이유: isPending은 "데이터가 아직 없다"는 뜻이라
  * 오프라인이어서 요청이 멈춰 있는 동안(fetchStatus: 'paused')에도 켜져 있다.

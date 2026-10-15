@@ -27,9 +27,10 @@ function fail(result: { error?: unknown; response: Response }): never {
  * 401을 던지면 이걸 읽는 화면마다 "비로그인인가 서버가 죽었나"를 가려야 한다.
  * useAuth의 반환 타입에 error가 없는 것도 같은 판단이다.
  *
- * retry를 끄는 이유: 401은 위에서 null로 돌려주므로 재시도 대상이 아니다. retry가 영향을
- * 주는 것은 5xx와 네트워크 오류다. 기본값(3회)이면 서버가 죽은 동안 이 요청이 네 번 나가고,
- * 그동안 useAuth가 isLoading이라 RequireAuth가 스켈레톤에 머문다.
+ * retry: false인 이유: 401은 위에서 null로 돌려주고 던지지 않으므로 재시도 경로에 들어오지
+ * 않는다. retry가 영향을 주는 것은 5xx와 네트워크 오류뿐이다. 앱 기본값(app/queryClient.ts의
+ * retry: 1)이면 이 요청이 한 번 더 나가고, 그동안 useAuth가 isLoading이라 RequireAuth가
+ * 스켈레톤에 머문다.
  */
 export function meQuery() {
   return queryOptions({

@@ -30,6 +30,9 @@ export function Component() {
     onSuccess: (user) => {
       // 무효화만 하면 /api/me 왕복을 한 번 더 기다리며 헤더가 비로그인으로 한 번 더 그려진다.
       queryClient.setQueryData(ME_QUERY_KEY, user)
+      // 아래의 <Navigate> 분기도 setQueryData로 isAuthenticated가 바뀌면 같은 곳으로 보내므로
+      // 이 호출이 없어도 도착한다. 그래도 두는 이유는 재렌더에 기대지 않고 바로 이동하기 위해서다.
+      // replace를 빼면 /login이 기록에 남는다. LoginPage.test.tsx가 PUSH 여부로 이를 지킨다.
       void navigate(target, { replace: true })
     },
   })

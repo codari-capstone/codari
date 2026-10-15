@@ -49,7 +49,8 @@ describe('meQuery', () => {
   })
 
   it('5xx를 다시 보내지 않는다', async () => {
-    // 기본 retry였다면 지연을 두고 네 번 나간다. 한 번이어야 한다.
+    // 이 테스트의 클라이언트는 옵션 없는 new QueryClient()라 라이브러리 기본값(3회 재시도)을
+    // 쓴다. meQuery가 retry를 끄지 않았다면 지연을 두고 네 번 나간다. 한 번이어야 한다.
     let hits = 0
     server.use(
       http.get('*/api/me', () => {

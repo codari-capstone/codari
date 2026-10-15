@@ -92,14 +92,21 @@ describe('로그인 화면', () => {
   })
 
   it('성공하면 로그인 화면을 기록에서 교체한다', async () => {
-    // push면 뒤로 가기가 /login으로 돌아오고, 로그인한 사람에게 폼이 다시 보인다.
+    // 최종 historyAction만으로는 부족하다. onSuccess의 navigate와 <Navigate replace> 분기가
+    // 모두 REPLACE로 끝나기 때문이다. 다른 것은 기록 스택이다. replace 없이 PUSH가 한 번이라도
+    // 일어나면 /login이 기록에 남는다. 로그인한 채 거기로 뒤로 가면 <Navigate> 분기가 곧바로
+    // 앞으로 되돌려 보내므로, 방문자는 뒤로 가기가 막혀 화면을 벗어나지 못한다.
+    // 그래서 이동 중 PUSH가 없었는지 본다.
     const user = userEvent.setup()
     const { router } = renderLogin({ from: '/submissions' })
+    const seen: string[] = []
+    router.subscribe((s) => seen.push(`${s.historyAction}:${s.location.pathname}`))
 
     await fillAndSubmit(user)
 
     await screen.findByRole('heading', { name: '제출 기록 도착' })
     expect(router.state.historyAction).toBe('REPLACE')
+    expect(seen).not.toContain('PUSH:/submissions')
   })
 
   it('from이 //로 시작하면 무시하고 문제 목록으로 간다', async () => {
