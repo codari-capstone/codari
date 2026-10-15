@@ -16,12 +16,12 @@ import { EMAIL_PATTERN } from './accountRules'
  * 계정이 있다. 값을 조용히 바꾸면 그 사용자는 영원히 로그인할 수 없고, COM-07의
  * 단일 문구 때문에 이유를 알 방법도 없다. 그래서 공백만 있는지만 검사하고 값은 그대로 둔다.
  */
-
 export const loginSchema = z.object({
   email: z
     .string()
     .trim()
     .min(1, '이메일을 입력해 주세요')
+    // 로그인 검사가 가입 검사보다 엄격하면 가입된 주소가 막힌다. 비밀번호 규칙을 안 거는 것과 같은 이유다.
     .regex(EMAIL_PATTERN, '이메일 형식이 아닙니다'),
   password: z.string().refine((v) => v.trim().length > 0, '비밀번호를 입력해 주세요'),
 })

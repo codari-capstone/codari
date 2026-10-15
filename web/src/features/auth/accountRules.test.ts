@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isValidCode, isValidNickname, isValidPassword } from './accountRules'
+import { EMAIL_PATTERN, isValidCode, isValidNickname, isValidPassword } from './accountRules'
 
 describe('isValidNickname', () => {
   it('2~16자의 한글·영문·숫자를 받는다', () => {
@@ -24,6 +24,32 @@ describe('isValidNickname', () => {
   })
 })
 
+describe('닉네임 글자 범위', () => {
+  it('가-힣의 양 끝 글자를 받는다 (범위 끝이 틀리면 실제 이름이 막힌다)', () => {
+    expect(isValidNickname('가가')).toBe(true)
+    expect(isValidNickname('힣힣')).toBe(true)
+  })
+
+  it('반각·조합용 자모를 거부한다 (서버는 완성형만 받는다)', () => {
+    expect(isValidNickname('ﾡﾡ')).toBe(false) // 반각 ㄱ
+    expect(isValidNickname('ᄀᄀ')).toBe(false) // 조합용 ㄱ
+  })
+})
+
+describe('EMAIL_PATTERN', () => {
+  it('서버가 가입시켜 주는 모양을 받는다 (막으면 그 계정 주인이 가입 폼을 못 쓴다)', () => {
+    expect(EMAIL_PATTERN.test('user!x@example.com')).toBe(true)
+    expect(EMAIL_PATTERN.test('a@b.c')).toBe(true)
+  })
+
+  it('이메일이 아닌 것을 거부한다', () => {
+    expect(EMAIL_PATTERN.test('foo')).toBe(false)
+    expect(EMAIL_PATTERN.test('a@b')).toBe(false)
+    expect(EMAIL_PATTERN.test('a@@b.c')).toBe(false)
+    expect(EMAIL_PATTERN.test('a b@c.com')).toBe(false)
+  })
+})
+
 describe('isValidPassword', () => {
   it('10~20자이고 네 종류를 다 넣으면 받는다', () => {
     expect(isValidPassword('Codari!tes1')).toBe(true) // 11자
@@ -41,6 +67,18 @@ describe('isValidPassword', () => {
     expect(isValidPassword('CODARI!TEST1')).toBe(false) // 소문자 없음
     expect(isValidPassword('Codari!test')).toBe(false) // 숫자 없음
     expect(isValidPassword('Codaritest12')).toBe(false) // 특수문자 없음
+  })
+
+  it('특수문자 범위의 네 끝(/ : ` ~)을 모두 받는다 (범위 오타를 잡는다)', () => {
+    expect(isValidPassword('Ab3/567890')).toBe(true)
+    expect(isValidPassword('Ab3:567890')).toBe(true)
+    expect(isValidPassword('Ab3`567890')).toBe(true)
+    expect(isValidPassword('Ab3~567890')).toBe(true)
+  })
+
+  it('ASCII 밖 기호는 특수문자로 세지 않는다 (서버는 ASCII 기호만 센다)', () => {
+    expect(isValidPassword('Ab3·567890')).toBe(false)
+    expect(isValidPassword('Ab3※567890')).toBe(false)
   })
 
   it('공백을 특수문자로 세지 않는다', () => {
