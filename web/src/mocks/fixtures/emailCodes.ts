@@ -19,7 +19,7 @@ interface CodeState {
 }
 
 const sent = new Map<string, CodeState>()
-/** 발급된 토큰 → 발급 대상. 서버의 증명서는 JWT라 읽어도 닳지 않는다. 무효화는 재설정 성공에서만 한다. */
+/** 발급된 토큰 → 발급 대상. 계약대로 읽어도 닳지 않는다. 무효화는 재설정 성공에서만 한다. */
 const issuedTokens = new Map<string, { purpose: CodePurpose; email: string }>()
 /** 가입을 마친 이메일. 서버의 existsByEmail 자리다. mockAccounts는 건드리지 않는다. */
 const signedUp = new Set<string>()
@@ -59,8 +59,8 @@ export function verifyMockCode(purpose: CodePurpose, email: string, code: string
 }
 
 /**
- * 토큰이 발급된 이메일. 읽어도 토큰은 닳지 않는다 — 서버의 증명서는 상태 없는 JWT여서
- * 닉네임·비밀번호 오류 뒤에 같은 토큰으로 다시 보낼 수 있다. 모르는 토큰이면 null.
+ * 토큰이 발급된 이메일. 읽어도 토큰은 닳지 않는다 — 계약이 두 흐름 모두 "값만 고쳐 같은
+ * 토큰으로 다시 보낼 수 있다"고 적는다(가입 #108, 재설정 #106). 모르는 토큰이면 null.
  */
 export function tokenEmail(token: unknown, purpose: CodePurpose): string | null {
   if (typeof token !== 'string') return null

@@ -106,6 +106,7 @@ export interface paths {
          * @description 가입만 하고 로그인시키지 않는다. 웹은 가입 완료 후 로그인 화면으로 보낸다.
          *     오류 `code`: `VERIFICATION_EXPIRED`(인증 후 30분 지남, 이메일 다시 인증), `INVALID_NICKNAME`, `INVALID_PASSWORD`,
          *     `PASSWORD_MISMATCH`, `NICKNAME_TAKEN`(그 사이 선점됨, 닉네임만 다시 입력), `EMAIL_TAKEN`.
+         *     `EMAIL_TAKEN`을 뺀 입력값 오류는 verificationToken을 쓰지 않으므로 인증 후 30분 안에는 값만 고쳐 같은 verificationToken으로 다시 보낼 수 있다.
          */
         post: operations["signUp"];
         delete?: never;

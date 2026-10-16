@@ -189,7 +189,7 @@ export const handlers: RequestHandler[] = [
       return problem(409, 'EMAIL_TAKEN', '이미 가입된 이메일이에요')
     }
     markSignedUp(signupEmail)
-    // 토큰은 닳지 않는다(JWT). 가입시키지 않는다 — 계약이 204만 주고 토큰을 주지 않는다. 목도 계정을 늘리지 않는다.
+    // 토큰은 닳지 않는다(계약 #108). 가입시키지 않는다 — 계약이 204만 주고 토큰을 주지 않는다. 목도 계정을 늘리지 않는다.
     return new HttpResponse(null, { status: 204 })
   }),
 

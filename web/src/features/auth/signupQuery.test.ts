@@ -80,9 +80,10 @@ describe('signUp', () => {
   })
 
   it('가입에 성공한 뒤 같은 토큰으로 또 보내면 EMAIL_TAKEN이다', async () => {
-    // 제출 버튼을 두 번 누른 경우다. 증명서는 30분 동안 살아 있으므로(서버가 JWT를 소비하지 않는다)
-    // 두 번째 요청은 "증명서 만료"가 아니라 "이미 가입된 이메일"로 돌아온다 — 가입에 성공한
-    // 사람에게 실패 문구가 뜬다. 화면이 제출 중 버튼을 끄는 이유다.
+    // 제출 버튼을 두 번 누른 경우다. 계약이 "인증 후 30분 안에는 값만 고쳐 같은
+    // verificationToken으로 다시 보낼 수 있다"고 정했으므로, 두 번째 요청은 "증명서 만료"가
+    // 아니라 "이미 가입된 이메일"로 돌아온다 — 가입에 성공한 사람에게 실패 문구가 뜬다.
+    // 화면이 제출 중 버튼을 끄는 이유다.
     const verificationToken = await verificationTokenFor()
     await signUp({ verificationToken, ...GOOD })
 
@@ -92,8 +93,9 @@ describe('signUp', () => {
   })
 
   it('필드 오류로 거부된 뒤 같은 토큰으로 다시 보내면 가입된다', async () => {
-    // 비밀번호 규칙을 어겨 400을 받은 뒤, 고쳐서 같은 증명서로 다시 보낸다. 서버는 증명서를
-    // 소비하지 않으므로 이게 되어야 한다 (계약: "증명서가 유효한 동안 닉네임만 다시 입력").
+    // 비밀번호 규칙을 어겨 400을 받은 뒤, 고쳐서 같은 증명서로 다시 보낸다. 계약이 그렇게
+    // 정했다 (#108): "`EMAIL_TAKEN`을 뺀 입력값 오류는 verificationToken을 쓰지 않으므로
+    // 인증 후 30분 안에는 값만 고쳐 같은 verificationToken으로 다시 보낼 수 있다".
     const verificationToken = await verificationTokenFor()
 
     const error = await signUp({

@@ -67,6 +67,9 @@ export function Component() {
         nicknameInputRef.current?.focus()
       }
       // 증명서가 죽었거나 그 사이 같은 이메일로 가입됐다. 이메일부터 다시 인증해야 한다.
+      // 나머지 입력값 오류는 계약이 "`EMAIL_TAKEN`을 뺀 입력값 오류는 verificationToken을
+      // 쓰지 않으므로 인증 후 30분 안에는 값만 고쳐 같은 verificationToken으로 다시 보낼 수
+      // 있다"고 적는다. 그때는 버리지 않는다.
       if (failed === 'VERIFICATION_EXPIRED' || failed === 'EMAIL_TAKEN') {
         setVerificationToken(null)
         // EmailCodeStep은 "인증됨" 표시를 스스로 들고 있어 부모가 증명서를 버려도 그대로 남는다.
