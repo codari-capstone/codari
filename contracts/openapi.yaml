@@ -298,6 +298,7 @@ paths:
         비밀번호를 바꾸고 모든 기기에서 로그아웃시킨다(발급된 access·refresh token 모두 무효). 로그인은 다시 해야 한다.
         그 이메일에 걸린 로그인 잠금(`LOGIN_LOCKED`)도 풀려 새 비밀번호로 바로 로그인할 수 있다.
         오류 `code`: `RESET_EXPIRED`(인증 후 10분 지남 또는 이미 쓴 resetToken), `INVALID_PASSWORD`, `PASSWORD_MISMATCH`.
+        `INVALID_PASSWORD`·`PASSWORD_MISMATCH`는 resetToken을 쓰지 않으므로 비밀번호만 고쳐 같은 resetToken으로 다시 보낼 수 있다.
       tags: [auth]
       security: []
       requestBody:
