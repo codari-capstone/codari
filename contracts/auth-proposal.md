@@ -143,8 +143,17 @@
 
 ### COM-02 GitHub 로그인
 
-화면에 없다. 계약에도 아직 없다. 정해야 할 것은 GitHub OAuth 앱 등록(누가 어느 계정으로), 리다이렉트
-URI(개발·운영 각각), 서버 쪽 콜백 처리와 성공·신규 가입(닉네임 입력) 뒤 프론트로 돌려보내는 방식이다.
+화면에 없다. 계약에는 이제 흐름이 있다 (PR #99·#101, `contracts/openapi.yaml`의 `/api/auth/github`,
+`/api/auth/github/callback`, `/api/auth/github/signup`). 프론트는 `fetch`가 아니라 브라우저 이동으로
+`/api/auth/github`를 열고(원래 보던 페이지는 이동 전에 직접 기억해 둔다), 서버가 돌려보내는
+`/login/github?result=...`를 받는 경로를 만든다. `result`는 셋이다. `success`면
+`POST /api/auth/refresh`로 access token을 받고, `error`면 로그인 화면에 실패를 알린다. `signup`이면
+처음 온 사람이라 **닉네임 입력 화면이 필요하다** — 30분 안에 `POST /api/auth/github/signup`을 보내야 하고
+(`VERIFICATION_EXPIRED`·`NICKNAME_TAKEN` 등 오류 `code`가 명세돼 있다), 성공(204)해도 로그인되지 않으므로
+로그인 화면으로 보낸다.
+
+계약이 정하지 않은 것은 GitHub OAuth App을 누가 어느 계정으로 등록하느냐와, 개발·운영 각각의 콜백
+주소(호스트)다. 계약은 콜백이 `/api/auth/github/callback`이라는 경로만 정한다.
 
 ## 6. 목은 명세가 아니다
 
