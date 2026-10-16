@@ -1,0 +1,146 @@
+package com.codingmon.api.problem;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+
+// 사용자 화면용 문제 조회. 공개(PUBLISHED) 버전만 보고, 제목·난이도·태그는 그 버전에서 읽는다.
+// 읽기만 하고 여러 테이블을 묶어 보므로 JPA 엔티티 없이 SQL로 쓴다.
+@Repository
+class ProblemRepository {
+
+    enum Difficulty { EASY, MEDIUM, HARD }
+
+    enum SolveStatus { SOLVED, WRONG, UNSOLVED }
+
+    enum SortField { ID, DIFFICULTY }
+
+    record ConceptTag(String slug, String name) {
+    }
+
+    // 비로그인이면 solveStatus를 아예 싣지 않는다. 비로그인(모름)과 UNSOLVED(안 품)는 다른 뜻이다.
+    record ProblemSummary(Long id, String slug, String title, Difficulty difficulty, List<ConceptTag> tags,
+            @JsonInclude(JsonInclude.Include.NON_NULL) SolveStatus solveStatus) {
+    }
+
+    record Page<T>(List<T> content, long totalElements) {
+    }
+
+    record ListQuery(Long userId, String keyword, List<Difficulty> difficulties, List<String> tags,
+            List<SolveStatus> statuses, SortField sortField, boolean ascending, Integer page, Integer size) {
+    }
+
+    // LIST-01: user_problem_stats는 판정이 확정된 SUBMIT 제출로만 쌓인다(database-tables.md).
+    // 행이 없으면 안 품, 있으면 solved로 맞음·틀림을 가른다.
+    private static final String SOLVE_STATUS = "case when s.solved then 'SOLVED'"
+            + " when s.user_id is not null then 'WRONG' else 'UNSOLVED' end";
+
+    // 문자열 순서(EASY, HARD, MEDIUM)가 아니라 쉬운 순서로 정렬한다.
+    private static final String DIFFICULTY_RANK = "case v.difficulty when 'EASY' then 0 when 'MEDIUM' then 1 else 2 end";
+
+    private final JdbcClient jdbc;
+
+    ProblemRepository(JdbcClient jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    Page<ProblemSummary> findPublished(ListQuery query) {
+        boolean signedIn = query.userId() != null;
+        Map<String, Object> params = new HashMap<>();
+        StringBuilder from = new StringBuilder(
+                " from problems p join problem_versions v on v.problem_id = p.id and v.status = 'PUBLISHED'");
+        if (signedIn) {
+            from.append(" left join user_problem_stats s on s.problem_id = p.id and s.user_id = :userId");
+            params.put("userId", query.userId());
+        }
+        from.append(" where true");
+        if (query.keyword() != null) {
+            from.append(" and v.title ilike :keyword escape '\\'");
+            params.put("keyword", "%" + escapeLike(query.keyword()) + "%");
+        }
+        if (!query.difficulties().isEmpty()) {
+            from.append(" and v.difficulty in (:difficulties)");
+            params.put("difficulties", query.difficulties().stream().map(Enum::name).toList());
+        }
+        // 태그를 여러 개 고르면 그중 하나라도 달린 문제를 보여 준다.
+        if (!query.tags().isEmpty()) {
+            from.append(" and exists (select 1 from problem_version_tags pvt join concept_tags t on t.id = pvt.concept_tag_id"
+                    + " where pvt.problem_version_id = v.id and t.slug in (:tags))");
+            params.put("tags", query.tags());
+        }
+        // 비로그인 요청의 status는 무시한다. 공유된 링크를 연 비로그인 사용자에게 오류 대신 전체 목록을 보여 준다.
+        if (signedIn && !query.statuses().isEmpty()) {
+            from.append(" and (").append(SOLVE_STATUS).append(") in (:statuses)");
+            params.put("statuses", query.statuses().stream().map(Enum::name).toList());
+        }
+
+        long total = jdbc.sql("select count(*)" + from).params(params).query(Long.class).single();
+
+        String direction = query.ascending() ? " asc" : " desc";
+        StringBuilder sql = new StringBuilder("select p.id, p.slug, v.id as version_id, v.title, v.difficulty, ")
+                .append(signedIn ? SOLVE_STATUS : "null").append(" as solve_status")
+                .append(from)
+                .append(" order by ")
+                .append(query.sortField() == SortField.DIFFICULTY ? DIFFICULTY_RANK + direction + ", p.id asc" : "p.id" + direction);
+        // page·size가 없으면 전체를 준다. 화면에 페이지 나누기(LIST-05)가 아직 없다.
+        if (query.size() != null) {
+            sql.append(" limit :limit offset :offset");
+            params.put("limit", query.size());
+            params.put("offset", (long) query.page() * query.size());
+        }
+
+        Map<Long, Row> rows = new LinkedHashMap<>();
+        jdbc.sql(sql.toString()).params(params).query(rs -> {
+            String status = rs.getString("solve_status");
+            rows.put(rs.getLong("version_id"), new Row(rs.getLong("id"), rs.getString("slug"), rs.getString("title"),
+                    Difficulty.valueOf(rs.getString("difficulty")), status == null ? null : SolveStatus.valueOf(status)));
+        });
+
+        Map<Long, List<ConceptTag>> tags = tagsOf(rows.keySet());
+        List<ProblemSummary> content = rows.entrySet().stream()
+                .map(e -> e.getValue().toSummary(tags.getOrDefault(e.getKey(), List.of())))
+                .toList();
+        return new Page<>(content, total);
+    }
+
+    List<ConceptTag> findAllTags() {
+        return jdbc.sql("select slug, name from concept_tags order by id")
+                .query((rs, n) -> new ConceptTag(rs.getString("slug"), rs.getString("name")))
+                .list();
+    }
+
+    private Map<Long, List<ConceptTag>> tagsOf(Collection<Long> versionIds) {
+        Map<Long, List<ConceptTag>> tags = new HashMap<>();
+        if (versionIds.isEmpty()) {
+            return tags;
+        }
+        jdbc.sql("select pvt.problem_version_id, t.slug, t.name from problem_version_tags pvt"
+                + " join concept_tags t on t.id = pvt.concept_tag_id"
+                + " where pvt.problem_version_id in (:ids) order by t.id")
+                .param("ids", versionIds)
+                .query(rs -> {
+                    tags.computeIfAbsent(rs.getLong("problem_version_id"), id -> new ArrayList<>())
+                            .add(new ConceptTag(rs.getString("slug"), rs.getString("name")));
+                });
+        return tags;
+    }
+
+    // 사용자가 입력한 %·_는 와일드카드가 아니라 글자로 찾는다.
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    private record Row(Long id, String slug, String title, Difficulty difficulty, SolveStatus solveStatus) {
+        ProblemSummary toSummary(List<ConceptTag> tags) {
+            return new ProblemSummary(id, slug, title, difficulty, tags, solveStatus);
+        }
+    }
+}
