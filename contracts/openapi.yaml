@@ -422,7 +422,7 @@ paths:
         비로그인도 쓸 수 있다. 로그인했으면(`Authorization` 헤더) 문제마다 `solveStatus`를 싣는다.
         토큰을 보냈는데 만료됐거나 무효면 비로그인으로 처리하지 않고 401을 준다. 갱신(COM-04) 뒤 다시 보낸다.
         같은 파라미터 안에서 값을 여러 개 주면 그중 하나라도 맞는 문제를 보여 주고(OR), 서로 다른 파라미터끼리는 모두 맞아야 한다(AND).
-        `page`·`size`를 둘 다 빼면 조건에 맞는 문제를 모두 준다. 하나만 주면 나머지는 `page=0`, `size=20`이다.
+        항상 페이지로 나눠 준다. 마지막 페이지보다 큰 `page`는 빈 `content`를 준다(`totalElements`는 그대로).
       tags: [problems]
       security:
         - {}
@@ -474,12 +474,14 @@ paths:
           schema:
             type: integer
             minimum: 0
+            default: 0
         - in: query
           name: size
           schema:
             type: integer
             minimum: 1
             maximum: 100
+            default: 20
       responses:
         '200':
           description: 문제 목록

@@ -35,7 +35,7 @@ class ProblemRepository {
     }
 
     record ListQuery(Long userId, String keyword, List<Difficulty> difficulties, List<String> tags,
-            List<SolveStatus> statuses, SortField sortField, boolean ascending, Integer page, Integer size) {
+            List<SolveStatus> statuses, SortField sortField, boolean ascending, int page, int size) {
     }
 
     // LIST-01: user_problem_stats는 판정이 확정된 SUBMIT 제출로만 쌓인다(database-tables.md).
@@ -89,13 +89,10 @@ class ProblemRepository {
                 .append(signedIn ? SOLVE_STATUS : "null").append(" as solve_status")
                 .append(from)
                 .append(" order by ")
-                .append(query.sortField() == SortField.DIFFICULTY ? DIFFICULTY_RANK + direction + ", p.id asc" : "p.id" + direction);
-        // page·size가 없으면 전체를 준다. 화면에 페이지 나누기(LIST-05)가 아직 없다.
-        if (query.size() != null) {
-            sql.append(" limit :limit offset :offset");
-            params.put("limit", query.size());
-            params.put("offset", (long) query.page() * query.size());
-        }
+                .append(query.sortField() == SortField.DIFFICULTY ? DIFFICULTY_RANK + direction + ", p.id asc" : "p.id" + direction)
+                .append(" limit :limit offset :offset");
+        params.put("limit", query.size());
+        params.put("offset", (long) query.page() * query.size());
 
         Map<Long, Row> rows = new LinkedHashMap<>();
         jdbc.sql(sql.toString()).params(params).query(rs -> {

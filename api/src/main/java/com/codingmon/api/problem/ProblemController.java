@@ -38,8 +38,8 @@ class ProblemController {
             @RequestParam(required = false) List<String> tag,
             @RequestParam(required = false) List<SolveStatus> status,
             @RequestParam(defaultValue = "id,asc") String sort,
-            @RequestParam(required = false) Integer page,
-            @RequestParam(required = false) Integer size,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
             @AuthenticationPrincipal Jwt jwt) {
         String[] sortParts = sort.split(",", -1);
         if (sortParts.length != 2) {
@@ -55,13 +55,9 @@ class ProblemController {
             case "desc" -> false;
             default -> throw badRequest("sort 방향은 asc 또는 desc다");
         };
-        // 둘 중 하나만 오면 나머지는 협업 규칙의 기본값(page=0, size=20)으로 채운다.
-        if (page != null || size != null) {
-            page = page == null ? 0 : page;
-            size = size == null ? 20 : size;
-            if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
-                throw badRequest("page는 0 이상, size는 1~" + MAX_PAGE_SIZE + "이다");
-            }
+        // 마지막 페이지보다 큰 page는 빈 content를 준다. 마지막 페이지로 옮기는 건 프런트가 totalElements로 한다.
+        if (page < 0 || size < 1 || size > MAX_PAGE_SIZE) {
+            throw badRequest("page는 0 이상, size는 1~" + MAX_PAGE_SIZE + "이다");
         }
         String trimmed = keyword == null || keyword.isBlank() ? null : keyword.strip();
         Long userId = jwt == null ? null : Long.valueOf(jwt.getSubject());
@@ -75,8 +71,9 @@ class ProblemController {
         return problems.findAllTags();
     }
 
+    // 빈 값(`?difficulty=`)은 고르지 않은 것으로 본다. enum 변환이 빈 문자열을 null로 바꿔 넘긴다.
     private static <T> List<T> orEmpty(List<T> values) {
-        return values == null ? List.of() : values;
+        return values == null ? List.of() : values.stream().filter(v -> v != null && !"".equals(v)).toList();
     }
 
     private static ResponseStatusException badRequest(String detail) {
