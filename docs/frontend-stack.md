@@ -220,6 +220,7 @@ export default defineConfig({
 | `npm run gen:api`   | 백엔드 OpenAPI 명세로 `src/api/schema.d.ts` 생성        |
 | `npm run typecheck` | TypeScript 타입 검사                                    |
 | `npm run lint`      | ESLint 검사                                             |
+| `npm run format`    | Prettier로 코드 모양 통일 (CI는 `format:check`로 검사)  |
 | `npm run test`      | Vitest 단위·컴포넌트 테스트                             |
 | `npm run e2e`       | Playwright E2E 테스트                                   |
 | `npm run build`     | 배포용 정적 파일을 dist에 생성                          |
