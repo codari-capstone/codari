@@ -108,6 +108,17 @@ JavaScript에 타입을 더한 언어다. `verdict: Verdict`처럼 변수에 들
 
 Tailwind는 `p-4 text-sm bg-red-50`처럼 미리 정해진 클래스를 조합해 스타일을 입히는 CSS 프레임워크다. 클래스 이름이 CSS 속성과 거의 같아 CSS 기초가 있으면 금방 익숙해지고, 반응형은 `md:` 같은 접두사로 처리한다. shadcn/ui는 Tailwind로 만든 버튼·탭·표·대화상자 코드를 명령어로 프로젝트에 복사해 주는 도구다. 판정 배지, 힌트 탭, 관리자 탭을 이 부품으로 만든다.
 
+#### 부품을 받을지, 직접 만들지
+
+`src/components/ui/`에는 `shadcn add`로 받은 부품만 둔다(지금 `button`·`input`·`table`·`dropdown-menu`·`skeleton`). 그 부품을 조합해 만드는 화면 조각은 `src/components/`나 기능 폴더에 직접 만든다(`EmptyState`, `ErrorState`, `ListSkeleton`, `ThemeToggle`, `features/problems/ProblemPagination`).
+
+shadcn에 같은 이름의 부품이 있어도 받지 않는 경우가 있다. 기준은 둘이다.
+
+1. **접근성·키보드 동작을 부품이 스스로 들고 있어야 하면 받는다.** 메뉴·대화상자·탭처럼 포커스를 가두고 방향키 이동 규칙을 지켜야 하는 것은 직접 만들면 틀린다.
+2. **주소나 상태를 만드는 규칙이 화면에 있어야 하면 직접 만든다.** 예로 shadcn의 `pagination`은 `<a href>`로 페이지를 옮기는데, 문제 목록의 주소는 페이지만이 아니라 검색어·난이도·태그·풀이 상태·정렬을 함께 담고, 필터가 바뀌면 1페이지로 돌아가야 한다(`features/problems/problemListParams.ts`). 부품이 href를 만들면 그 규칙이 두 곳으로 나뉘어, 한쪽만 고쳐도 조용히 어긋난다. 그래서 `ProblemPagination`은 `Button`으로 만들고 어느 페이지로 가는지는 콜백으로 화면에 올린다.
+
+직접 만들 때도 색·간격·포커스 모양은 `components/ui/`의 부품을 거쳐 쓴다. 받은 부품을 고친 뒤에는 `npm run format`을 돌린다 — 생성 코드가 쌍따옴표를 쓴다.
+
 ### React Hook Form + Zod
 
 React Hook Form은 입력칸이 많은 폼을 적은 코드로 관리한다. Zod는 ‘제목은 필수, 태그는 1\~3개, 시간 제한은 양수’ 같은 규칙을 스키마로 적어 두면 입력값을 검사하고 에러 문구를 보여 준다.
@@ -183,7 +194,8 @@ web/
 │  │  ├─ history/     # 제출 기록 (HIST)
 │  │  ├─ report/      # 학습 리포트·추천 (REP)
 │  │  └─ admin/       # 관리자 문제 제작 (ADM)
-│  ├─ components/ui/  # shadcn/ui 부품
+│  ├─ components/     # 직접 만든 화면 조각 (EmptyState, ErrorState, ListSkeleton, ThemeToggle)
+│  ├─ components/ui/  # shadcn add로 받은 부품
 │  ├─ constants/      # 판정별 쉬운 설명(계획서 표 2·표 3)
 │  ├─ mocks/          # MSW 가짜 응답
 │  └─ main.tsx
