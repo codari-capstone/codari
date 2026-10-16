@@ -20,6 +20,11 @@ function userMenu(page: Page) {
   return page.getByRole('button', { name: new RegExp(USER.nickname) })
 }
 
+// 목이 받아 주는 새 계정. web/src/mocks/fixtures/users.ts에 없는 이메일과 닉네임이어야 한다.
+const NEW_USER = { email: 'newbie@codari.test', nickname: '뉴비', password: 'Codari!new12' }
+// 목의 인증번호. web/src/mocks/fixtures/emailCodes.ts와 같은 값을 쓴다.
+const MOCK_CODE = '123456'
+
 test('로그인하면 헤더가 바뀌고 새로고침해도 유지된다', async ({ page }) => {
   await openLogin(page)
   await login(page, USER)
@@ -128,4 +133,54 @@ test('ADMIN에게는 관리자 메뉴가 보인다', async ({ page }) => {
   await page.goto('/admin')
   await expect(page.getByRole('heading', { name: '관리자 문제 제작' })).toBeVisible()
   await expect(page).toHaveURL(/\/admin$/)
+})
+
+test('회원가입을 마치면 안내와 함께 로그인 화면으로 보낸다 (COM-06)', async ({ page }) => {
+  await openLogin(page)
+  await page.getByRole('link', { name: '회원가입' }).click()
+  // lazy 라우트라 화면이 그려진 뒤에야 입력한다. 이메일 입력이 보이면 청크가 떴다.
+  await expect(page).toHaveURL(/\/signup$/)
+  await expect(page.getByLabel('이메일')).toBeVisible()
+
+  await page.getByLabel('이메일').fill(NEW_USER.email)
+  await page.getByRole('button', { name: '인증번호 받기' }).click()
+  await page.getByLabel('인증번호').fill(MOCK_CODE)
+  await page.getByRole('button', { name: '확인', exact: true }).click()
+  await expect(page.getByText('인증됐어요')).toBeVisible()
+
+  await page.getByLabel('닉네임').fill(NEW_USER.nickname)
+  await page.getByRole('button', { name: '중복 확인' }).click()
+  await expect(page.getByText('쓸 수 있어요')).toBeVisible()
+
+  await page.getByLabel('비밀번호', { exact: true }).fill(NEW_USER.password)
+  await page.getByLabel('비밀번호 확인').fill(NEW_USER.password)
+  await page.getByRole('button', { name: '가입 완료' }).click()
+
+  // 계약이 가입 응답에 토큰을 주지 않는다. 로그인은 사용자가 직접 한다.
+  // 목은 가입한 계정을 로그인 계정에 넣지 않으므로 여기서 끝낸다.
+  await expect(page.getByText('가입이 완료됐어요. 로그인해 주세요')).toBeVisible()
+  await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
+  await expect(page).toHaveURL(/\/login$/)
+})
+
+test('비밀번호 재설정을 마치면 안내와 함께 로그인 화면으로 보낸다 (COM-08)', async ({ page }) => {
+  await openLogin(page)
+  await page.getByRole('link', { name: '비밀번호 찾기' }).click()
+  await expect(page).toHaveURL(/\/password-reset$/)
+  await expect(page.getByLabel('이메일')).toBeVisible()
+
+  await page.getByLabel('이메일').fill(USER.email)
+  await page.getByRole('button', { name: '인증번호 받기' }).click()
+  await page.getByLabel('인증번호').fill(MOCK_CODE)
+  await page.getByRole('button', { name: '확인', exact: true }).click()
+  await expect(page.getByText('인증됐어요')).toBeVisible()
+
+  await page.getByLabel('새 비밀번호', { exact: true }).fill('Codari!new99')
+  await page.getByLabel('새 비밀번호 확인').fill('Codari!new99')
+  await page.getByRole('button', { name: '재설정' }).click()
+
+  // 목은 비밀번호를 바꾸지 않으므로 새 비밀번호로 로그인해 보지 않는다.
+  await expect(page.getByText('비밀번호를 바꿨어요. 새 비밀번호로 로그인해 주세요')).toBeVisible()
+  await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
+  await expect(page).toHaveURL(/\/login$/)
 })
