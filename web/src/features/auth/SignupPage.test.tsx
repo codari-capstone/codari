@@ -228,7 +228,8 @@ describe('회원가입 화면', () => {
     await user.click(screen.getByRole('button', { name: '가입 완료' }))
 
     // 닉네임 확인만 풀린다. 이메일 인증은 살아 있어야 한다 — 명세가 "닉네임만 다시 입력"이다.
-    expect(await screen.findByText('이미 사용 중인 닉네임이에요')).toBeInTheDocument()
+    // 목이 보낸 서버 문구다. 프론트의 같은 문구와 구분하려고 submit 오류 문단(role="alert")을 집는다.
+    expect(await screen.findByRole('alert')).toHaveTextContent('이미 사용 중인 닉네임이에요')
     expect(screen.queryByText('쓸 수 있어요')).not.toBeInTheDocument()
     expect(screen.getByText('인증됐어요')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '가입 완료' })).toBeDisabled()
@@ -237,6 +238,8 @@ describe('회원가입 화면', () => {
     await user.clear(screen.getByLabelText('닉네임'))
     await checkNickname(user, '새사람')
     expect(screen.getByText('인증됐어요')).toBeInTheDocument()
+    // 지난 가입 실패 문구가 새 확인 결과 옆에 남아 있으면 안 된다.
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '가입 완료' }))
 
     expect(await screen.findByRole('heading', { name: '로그인 화면' })).toBeInTheDocument()
@@ -263,9 +266,16 @@ describe('회원가입 화면', () => {
     await fillPasswords(user)
     await user.click(screen.getByRole('button', { name: '가입 완료' }))
 
-    expect(await screen.findByText(/이메일을 다시 인증해 주세요/)).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent(/이메일을 다시 인증해 주세요/)
     expect(screen.queryByText('인증됐어요')).not.toBeInTheDocument()
+    // 이메일 단계가 새로 마운트돼 입력이 비고 다시 편집할 수 있다.
+    expect(screen.getByLabelText('이메일')).toHaveValue('')
     expect(screen.getByLabelText('이메일')).not.toHaveAttribute('readonly')
+
+    // 이메일을 다시 인증하면 만료 문구가 설명하던 상태는 끝났다.
+    server.resetHandlers()
+    await verifyEmail(user, 'again@codari.test')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
   it('가입 때 이메일이 이미 쓰였으면 서버 문구를 보이고 이메일 단계로 되돌린다', async () => {
@@ -286,9 +296,31 @@ describe('회원가입 화면', () => {
     )
     await user.click(screen.getByRole('button', { name: '가입 완료' }))
 
-    expect(await screen.findByText('이미 가입된 이메일이에요')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('이미 가입된 이메일이에요')
+    // 이메일 칸이 비어 있어도 갈 곳이 있어야 한다.
+    expect(screen.getByRole('link', { name: '로그인하러 가기' })).toHaveAttribute('href', '/login')
     expect(screen.queryByText('인증됐어요')).not.toBeInTheDocument()
     expect(submitButton()).toBeDisabled()
+  })
+
+  it('확인하는 사이 닉네임을 고치면 늦게 온 응답은 무시한다', async () => {
+    server.use(
+      http.get('*/api/auth/nickname-availability', async () => {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return HttpResponse.json({ available: false })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSignup()
+
+    await user.type(await screen.findByLabelText('닉네임'), '새사람')
+    await user.click(screen.getByRole('button', { name: '중복 확인' }))
+    await user.type(screen.getByLabelText('닉네임'), '2')
+    await new Promise((resolve) => setTimeout(resolve, 150))
+
+    // 고치기 전 값에 대한 "사용 중" 응답을 지금 값에 붙이면 안 된다.
+    expect(screen.queryByText('이미 사용 중인 닉네임이에요')).not.toBeInTheDocument()
+    expect(screen.queryByText('쓸 수 있어요')).not.toBeInTheDocument()
   })
 
   it('증명서를 브라우저 저장소에 남기지 않는다', async () => {
