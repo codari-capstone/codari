@@ -69,6 +69,8 @@ export function EmailCodeStep({
     onSuccess: (token) => {
       setVerified(true)
       setCodeError(null)
+      // MAIL_FAILED 뒤에도 번호는 만들어져 있어 인증이 이어진다. 인증됐는데 발송 실패 문구가 남으면 모순이다.
+      send.reset()
       onVerified(token, trimmedEmail)
     },
     onError: (error) => {
@@ -101,6 +103,7 @@ export function EmailCodeStep({
     setCodeOpen(false)
     setCode('')
     setCodeError(null)
+    send.reset()
     // 제한은 이메일마다 따로 센다. 다른 주소가 이전 주소의 쿨다운을 물려받으면 안 된다.
     reset()
     // 부모가 들고 있는 증명서를 버리게 한다. 안 버리면 다른 이메일로 받은 증명서로 가입된다.

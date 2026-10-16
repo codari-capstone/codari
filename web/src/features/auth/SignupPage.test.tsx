@@ -62,6 +62,12 @@ describe('회원가입 화면', () => {
     expect(await screen.findByRole('button', { name: '가입 완료' })).toBeDisabled()
   })
 
+  it('닉네임 규칙을 칸 아래에 보인다', async () => {
+    // 규칙에 안 맞으면 중복 확인이 꺼지는데, 이유가 화면에 없으면 죽은 버튼으로 보인다.
+    renderSignup()
+    expect(await screen.findByText('2~16자, 한글·영문·숫자')).toBeInTheDocument()
+  })
+
   it('세 조건을 다 채우면 가입 완료가 켜진다', async () => {
     const user = userEvent.setup()
     renderSignup()
@@ -231,6 +237,8 @@ describe('회원가입 화면', () => {
     // 목이 보낸 서버 문구다. 프론트의 같은 문구와 구분하려고 submit 오류 문단(role="alert")을 집는다.
     expect(await screen.findByRole('alert')).toHaveTextContent('이미 사용 중인 닉네임이에요')
     expect(screen.queryByText('쓸 수 있어요')).not.toBeInTheDocument()
+    // 경고를 들은 사용자가 고칠 칸으로 커서가 간다.
+    expect(screen.getByLabelText('닉네임')).toHaveFocus()
     expect(screen.getByText('인증됐어요')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '가입 완료' })).toBeDisabled()
 
@@ -268,6 +276,8 @@ describe('회원가입 화면', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/이메일을 다시 인증해 주세요/)
     expect(screen.queryByText('인증됐어요')).not.toBeInTheDocument()
+    // 다시 마운트돼 send.error가 비었으니 이 상태에는 링크가 하나도 없어야 한다.
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
     // 이메일 단계가 새로 마운트돼 입력이 비고 다시 편집할 수 있다.
     expect(screen.getByLabelText('이메일')).toHaveValue('')
     expect(screen.getByLabelText('이메일')).not.toHaveAttribute('readonly')

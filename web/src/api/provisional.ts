@@ -3,7 +3,11 @@ import createClient from 'openapi-fetch'
 import { clientOptions } from './client'
 
 /**
- * 명세(#2) 확정 전까지 쓰는 임시 계약.
+ * 명세(#2)가 확정되기 전에 쓰던 임시 계약. 지금은 /api/me·로그인·로그아웃 셋만 쓴다.
+ *
+ * npm run gen:api는 이미 돌렸고, 가입·재설정은 api로 옮겨졌다. 나머지 셋은 COM-04를 기다린다.
+ * 계약의 세션 모델(메모리 access token과 Authorization 헤더)이 지금 코드가 가정하는 것과
+ * 달라서, 호출만 바꿔서는 옮겨지지 않는다.
  *
  * DB 스키마(PR #60)와 기능명세(PR #61)에서 역산했다. openapi-typescript가 만드는
  * paths 모양을 그대로 흉내내므로, 명세가 확정돼도 호출부의 모양은 바뀌지 않는다.
@@ -28,7 +32,7 @@ import { clientOptions } from './client'
  *   이 손으로 적은 Page<T>는 생성된 그 타입으로 별칭을 바꿔 가리키게 한다 — 새로
  *   만들지 않는다.
  *
- * 순서: npm run gen:api → provisionalApi를 api로 교체 → '사라지는 것' 삭제 →
+ * 순서(남은 세 엔드포인트의 계획): npm run gen:api(완료) → provisionalApi를 api로 교체 → '사라지는 것' 삭제 →
  * 남는 타입을 schema.d.ts 기준으로 다시 잇는다. 타입 오류가 나는 곳이 실제 응답과
  * 어긋난 곳이다.
  */

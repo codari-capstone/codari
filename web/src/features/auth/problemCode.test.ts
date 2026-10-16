@@ -49,8 +49,10 @@ describe('problemMessage', () => {
   })
 
   it('detail이 공백뿐이면 일반 문구로 떨어진다', () => {
-    expect(problemMessage({ status: 400, detail: '   ' })).not.toBe('   ')
-    expect(problemMessage({ status: 400, detail: '   ' }).trim()).not.toBe('')
+    expect(problemMessage({ status: 400, code: 'INVALID_EMAIL', detail: '   ' })).not.toBe('   ')
+    expect(problemMessage({ status: 400, code: 'INVALID_EMAIL', detail: '   ' }).trim()).not.toBe(
+      '',
+    )
   })
 
   it('detail이 문자열이 아니면 일반 문구로 떨어진다', () => {
@@ -62,6 +64,6 @@ describe('problemMessage', () => {
 
   it('detail이 빈 문자열이면 일반 문구로 떨어진다', () => {
     // 빈 문구를 그대로 그리면 사용자는 아무 설명 없이 실패만 본다.
-    expect(problemMessage({ status: 400, detail: '' })).not.toBe('')
+    expect(problemMessage({ status: 400, code: 'INVALID_EMAIL', detail: '' })).not.toBe('')
   })
 })

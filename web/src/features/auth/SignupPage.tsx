@@ -38,6 +38,8 @@ export function Component() {
 
   // 응답이 올 때 입력칸에 있는 값. 렌더에 갇힌 nickname은 요청을 보낸 시점의 값이다.
   const nicknameRef = useRef(nickname)
+  // 입력칸 요소. 위의 값 ref와 다르다. 가입 때 선점되면 여기로 포커스를 옮긴다.
+  const nicknameInputRef = useRef<HTMLInputElement>(null)
 
   const nicknameCheck = useMutation({
     mutationFn: (value: string) => checkNickname(value),
@@ -66,7 +68,10 @@ export function Component() {
     onError: (error) => {
       const failed = problemCode(error)
       // 그 사이 누가 그 닉네임을 가져갔다. 명세가 "닉네임만 다시 입력"으로 정했다.
-      if (failed === 'NICKNAME_TAKEN') setNicknameOk(null)
+      if (failed === 'NICKNAME_TAKEN') {
+        setNicknameOk(null)
+        nicknameInputRef.current?.focus()
+      }
       // 증명서가 죽었거나 그 사이 같은 이메일로 가입됐다. 이메일부터 다시 인증해야 한다.
       if (failed === 'VERIFICATION_EXPIRED' || failed === 'EMAIL_TAKEN') {
         setVerification(null)
@@ -118,6 +123,7 @@ export function Component() {
         <div className="flex gap-2">
           <Input
             id="nickname"
+            ref={nicknameInputRef}
             value={nickname}
             onChange={(event) => {
               setNickname(event.target.value)
@@ -137,6 +143,7 @@ export function Component() {
             중복 확인
           </Button>
         </div>
+        <p className="text-muted-foreground text-sm">2~16자, 한글·영문·숫자</p>
         {nicknameOk === nickname ? <p className="text-sm">쓸 수 있어요</p> : null}
         {nicknameTaken ? (
           <p role="alert" className="text-destructive text-sm">

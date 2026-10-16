@@ -142,6 +142,28 @@ describe('EmailCodeStep', () => {
     expect(resend).toHaveTextContent(/\(\d+초\)/)
   })
 
+  it('MAIL_FAILED 뒤 인증에 성공하면 발송 실패 문구를 지운다', async () => {
+    // 번호는 만들어진 채라 인증이 이어진다. 인증됐어요 옆에 못 보냈다는 문구가 남으면 모순이다.
+    const user = userEvent.setup()
+    setup({
+      sendCode: vi.fn().mockRejectedValue({
+        status: 503,
+        code: 'MAIL_FAILED',
+        detail: '메일을 보내지 못했어요. 1분 뒤 다시 시도해 주세요',
+      }),
+    })
+
+    await user.type(screen.getByLabelText('이메일'), 'new@codari.test')
+    await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
+    expect(await screen.findByText(/메일을 보내지 못했어요/)).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('인증번호'), '123456')
+    await user.click(screen.getByRole('button', { name: '확인' }))
+
+    expect(await screen.findByText('인증됐어요')).toBeInTheDocument()
+    expect(screen.queryByText(/메일을 보내지 못했어요/)).not.toBeInTheDocument()
+  })
+
   it('번호가 가지 않은 발송 오류(EMAIL_TAKEN)에서는 바로 다시 보낼 수 있고 칸은 닫혀 있다', async () => {
     // 번호를 보내지 않았으므로 쿨다운을 돌리면 오타를 고친 사용자가 이유도 모른 채 막힌다.
     const user = userEvent.setup()
