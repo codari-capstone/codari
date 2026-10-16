@@ -1,0 +1,316 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { http, HttpResponse } from 'msw'
+import { createMemoryRouter, RouterProvider } from 'react-router'
+import { afterEach, describe, expect, it } from 'vitest'
+
+import { resetEmailCodes } from '@/mocks/fixtures/emailCodes'
+import { mockAccounts } from '@/mocks/fixtures/users'
+import { server } from '@/mocks/server'
+import { Component as SignupPage } from './SignupPage'
+
+afterEach(() => resetEmailCodes())
+
+type User = ReturnType<typeof userEvent.setup>
+
+function renderSignup() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  const router = createMemoryRouter(
+    [
+      { path: '/signup', Component: SignupPage },
+      { path: '/login', element: <h1>로그인 화면</h1> },
+      { path: '/problems', element: <h1>문제 목록 도착</h1> },
+    ],
+    { initialEntries: ['/signup'] },
+  )
+
+  render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  )
+
+  return { router }
+}
+
+/** 이메일 인증까지 끝낸 상태로 만든다. 대부분의 테스트가 여기서 시작한다. */
+async function verifyEmail(user: User, email = 'new@codari.test') {
+  await user.type(await screen.findByLabelText('이메일'), email)
+  await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
+  await user.type(await screen.findByLabelText('인증번호'), '123456')
+  await user.click(screen.getByRole('button', { name: '확인' }))
+  await screen.findByText('인증됐어요')
+}
+
+async function checkNickname(user: User, nickname: string) {
+  await user.type(screen.getByLabelText('닉네임'), nickname)
+  await user.click(screen.getByRole('button', { name: '중복 확인' }))
+  await screen.findByText('쓸 수 있어요')
+}
+
+async function fillPasswords(user: User, password = 'Codari!test1', confirm = password) {
+  await user.type(screen.getByLabelText('비밀번호'), password)
+  await user.type(screen.getByLabelText('비밀번호 확인'), confirm)
+}
+
+const submitButton = () => screen.getByRole('button', { name: /^가입/ })
+
+describe('회원가입 화면', () => {
+  it('처음에는 가입 완료가 꺼져 있다', async () => {
+    renderSignup()
+    expect(await screen.findByRole('button', { name: '가입 완료' })).toBeDisabled()
+  })
+
+  it('세 조건을 다 채우면 가입 완료가 켜진다', async () => {
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user)
+
+    expect(screen.getByRole('button', { name: '가입 완료' })).toBeEnabled()
+  })
+
+  it('이메일 인증이 없으면 나머지를 채워도 꺼져 있고, 인증을 되돌리면 다시 꺼진다', async () => {
+    const user = userEvent.setup()
+    renderSignup()
+
+    // 인증 전에 닉네임 확인과 비밀번호를 먼저 채운다.
+    await screen.findByLabelText('이메일') // 세션 확인이 끝나 폼이 그려질 때까지
+    await checkNickname(user, '새사람')
+    await fillPasswords(user)
+    expect(submitButton()).toBeDisabled()
+
+    await verifyEmail(user)
+    expect(submitButton()).toBeEnabled()
+
+    // 이메일 바꾸기는 증명서를 버린다. 버튼이 켜진 채 남으면 죽은 증명서로 가입을 보낸다.
+    await user.click(screen.getByRole('button', { name: '이메일 바꾸기' }))
+    expect(submitButton()).toBeDisabled()
+  })
+
+  it('닉네임 중복 확인을 하지 않았으면 꺼져 있다', async () => {
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await user.type(screen.getByLabelText('닉네임'), '새사람')
+    await fillPasswords(user)
+
+    expect(submitButton()).toBeDisabled()
+  })
+
+  it('비밀번호가 규칙을 어기면 확인 칸이 같아도 꺼져 있다', async () => {
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user, 'short1!')
+
+    expect(submitButton()).toBeDisabled()
+  })
+
+  it('비밀번호 확인만 고쳐도 버튼 상태가 따라온다', async () => {
+    // 한 칸만 보고 판단하면 확인 칸을 고쳐도 버튼이 꺼진 채 남는다 (Review Focus 5).
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user, 'Codari!test1', 'Codari!test2')
+
+    expect(screen.getByRole('button', { name: '가입 완료' })).toBeDisabled()
+
+    await user.clear(screen.getByLabelText('비밀번호 확인'))
+    await user.type(screen.getByLabelText('비밀번호 확인'), 'Codari!test1')
+
+    expect(screen.getByRole('button', { name: '가입 완료' })).toBeEnabled()
+  })
+
+  it('닉네임을 바꾸면 중복 확인이 풀린다', async () => {
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user)
+    expect(submitButton()).toBeEnabled()
+
+    await user.type(screen.getByLabelText('닉네임'), '2')
+
+    expect(screen.queryByText('쓸 수 있어요')).not.toBeInTheDocument()
+    expect(submitButton()).toBeDisabled()
+  })
+
+  it('이미 쓰는 닉네임이면 서버 문구 대신 안내를 보여 주고, 고치면 안내가 사라진다', async () => {
+    // available: false는 200이라 서버 문구가 없다. 이 문구는 프론트가 정한다.
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await user.type(screen.getByLabelText('닉네임'), mockAccounts[0]!.user.nickname)
+    await user.click(screen.getByRole('button', { name: '중복 확인' }))
+
+    expect(await screen.findByText('이미 사용 중인 닉네임이에요')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText('닉네임'), '2')
+    expect(screen.queryByText('이미 사용 중인 닉네임이에요')).not.toBeInTheDocument()
+  })
+
+  it('이미 가입된 이메일이면 서버 문구와 로그인 링크를 보여 준다', async () => {
+    const user = userEvent.setup()
+    renderSignup()
+
+    await user.type(await screen.findByLabelText('이메일'), mockAccounts[0]!.email)
+    await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
+
+    expect(await screen.findByText('이미 가입된 이메일이에요')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '로그인하러 가기' })).toHaveAttribute('href', '/login')
+  })
+
+  it('가입하면 로그인 화면으로 가고 안내를 넘긴다', async () => {
+    const user = userEvent.setup()
+    const { router } = renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user)
+    await user.click(screen.getByRole('button', { name: '가입 완료' }))
+
+    expect(await screen.findByRole('heading', { name: '로그인 화면' })).toBeInTheDocument()
+    expect(router.state.location.state).toEqual({ notice: '가입이 완료됐어요. 로그인해 주세요' })
+  })
+
+  it('가입 완료를 두 번 눌러도 요청은 한 번 나간다', async () => {
+    // 첫 요청이 계정을 만들고, 두 번째는 409 EMAIL_TAKEN을 받아 가입된 사람에게
+    // "이미 가입된 이메일이에요"가 뜬다.
+    let calls = 0
+    server.use(
+      http.post('*/api/auth/signup', async () => {
+        calls += 1
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user)
+
+    const submit = submitButton()
+    await user.click(submit)
+    await user.click(submit)
+
+    await screen.findByRole('heading', { name: '로그인 화면' })
+    expect(calls).toBe(1)
+  })
+
+  it('가입 때 닉네임이 선점되면 닉네임만 풀리고, 새 닉네임으로 이어서 가입한다', async () => {
+    // 중복 확인 시점에는 비어 있었다가 가입 시점에 선점된 경쟁을 만든다. 확인 응답만 한 번
+    // 거짓으로 덮고, 가입은 목의 실제 경로(NICKNAME_TAKEN)를 탄다.
+    const taken = mockAccounts[0]!.user.nickname
+    server.use(
+      http.get('*/api/auth/nickname-availability', () => HttpResponse.json({ available: true }), {
+        once: true,
+      }),
+    )
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, taken)
+    await fillPasswords(user)
+    await user.click(screen.getByRole('button', { name: '가입 완료' }))
+
+    // 닉네임 확인만 풀린다. 이메일 인증은 살아 있어야 한다 — 명세가 "닉네임만 다시 입력"이다.
+    expect(await screen.findByText('이미 사용 중인 닉네임이에요')).toBeInTheDocument()
+    expect(screen.queryByText('쓸 수 있어요')).not.toBeInTheDocument()
+    expect(screen.getByText('인증됐어요')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '가입 완료' })).toBeDisabled()
+
+    // 증명서는 닳지 않는다. 닉네임만 고쳐 다시 확인하면 같은 증명서로 가입된다.
+    await user.clear(screen.getByLabelText('닉네임'))
+    await checkNickname(user, '새사람')
+    expect(screen.getByText('인증됐어요')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '가입 완료' }))
+
+    expect(await screen.findByRole('heading', { name: '로그인 화면' })).toBeInTheDocument()
+  })
+
+  it('증명서가 만료되면 이메일 단계로 되돌린다', async () => {
+    server.use(
+      http.post('*/api/auth/signup', () =>
+        HttpResponse.json(
+          {
+            status: 400,
+            code: 'VERIFICATION_EXPIRED',
+            detail: '인증 시간이 지났어요. 이메일을 다시 인증해 주세요',
+          },
+          { status: 400 },
+        ),
+      ),
+    )
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user)
+    await user.click(screen.getByRole('button', { name: '가입 완료' }))
+
+    expect(await screen.findByText(/이메일을 다시 인증해 주세요/)).toBeInTheDocument()
+    expect(screen.queryByText('인증됐어요')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('이메일')).not.toHaveAttribute('readonly')
+  })
+
+  it('가입 때 이메일이 이미 쓰였으면 서버 문구를 보이고 이메일 단계로 되돌린다', async () => {
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user)
+    // 인증 뒤 다른 경로로 같은 이메일이 가입됐다.
+    server.use(
+      http.post('*/api/auth/signup', () =>
+        HttpResponse.json(
+          { status: 409, code: 'EMAIL_TAKEN', detail: '이미 가입된 이메일이에요' },
+          { status: 409 },
+        ),
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: '가입 완료' }))
+
+    expect(await screen.findByText('이미 가입된 이메일이에요')).toBeInTheDocument()
+    expect(screen.queryByText('인증됐어요')).not.toBeInTheDocument()
+    expect(submitButton()).toBeDisabled()
+  })
+
+  it('증명서를 브라우저 저장소에 남기지 않는다', async () => {
+    // 가입 증명서는 그 이메일의 소유를 증명하는 값이다. 남기면 그 기기를 다음에 쓰는
+    // 사람이 꺼내 쓸 수 있다 (명세서 3.2). 새로고침하면 처음부터 하는 쪽이 맞다.
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+
+    const stored = [localStorage, sessionStorage].flatMap((store) =>
+      Object.keys(store).map((key) => store.getItem(key) ?? ''),
+    )
+    expect(stored.some((value) => value.includes('mock-signup'))).toBe(false)
+  })
+
+  it('이미 로그인한 사람은 문제 목록으로 보낸다', async () => {
+    server.use(
+      http.get('*/api/me', () => HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' })),
+    )
+    renderSignup()
+
+    expect(await screen.findByRole('heading', { name: '문제 목록 도착' })).toBeInTheDocument()
+  })
+})
