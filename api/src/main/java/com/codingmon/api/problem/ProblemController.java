@@ -23,7 +23,7 @@ import com.codingmon.api.problem.ProblemRepository.SortField;
 @RequestMapping("/api")
 class ProblemController {
 
-    static final int MAX_PAGE_SIZE = 100;
+    static final int MAX_PAGE_SIZE = 20;
 
     private final ProblemRepository problems;
 

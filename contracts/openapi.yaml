@@ -480,7 +480,7 @@ paths:
           schema:
             type: integer
             minimum: 1
-            maximum: 100
+            maximum: 20
             default: 20
       responses:
         '200':
