@@ -46,8 +46,21 @@ describe('라우터 보호 구조', () => {
     expect(guards.indexOf('RequireAuth')).toBeLessThan(guards.indexOf('RequireAdmin'))
   })
 
-  it.each(['problems', 'login', 'forbidden', '*'])('%s는 보호하지 않는다', (path) => {
-    expect(guardsOf(path)).not.toContain('RequireAuth')
+  it.each(['problems', 'login', 'signup', 'password-reset', 'forbidden', '*'])(
+    '%s는 보호하지 않는다',
+    (path) => {
+      expect(guardsOf(path)).not.toContain('RequireAuth')
+    },
+  )
+
+  it('가입·재설정은 로그인 없이 열리는 공개 주소다', () => {
+    // RequireAuth 아래에 두면 가입하려는 사람이 로그인 화면으로 밀려난다.
+    const publicPaths = ['login', 'signup', 'password-reset']
+    const rootChildren = router.routes[0]!.children![0]!.children!
+
+    for (const path of publicPaths) {
+      expect(rootChildren.some((route) => route.path === path)).toBe(true)
+    }
   })
 
   it('보호된 화면도 AppShell을 쓰는 레이아웃 아래에 있다', () => {
