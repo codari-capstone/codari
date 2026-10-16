@@ -126,12 +126,21 @@ export function Component() {
         </Button>
       </form>
 
+      {/*
+        원래 가려던 화면을 두 화면에 넘긴다. 둘 다 끝나면 로그인 화면으로 되돌려 보내므로,
+        싣지 않으면 로그인에 성공해도 문제 상세가 아니라 목록으로 간다. 넘기는 값은 이미
+        safeRedirect를 통과한 target이다.
+      */}
       <p className="text-muted-foreground text-sm">
-        <Link to="/signup" className="text-primary hover:underline">
+        <Link to="/signup" state={{ from: target }} className="text-primary hover:underline">
           회원가입
         </Link>
         {' · '}
-        <Link to="/password-reset" className="text-primary hover:underline">
+        <Link
+          to="/password-reset"
+          state={{ from: target }}
+          className="text-primary hover:underline"
+        >
           비밀번호 찾기
         </Link>
       </p>

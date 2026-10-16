@@ -5,7 +5,9 @@ import { clientOptions } from './client'
 /**
  * 명세(#2)가 확정되기 전에 쓰던 임시 계약. 지금은 /api/me·로그인·로그아웃 셋만 쓴다.
  *
- * npm run gen:api는 이미 돌렸고, 가입·재설정은 api로 옮겨졌다. 나머지 셋은 COM-04를 기다린다.
+ * npm run gen:api는 이미 돌렸고(schema.d.ts가 계약의 14개 경로를 모두 담는다), 가입·재설정은
+ * api로 옮겨졌다. 나머지 셋은 COM-04를 기다린다. 계약에서 로그인 상태를 묻는 경로는
+ * `/api/users/me`다(#103) — 아래 남은 `/api/me`는 이 임시 계약 쪽 이름이다.
  * 계약의 세션 모델(메모리 access token과 Authorization 헤더)이 지금 코드가 가정하는 것과
  * 달라서, 호출만 바꿔서는 옮겨지지 않는다.
  *

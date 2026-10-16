@@ -14,7 +14,7 @@ afterEach(() => resetEmailCodes())
 
 type User = ReturnType<typeof userEvent.setup>
 
-function renderSignup() {
+function renderSignup(from?: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createMemoryRouter(
     [
@@ -22,7 +22,8 @@ function renderSignup() {
       { path: '/login', element: <h1>로그인 화면</h1> },
       { path: '/problems', element: <h1>문제 목록 도착</h1> },
     ],
-    { initialEntries: ['/signup'] },
+    // from은 RequireAuth가 로그인 화면에 실어 주고, 로그인 화면의 [회원가입] 링크가 여기로 넘긴다.
+    { initialEntries: [{ pathname: '/signup', state: from ? { from } : null }] },
   )
 
   render(
@@ -211,6 +212,51 @@ describe('회원가입 화면', () => {
     const submit = submitButton()
     await user.click(submit)
     await user.click(submit)
+
+    await screen.findByRole('heading', { name: '로그인 화면' })
+    expect(calls).toBe(1)
+  })
+
+  it('원래 가려던 화면을 로그인 화면으로 넘긴다', async () => {
+    // RequireAuth가 문제 상세에서 보낸 사람이 가입을 거쳤다. 로그인하면 목록이 아니라
+    // 그 상세로 들어가야 한다. 넘기지 않으면 그 정보가 여기서 끊긴다.
+    const user = userEvent.setup()
+    const { router } = renderSignup('/problems/42')
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user)
+    await user.click(screen.getByRole('button', { name: '가입 완료' }))
+
+    await screen.findByRole('heading', { name: '로그인 화면' })
+    expect(router.state.location.state).toMatchObject({ from: '/problems/42' })
+  })
+
+  it('가입 요청 중에는 중복 확인을 눌러도 가입이 다시 열리지 않는다', async () => {
+    // 중복 확인의 onSuccess가 submit.reset()을 부른다. 진행 중까지 지워 버리면 [가입 완료]가
+    // 다시 켜지고, 한 번 더 누르면 두 번째 POST가 나가 이미 가입된 사람이 409를 본다.
+    let calls = 0
+    server.use(
+      http.post('*/api/auth/signup', async () => {
+        calls += 1
+        await new Promise((resolve) => setTimeout(resolve, 80))
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '새사람')
+    await fillPasswords(user)
+    await user.click(submitButton())
+
+    const recheck = screen.getByRole('button', { name: '중복 확인' })
+    expect(recheck).toBeDisabled()
+    await user.click(recheck)
+
+    expect(submitButton()).toBeDisabled()
+    await user.click(submitButton())
 
     await screen.findByRole('heading', { name: '로그인 화면' })
     expect(calls).toBe(1)

@@ -13,8 +13,8 @@ const RESEND_SECONDS = 60
 interface EmailCodeStepProps {
   sendCode: (email: string) => Promise<void>
   verifyCode: (input: { email: string; code: string }) => Promise<string>
-  /** 인증이 끝나면 토큰과 그때의 이메일을 올린다. 인증이 풀리면 빈 문자열 둘로 알린다. */
-  onVerified: (token: string, email: string) => void
+  /** 인증이 끝나면 증명서를 올린다. 인증이 풀리면 빈 문자열로 알린다. */
+  onVerified: (token: string) => void
   /** 발송 오류 문구 옆에 붙는 동작. 가입의 EMAIL_TAKEN에 [로그인하러 가기]를 붙이는 자리. */
   sendErrorAction?: (code: string | undefined) => ReactNode
 }
@@ -71,7 +71,7 @@ export function EmailCodeStep({
       setCodeError(null)
       // MAIL_FAILED 뒤에도 번호는 만들어져 있어 인증이 이어진다. 인증됐는데 발송 실패 문구가 남으면 모순이다.
       send.reset()
-      onVerified(token, trimmedEmail)
+      onVerified(token)
     },
     onError: (error) => {
       const failed = problemCode(error)
@@ -98,18 +98,34 @@ export function EmailCodeStep({
     verify.mutate()
   }
 
-  function handleChangeEmail() {
-    setVerified(false)
+  /**
+   * 주소에 딸린 것을 모두 버린다. 이메일을 고칠 때와 [이메일 바꾸기]를 누를 때 부른다.
+   *
+   * 번호 칸·입력한 번호·두 요청의 오류 문구·쿨다운·증명서가 모두 "그 주소"에 대한 것이다.
+   * 주소가 바뀌면 그중 무엇도 새 주소를 설명하지 못한다. 하나라도 남기면 그게 남는 쪽으로
+   * 화면이 거짓말을 한다 — 남은 쿨다운은 기다릴 이유가 없는 60초를, 남은 번호 칸은 새
+   * 주소로 옛 번호를 보내 엉뚱한 오류를, 남은 증명서는 화면에 없는 계정을 만든다.
+   */
+  function clearForEmail() {
     setCodeOpen(false)
     setCode('')
     setCodeError(null)
     send.reset()
+    verify.reset()
     // 제한은 이메일마다 따로 센다. 다른 주소가 이전 주소의 쿨다운을 물려받으면 안 된다.
+    // 원래 주소로 되돌아가 또 보내면 서버가 429로 막고 그 문구와 함께 쿨다운이 다시 돈다.
     reset()
-    // 부모가 들고 있는 증명서를 버리게 한다. 안 버리면 다른 이메일로 받은 증명서로 가입된다.
-    // 인증을 푸는 곳이 여기뿐인 것은 인증된 동안 이메일 칸이 readOnly이기 때문이다. readOnly를
-    // 없애면 편집할 때도 증명서를 버려야 한다. 아니면 바뀐 주소가 이전 주소의 증명서를 쥔다.
-    onVerified('', '')
+    if (verified) {
+      setVerified(false)
+      // 부모가 들고 있는 증명서를 버리게 한다. 안 버리면 다른 이메일로 받은 증명서로 가입된다.
+      onVerified('')
+    }
+  }
+
+  function handleEmailInput(next: string) {
+    setEmail(next)
+    // 공백만 바뀐 경우는 보내는 주소가 그대로다(아래 trimmedEmail). 인증을 풀지 않는다.
+    if (next.trim() !== trimmedEmail) clearForEmail()
   }
 
   return (
@@ -119,16 +135,22 @@ export function EmailCodeStep({
           이메일
         </label>
         <div className="flex gap-2">
+          {/*
+            요청이 오가는 동안에도 잠근다. 보낸 주소와 화면의 주소가 갈라지면, 응답이
+            지금 입력값에 대한 것인지 알 수 없다. 확인 요청 중에 주소를 B로 고치면 A용
+            증명서를 쥔 채 B가 인증된 것처럼 잠겨, 화면에 없는 A 계정이 처리된다.
+            잠그는 동안 두 버튼도 꺼져 있어 사용자가 할 수 있는 일은 달라지지 않는다.
+          */}
           <Input
             id="email"
             type="email"
             autoComplete="email"
-            readOnly={verified}
+            readOnly={verified || send.isPending || verify.isPending}
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            onChange={(event) => handleEmailInput(event.target.value)}
           />
           {verified ? (
-            <Button type="button" variant="outline" onClick={handleChangeEmail}>
+            <Button type="button" variant="outline" onClick={clearForEmail}>
               이메일 바꾸기
             </Button>
           ) : (
@@ -163,7 +185,7 @@ export function EmailCodeStep({
               inputMode="numeric"
               autoComplete="one-time-code"
               maxLength={CODE_LENGTH}
-              readOnly={verified}
+              readOnly={verified || verify.isPending}
               value={code}
               onChange={(event) => setCode(event.target.value)}
             />

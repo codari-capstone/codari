@@ -220,6 +220,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/github": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GitHub 로그인 시작 (COM-02)
+         * @description 브라우저를 이 주소로 이동시킨다(fetch가 아님). GitHub 인증 화면으로 보낸다. 이메일 권한은 요청하지 않는다.
+         *     원래 보던 페이지는 웹이 이동 전에 기억해 두었다가, 돌아온 뒤 그 페이지로 보낸다.
+         *     서버에 GitHub 설정(`GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET`)이 없으면 503 `GITHUB_UNAVAILABLE`.
+         */
+        get: operations["startGitHubLogin"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/github/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GitHub 로그인 콜백 (COM-02)
+         * @description GitHub OAuth App에 등록하는 콜백 주소다. 처리 후 웹의 `/login/github?result=...`로 보낸다.
+         *     - `success`: 이미 가입한 계정이라 로그인됨. 웹은 `POST /api/auth/refresh`로 access token을 받는다.
+         *     - `signup`: 처음이라 닉네임 입력 화면을 보여 주고 `POST /api/auth/github/signup`을 호출한다(30분 안).
+         *     - `error`: 로그인하지 못함. 로그인 화면에 실패를 알린다. 다음 경우가 모두 여기에 해당한다.
+         *       - 사용자가 GitHub에서 취소했거나 `code`·`state`가 없음
+         *       - `state`가 쿠키와 다름(다른 사이트가 시작한 로그인) 또는 `state` 쿠키 만료(시작 후 10분)
+         *       - GitHub 토큰 발급 실패, GitHub 응답 시간 초과(5초), GitHub 오류 응답
+         *       - 서버 처리 오류
+         */
+        get: operations["gitHubLoginCallback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/github/signup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * GitHub 가입 완료 (COM-02)
+         * @description 콜백이 남긴 쿠키로 GitHub 인증 결과를 확인하고, 닉네임만 받아 가입한다. 로그인시키지 않으므로 웹은 로그인 화면으로 보낸다. 비밀번호는 만들지 않는다.
+         *     오류 `code`: `VERIFICATION_EXPIRED`(30분 지남, GitHub 로그인 다시), `INVALID_NICKNAME`,
+         *     `NICKNAME_TAKEN`(그 사이 선점됨, 닉네임만 다시 입력), `ALREADY_REGISTERED`.
+         */
+        post: operations["gitHubSignUp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 로그인한 사용자 정보 (COM-01, COM-05)
+         * @description 상단의 사용자 메뉴(닉네임)와 관리자 메뉴(`role`)에 쓴다. 닉네임은 바뀔 수 있어 토큰이 아니라 이 API로 받는다.
+         */
+        get: operations["getCurrentUser"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -227,6 +318,15 @@ export interface components {
         EmailRequest: {
             /** Format: email */
             email: string;
+        };
+        CurrentUser: {
+            /** Format: int64 */
+            id: number;
+            nickname: string;
+            /** @enum {string} */
+            role: "USER" | "ADMIN";
+            /** @description GitHub 가입 계정의 프로필 이미지. 없으면 null */
+            avatarUrl?: string | null;
         };
         AccessTokenResponse: {
             accessToken: string;
@@ -539,6 +639,94 @@ export interface operations {
                 content?: never;
             };
             400: components["responses"]["Problem"];
+        };
+    };
+    startGitHubLogin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description GitHub 인증 화면으로 이동 */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            503: components["responses"]["Problem"];
+        };
+    };
+    gitHubLoginCallback: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 웹으로 이동 */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    gitHubSignUp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description 2~16자, 한글·영문·숫자 */
+                    nickname: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 가입 완료 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    getCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 로그인한 사용자 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentUser"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
 }

@@ -69,7 +69,7 @@ describe('EmailCodeStep', () => {
     expect(verifyCode).not.toHaveBeenCalled()
   })
 
-  it('확인에 성공하면 토큰과 이메일을 올려 준다', async () => {
+  it('확인에 성공하면 증명서를 올려 준다', async () => {
     const user = userEvent.setup()
     const { onVerified } = setup()
 
@@ -78,7 +78,7 @@ describe('EmailCodeStep', () => {
     await user.type(await screen.findByLabelText('인증번호'), '123456')
     await user.click(screen.getByRole('button', { name: '확인' }))
 
-    expect(onVerified).toHaveBeenCalledWith('token-1', 'new@codari.test')
+    expect(onVerified).toHaveBeenCalledWith('token-1')
   })
 
   it('인증이 끝나면 이메일 칸을 잠그고, 바꾸면 인증이 풀린다', async () => {
@@ -96,7 +96,7 @@ describe('EmailCodeStep', () => {
 
     // 인증이 풀렸다는 것을 부모에게 알려야 한다. 알리지 않으면 다른 이메일로 받은
     // 증명서로 가입이 된다.
-    expect(onVerified).toHaveBeenLastCalledWith('', '')
+    expect(onVerified).toHaveBeenLastCalledWith('')
     expect(screen.getByLabelText('이메일')).not.toHaveAttribute('readonly')
     expect(screen.queryByLabelText('인증번호')).not.toBeInTheDocument()
   })
@@ -214,6 +214,45 @@ describe('EmailCodeStep', () => {
     await user.click(screen.getByRole('button', { name: '이메일 바꾸기' }))
 
     expect(screen.getByRole('button', { name: '인증번호 받기' })).toBeEnabled()
+  })
+
+  it('인증 전에 이메일을 고치면 번호 칸과 쿨다운이 함께 풀린다', async () => {
+    // 제한은 이메일마다 따로 센다. 오타를 고친 사람이 기다릴 이유가 없고, 열린 칸에 옛
+    // 번호를 넣으면 새 주소로 확인이 나가 엉뚱한 오류를 본다.
+    const user = userEvent.setup()
+    setup()
+
+    await user.type(screen.getByLabelText('이메일'), 'jhon@codari.test')
+    await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
+    await user.type(await screen.findByLabelText('인증번호'), '123456')
+    expect(screen.getByRole('button', { name: /다시 받기/ })).toBeDisabled()
+
+    // 오타를 고친다.
+    await user.type(screen.getByLabelText('이메일'), '{backspace>16/}john@codari.test')
+
+    expect(screen.queryByLabelText('인증번호')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '인증번호 받기' })).toBeEnabled()
+  })
+
+  it('확인 요청이 오가는 동안에는 이메일을 고칠 수 없다', async () => {
+    // 보낸 주소와 화면의 주소가 갈라지면, A용 증명서를 쥔 채 B가 인증된 것처럼 잠긴다.
+    const user = userEvent.setup()
+    let release: ((token: string) => void) | undefined
+    setup({
+      verifyCode: vi.fn(() => new Promise<string>((resolve) => (release = resolve))),
+    })
+
+    await user.type(screen.getByLabelText('이메일'), 'a@codari.test')
+    await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
+    await user.type(await screen.findByLabelText('인증번호'), '123456')
+    await user.click(screen.getByRole('button', { name: '확인' }))
+
+    await user.type(screen.getByLabelText('이메일'), 'x')
+    expect(screen.getByLabelText('이메일')).toHaveValue('a@codari.test')
+
+    release?.('token-1')
+    expect(await screen.findByText('인증됐어요')).toBeInTheDocument()
+    expect(screen.getByLabelText('이메일')).toHaveValue('a@codari.test')
   })
 
   describe('쿨다운', () => {

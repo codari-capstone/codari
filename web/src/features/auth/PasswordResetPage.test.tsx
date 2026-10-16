@@ -12,7 +12,7 @@ import { Component as PasswordResetPage } from './PasswordResetPage'
 
 afterEach(() => resetEmailCodes())
 
-function renderReset() {
+function renderReset(from?: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const router = createMemoryRouter(
     [
@@ -20,7 +20,8 @@ function renderReset() {
       { path: '/login', element: <h1>로그인 화면</h1> },
       { path: '/problems', element: <h1>문제 목록 도착</h1> },
     ],
-    { initialEntries: ['/password-reset'] },
+    // from은 로그인 화면의 [비밀번호 찾기] 링크가 넘긴다 (원래 가려던 화면).
+    { initialEntries: [{ pathname: '/password-reset', state: from ? { from } : null }] },
   )
 
   render(
@@ -124,6 +125,20 @@ describe('비밀번호 재설정 화면', () => {
     expect(router.state.location.state).toEqual({
       notice: '비밀번호를 바꿨어요. 새 비밀번호로 로그인해 주세요',
     })
+  })
+
+  it('원래 가려던 화면을 로그인 화면으로 넘긴다', async () => {
+    // 로그인 화면의 [비밀번호 찾기]가 실어 준 목적지다. 끊기면 비밀번호를 바꾸고
+    // 로그인해도 들어오려던 화면이 아니라 문제 목록으로 간다.
+    const user = userEvent.setup()
+    const { router } = renderReset('/problems/42')
+
+    await verifyEmail(user, mockAccounts[0]!.email)
+    await typePasswords(user)
+    await user.click(screen.getByRole('button', { name: '재설정' }))
+
+    await screen.findByRole('heading', { name: '로그인 화면' })
+    expect(router.state.location.state).toMatchObject({ from: '/problems/42' })
   })
 
   it('규칙 오류 뒤에는 같은 증명서로 다시 시도해 성공한다', async () => {

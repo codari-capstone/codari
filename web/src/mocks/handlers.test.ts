@@ -340,6 +340,18 @@ describe('가입 완료의 토큰·오류 규칙', () => {
     expect(code(again)).toBe('EMAIL_TAKEN')
   })
 
+  it('목에서 가입을 마친 이메일은 발송 단계에서 409 EMAIL_TAKEN이다', async () => {
+    // 계약은 발송에서 거른다. 여기서 204를 주면 목으로 밟는 흐름만 실제 서버와 달라져,
+    // 발송·인증·닉네임 확인을 다 통과한 뒤 마지막에야 막힌다.
+    const email = 'new@codari.test'
+    const verificationToken = await signupToken(email)
+    await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+
+    const res = await api.POST('/api/auth/signup/email-code', { body: { email } })
+    expect(res.response.status).toBe(409)
+    expect(code(res)).toBe('EMAIL_TAKEN')
+  })
+
   it('가입은 mockAccounts를 늘리지 않는다', async () => {
     const before = mockAccounts.length
     const verificationToken = await signupToken()

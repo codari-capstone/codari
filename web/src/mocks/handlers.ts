@@ -117,7 +117,9 @@ export const handlers: RequestHandler[] = [
     if (!EMAIL_PATTERN.test(email)) {
       return problem(400, 'INVALID_EMAIL', '이메일 형식이 올바르지 않아요')
     }
-    if (mockAccounts.some((item) => item.email === email)) {
+    // 계약은 발송 단계에서 이미 가입된 이메일을 거른다. isSignedUp까지 봐야 목에서
+    // 가입을 마친 주소가 다시 발송·인증·닉네임 확인을 통과한 뒤 마지막에야 409를 받는 일이 없다.
+    if (isSignedUp(email) || mockAccounts.some((item) => item.email === email)) {
       return problem(409, 'EMAIL_TAKEN', '이미 가입된 이메일이에요')
     }
     markCodeSent('SIGNUP', email)

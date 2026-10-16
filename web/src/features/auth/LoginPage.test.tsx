@@ -38,6 +38,9 @@ function renderLogin(state?: unknown, seed?: (client: QueryClient) => void) {
       { path: '/login', Component: LoginPage },
       { path: '/problems', element: <h1>문제 목록 도착</h1> },
       { path: '/submissions', element: <h1>제출 기록 도착</h1> },
+      // 링크가 state를 싣고 가는지 보려면 도착지가 있어야 한다. 실제 화면은 다른 파일에서 본다.
+      { path: '/signup', element: <h1>회원가입 도착</h1> },
+      { path: '/password-reset', element: <h1>비밀번호 찾기 도착</h1> },
     ],
     { initialEntries: [{ pathname: '/login', state }] },
   )
@@ -388,6 +391,32 @@ describe('로그인 화면', () => {
     expect(html).not.toContain('Codari!test1')
     expect(screen.getByLabelText('이메일')).toHaveValue('')
     expect(screen.getByLabelText('비밀번호')).toHaveValue('')
+  })
+
+  it('회원가입 링크에 원래 가려던 화면을 싣는다', async () => {
+    // 가입·재설정은 끝나면 이 화면으로 되돌려 보낸다. 싣지 않으면 로그인에 성공해도
+    // 들어오려던 화면이 아니라 문제 목록으로 간다.
+    const user = userEvent.setup()
+    const { router } = renderLogin({ from: '/submissions' })
+
+    await waitForLoginForm()
+    await user.click(screen.getByRole('link', { name: '회원가입' }))
+
+    expect(router.state.location.pathname).toBe('/signup')
+    expect(router.state.location.state).toEqual({ from: '/submissions' })
+  })
+
+  it('사이트 밖 주소는 링크에 싣지 않는다', async () => {
+    // state는 사용자가 심을 수 있다. 검사를 통과한 값만 넘겨야 가입을 거쳐 돌아온
+    // 로그인이 사이트 밖으로 향하지 않는다 (safeRedirect).
+    const user = userEvent.setup()
+    const { router } = renderLogin({ from: '//evil.com' })
+
+    await waitForLoginForm()
+    await user.click(screen.getByRole('link', { name: '비밀번호 찾기' }))
+
+    expect(router.state.location.pathname).toBe('/password-reset')
+    expect(router.state.location.state).toEqual({ from: '/problems' })
   })
 
   it('회원가입·비밀번호 찾기 링크를 보여 준다', async () => {

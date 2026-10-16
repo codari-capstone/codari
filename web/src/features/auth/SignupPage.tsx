@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
@@ -28,7 +28,13 @@ export function Component() {
   const navigate = useNavigate()
   const { isAuthenticated, isLoading } = useAuth()
 
-  const [verification, setVerification] = useState<{ token: string; email: string } | null>(null)
+  const location = useLocation()
+  // RequireAuth가 로그인 화면으로 보낼 때 실어 준 원래 목적지. 가입을 마치고 로그인 화면으로
+  // 넘길 때 그대로 다시 실어, 로그인하면 여기로 들어오려던 화면으로 간다. 값은 믿지 않는다 —
+  // 로그인 화면이 safeRedirect로 검사한다.
+  const from = (location.state as { from?: unknown } | null)?.from
+
+  const [verificationToken, setVerificationToken] = useState<string | null>(null)
   const [emailStepKey, setEmailStepKey] = useState(0)
   const [nickname, setNickname] = useState('')
   const [nicknameOk, setNicknameOk] = useState<string | null>(null)
@@ -41,29 +47,17 @@ export function Component() {
   // 입력칸 요소. 위의 값 ref와 다르다. 가입 때 선점되면 여기로 포커스를 옮긴다.
   const nicknameInputRef = useRef<HTMLInputElement>(null)
 
-  const nicknameCheck = useMutation({
-    mutationFn: (value: string) => checkNickname(value),
-    onSuccess: (available, checked) => {
-      // 확인하는 사이 칸을 고쳤다면 그 응답은 지금 값에 대한 것이 아니다.
-      if (checked !== nicknameRef.current) return
-      setNicknameOk(available ? checked : null)
-      setNicknameTaken(!available)
-      // 가입 실패 문구(닉네임 선점)는 방금 다시 확인한 값에 대한 것이 아니다.
-      submit.reset()
-    },
-  })
-
   const submit = useMutation({
     mutationFn: () =>
       signUp({
-        verificationToken: verification?.token ?? '',
+        verificationToken: verificationToken ?? '',
         nickname,
         password,
         passwordConfirm,
       }),
     onSuccess: () => {
       // 계약이 가입 응답에 토큰을 주지 않는다. 로그인은 사용자가 직접 한다.
-      void navigate('/login', { replace: true, state: { notice: SIGNUP_NOTICE } })
+      void navigate('/login', { replace: true, state: { notice: SIGNUP_NOTICE, from } })
     },
     onError: (error) => {
       const failed = problemCode(error)
@@ -74,7 +68,7 @@ export function Component() {
       }
       // 증명서가 죽었거나 그 사이 같은 이메일로 가입됐다. 이메일부터 다시 인증해야 한다.
       if (failed === 'VERIFICATION_EXPIRED' || failed === 'EMAIL_TAKEN') {
-        setVerification(null)
+        setVerificationToken(null)
         // EmailCodeStep은 "인증됨" 표시를 스스로 들고 있어 부모가 증명서를 버려도 그대로 남는다.
         // key를 바꿔 새로 마운트하면 이메일 단계가 처음 상태로 돌아간다. 이때 입력해 둔 이메일이
         // 지워지고 재발송 쿨다운도 풀린다. 쿨다운이 풀려도 괜찮은 이유: 이메일당 1분 간격은
@@ -85,13 +79,29 @@ export function Component() {
     },
   })
 
+  // submit 뒤에 선언한다 — 이 변이의 onSuccess가 submit을 읽는다.
+  const nicknameCheck = useMutation({
+    mutationFn: (value: string) => checkNickname(value),
+    onSuccess: (available, checked) => {
+      // 확인하는 사이 칸을 고쳤다면 그 응답은 지금 값에 대한 것이 아니다.
+      if (checked !== nicknameRef.current) return
+      setNicknameOk(available ? checked : null)
+      setNicknameTaken(!available)
+      // 가입 실패 문구(닉네임 선점)는 방금 다시 확인한 값에 대한 것이 아니다. 다만 가입
+      // 요청이 오가는 중이면 지우지 않는다 — reset()은 문구만이 아니라 '진행 중'까지
+      // 지워 [가입 완료]를 다시 켠다. 그 상태로 한 번 더 누르면 두 번째 POST가 나가고,
+      // 첫 요청으로 이미 가입된 사람이 두 번째 응답의 409를 실패 문구로 본다.
+      if (!submit.isPending) submit.reset()
+    },
+  })
+
   // 세션을 모르는 동안 폼을 보여 주면, 이미 로그인한 사람이 입력을 시작한 뒤 아래
   // <Navigate>가 실행돼 입력이 사라진 채 이동한다 (LoginPage와 같은 선택).
   if (isLoading) return <ListSkeleton rows={4} />
   if (isAuthenticated) return <Navigate to="/problems" replace />
 
   const passwordOk = isValidPassword(password) && password === passwordConfirm
-  const ready = verification !== null && nicknameOk === nickname && passwordOk
+  const ready = verificationToken !== null && nicknameOk === nickname && passwordOk
 
   return (
     <section className="mx-auto flex w-full max-w-sm flex-col gap-6 py-10">
@@ -102,8 +112,9 @@ export function Component() {
         sendCode={sendSignupCode}
         verifyCode={verifySignupCode}
         // 빈 토큰은 "인증을 되돌렸다"는 신호다(이메일 바꾸기). 들고 있던 증명서를 버린다.
-        onVerified={(token, email) => {
-          setVerification(token ? { token, email } : null)
+        // 이메일은 받지 않는다 — 계약의 가입 본문에 email이 없다(증명서가 그 주소를 담는다).
+        onVerified={(token) => {
+          setVerificationToken(token || null)
           // 다시 인증했다면 가입 실패 문구(만료·이미 가입)가 설명하던 상태는 끝났다.
           if (token) submit.reset()
         }}
@@ -137,7 +148,8 @@ export function Component() {
           <Button
             type="button"
             className="shrink-0"
-            disabled={!isValidNickname(nickname) || nicknameCheck.isPending}
+            // 가입 중에도 끈다. 가입 요청과 겹치면 응답 순서에 따라 화면이 모순된 상태가 된다.
+            disabled={!isValidNickname(nickname) || nicknameCheck.isPending || submit.isPending}
             onClick={() => nicknameCheck.mutate(nickname)}
           >
             중복 확인

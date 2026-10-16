@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router'
+import { Navigate, useLocation, useNavigate } from 'react-router'
 
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
@@ -24,7 +24,13 @@ const RESET_NOTICE = '비밀번호를 바꿨어요. 새 비밀번호로 로그�
  */
 export function Component() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { isAuthenticated, isLoading } = useAuth()
+
+  // RequireAuth가 로그인 화면으로 보낼 때 실어 준 원래 목적지. 비밀번호를 바꾸고 로그인
+  // 화면으로 넘길 때 그대로 다시 실어, 로그인하면 들어오려던 화면으로 간다. 값은 로그인
+  // 화면이 safeRedirect로 검사한다.
+  const from = (location.state as { from?: unknown } | null)?.from
 
   const [resetToken, setResetToken] = useState<string | null>(null)
   const [emailStepKey, setEmailStepKey] = useState(0)
@@ -34,7 +40,7 @@ export function Component() {
   const submit = useMutation({
     mutationFn: () => resetPassword({ resetToken: resetToken ?? '', password, passwordConfirm }),
     onSuccess: () => {
-      void navigate('/login', { replace: true, state: { notice: RESET_NOTICE } })
+      void navigate('/login', { replace: true, state: { notice: RESET_NOTICE, from } })
     },
     onError: (error) => {
       // 증명서가 죽었거나 이미 쓰였다. 인증번호부터 다시 받아야 한다.
