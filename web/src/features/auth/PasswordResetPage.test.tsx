@@ -270,4 +270,32 @@ describe('비밀번호 재설정 화면', () => {
 
     expect(await screen.findByRole('heading', { name: '문제 목록 도착' })).toBeInTheDocument()
   })
+
+  it('재설정 요청 중에는 이메일 단계가 잠겨 두 번 제출되지 않는다', async () => {
+    // [이메일 바꾸기]로 다시 인증하면 onVerified가 submit.reset()을 부른다. 가드가 없으면
+    // '진행 중'까지 지워 [재설정]이 다시 켜지고, 두 번째 요청은 RESET_EXPIRED를 받는다.
+    const user = userEvent.setup()
+    let calls = 0
+    let finishReset: () => void = () => {}
+    server.use(
+      http.post('*/api/auth/password-reset', async () => {
+        calls += 1
+        await new Promise<void>((resolve) => (finishReset = resolve))
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    renderReset()
+
+    await verifyEmail(user, mockAccounts[0]!.email)
+    await typePasswords(user)
+    await user.click(screen.getByRole('button', { name: '재설정' }))
+
+    expect(screen.getByRole('button', { name: '이메일 바꾸기' })).toBeDisabled()
+    // 제출 중에는 버튼 이름이 '바꾸는 중…'이다.
+    expect(screen.getByRole('button', { name: '바꾸는 중…' })).toBeDisabled()
+
+    finishReset()
+    await screen.findByRole('heading', { name: '로그인 화면' })
+    expect(calls).toBe(1)
+  })
 })

@@ -18,6 +18,7 @@ export function useResendCooldown(seconds: number): {
 } {
   const [remaining, setRemaining] = useState(0)
   const timer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const mounted = useRef(true)
 
   // 언마운트와 0 도달에서 같은 정리를 쓴다. 정리하지 않으면 사라진 화면의 state를 갱신한다.
   function stop() {
@@ -27,7 +28,13 @@ export function useResendCooldown(seconds: number): {
     }
   }
 
-  useEffect(() => stop, [])
+  useEffect(
+    () => () => {
+      mounted.current = false
+      stop()
+    },
+    [],
+  )
 
   // 0이 되면 인터벌을 멈춘다. state 갱신 함수 안에서 하면 부수 효과가 섞이므로 여기서 한다.
   useEffect(() => {
@@ -35,6 +42,12 @@ export function useResendCooldown(seconds: number): {
   }, [remaining])
 
   function start() {
+    // 언마운트 뒤에도 불릴 수 있다. useMutation 옵션의 onSuccess는 컴포넌트가 사라진 뒤에도
+    // 실행되므로(mutate에 넘긴 콜백과 다르다), [인증번호 받기]를 누르고 화면을 떠나거나
+    // emailStepKey가 올라가 다시 마운트되는 사이에 여기로 들어온다. 그때 인터벌을 걸면
+    // 정리 effect는 이미 지나갔고, remaining 갱신이 렌더로 이어지지 않아 0에서 멈추는
+    // effect도 돌지 않는다 — 새로고침할 때까지 1초마다 영원히 돈다.
+    if (!mounted.current) return
     stop()
     setRemaining(seconds)
     timer.current = setInterval(() => {

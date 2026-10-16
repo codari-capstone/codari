@@ -116,14 +116,21 @@ export function Component() {
         verifyCode={verifySignupCode}
         // 빈 토큰은 "인증을 되돌렸다"는 신호다(이메일 바꾸기). 들고 있던 증명서를 버린다.
         // 이메일은 받지 않는다 — 계약의 가입 본문에 email이 없다(증명서가 그 주소를 담는다).
+        busy={submit.isPending}
         onVerified={(token) => {
           setVerificationToken(token || null)
           // 다시 인증했다면 가입 실패 문구(만료·이미 가입)가 설명하던 상태는 끝났다.
-          if (token) submit.reset()
+          // 다만 가입 요청이 오가는 중이면 지우지 않는다 — reset()은 문구만이 아니라
+          // '진행 중'까지 지워 [가입 완료]를 다시 켠다. 그 상태로 한 번 더 누르면 두 번째
+          // POST가 나가고, 첫 요청으로 이미 가입된 사람이 두 번째 응답의 409를 본다.
+          // busy로 이 단계를 잠그는 것과 두 겹이다 (nicknameCheck의 가드와 같은 이유).
+          if (token && !submit.isPending) submit.reset()
         }}
         sendErrorAction={(code) =>
           code === 'EMAIL_TAKEN' ? (
-            <Link to="/login" className="text-primary underline">
+            // 가입 성공 뒤 이동과 같이 원래 가려던 화면을 싣는다. 안 실으면 /problems/42에서
+            // 넘어온 사람이 로그인에 성공해도 문제 목록으로 간다 (값 검사는 로그인 화면이 한다).
+            <Link to="/login" state={{ from }} className="text-primary underline">
               로그인하러 가기
             </Link>
           ) : null
@@ -210,7 +217,7 @@ export function Component() {
           {problemCode(submit.error) === 'EMAIL_TAKEN' ? (
             <>
               {' '}
-              <Link to="/login" className="text-primary underline">
+              <Link to="/login" state={{ from }} className="text-primary underline">
                 로그인하러 가기
               </Link>
             </>

@@ -76,10 +76,13 @@ export function Component() {
         sendCode={sendResetCode}
         verifyCode={verifyResetCode}
         // 빈 토큰은 "인증을 되돌렸다"는 신호다(이메일 바꾸기). 들고 있던 증명서를 버린다.
+        busy={submit.isPending}
         onVerified={(token) => {
           setResetToken(token || null)
-          // 다시 인증했다면 재설정 실패 문구(만료)가 설명하던 상태는 끝났다.
-          if (token) submit.reset()
+          // 다시 인증했다면 재설정 실패 문구(만료)가 설명하던 상태는 끝났다. 다만 재설정
+          // 요청이 오가는 중이면 지우지 않는다 — reset()이 '진행 중'까지 지워 [재설정]이
+          // 다시 켜지고, 두 번째 요청은 RESET_EXPIRED를 받는다 (SignupPage와 같은 이유).
+          if (token && !submit.isPending) submit.reset()
         }}
       />
 

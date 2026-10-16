@@ -17,6 +17,13 @@ interface EmailCodeStepProps {
   onVerified: (token: string) => void
   /** 발송 오류 문구 옆에 붙는 동작. 가입의 EMAIL_TAKEN에 [로그인하러 가기]를 붙이는 자리. */
   sendErrorAction?: (code: string | undefined) => ReactNode
+  /**
+   * 부모가 제출 중일 때 참. 이 단계 전체를 잠근다.
+   *
+   * 제출이 오가는 동안 [이메일 바꾸기]로 다른 주소를 인증하면, 부모의 onVerified가
+   * 제출 상태를 지워 버튼이 다시 켜지고 두 번째 요청이 나간다. 그 창을 닫는다.
+   */
+  busy?: boolean
 }
 
 /**
@@ -30,6 +37,7 @@ export function EmailCodeStep({
   verifyCode,
   onVerified,
   sendErrorAction,
+  busy = false,
 }: EmailCodeStepProps) {
   const [email, setEmail] = useState('')
   const [emailError, setEmailError] = useState<string | null>(null)
@@ -52,14 +60,26 @@ export function EmailCodeStep({
     },
     onError: (error) => {
       const failed = problemCode(error)
+      // MAIL_FAILED면 번호 칸을 닫고 입력도 비운다.
+      //
+      // 서버는 이전 번호를 무효로 만든 뒤 새 번호를 저장하고, 그다음 메일을 보낸다
+      // (EmailCodeService.issue → send). 발송이 실패하면 새 번호는 사용자에게 가지 않았고
+      // 이전 번호는 이미 죽었다. 칸을 열어 두면 사용자가 옛 번호를 넣어 CODE_MISMATCH를
+      // 받고, 받아 본 적 없는 번호에 시도 횟수(5회)만 쌓인다. 계약도 같은 말을 한다 —
+      // "번호는 만들어진 채라 1분 뒤 다시 받아야 하고, 하루 5회에도 센다". '만들어진 채'는
+      // 하루 횟수에 센다는 뜻이고, 사용자가 할 일은 다시 받기다.
+      if (failed === 'MAIL_FAILED') {
+        setCodeOpen(false)
+        setCode('')
+        setCodeError(null)
+        verify.reset()
+      }
       // 서버가 번호를 만들었거나 횟수에 센 경우만 쿨다운을 돈다 (계정 규칙).
-      // - MAIL_FAILED: 번호는 만들어진 채다(계약). 칸을 열어 방금 온 메일을 쓰게 하고,
-      //   1분 안에 또 보내면 429이므로 쿨다운도 돈다.
+      // - MAIL_FAILED: 번호를 만들었으므로 1분 안에 또 보내면 429다.
       // - TOO_MANY_REQUESTS: 이미 제한에 걸렸다. 언제 풀리는지 모르니 카운트다운과 서버 문구로 보인다.
       // - EMAIL_TAKEN·EMAIL_NOT_FOUND·INVALID_EMAIL: 번호를 보내지 않았다. 가입 여부 조회는
       //   IP 하루 상한에만 세고 이메일당 1분 간격에는 세지 않으므로, 막으면 오타를 고친
       //   사용자가 이유도 모른 채 기다리게 된다.
-      if (failed === 'MAIL_FAILED') setCodeOpen(true)
       if (failed === 'MAIL_FAILED' || failed === 'TOO_MANY_REQUESTS') start()
     },
   })
@@ -109,6 +129,10 @@ export function EmailCodeStep({
    * 주소로 옛 번호를 보내 엉뚱한 오류를, 남은 증명서는 화면에 없는 계정을 만든다.
    */
   function clearForEmail() {
+    // 형식 오류도 그 주소에 대한 것이다. 주소를 고치는 중에 남아 있으면 사용자는 지금
+    // 값에 대한 설명으로 읽는다. 공백만 바뀐 경우는 여기 오지 않는다 — 그때는 보내는
+    // 주소가 그대로라 형식 판정도 그대로다.
+    setEmailError(null)
     setCodeOpen(false)
     setCode('')
     setCodeError(null)
@@ -147,19 +171,22 @@ export function EmailCodeStep({
             id="email"
             type="email"
             autoComplete="email"
-            readOnly={verified || send.isPending || verify.isPending}
+            readOnly={verified || busy || send.isPending || verify.isPending}
             value={email}
             onChange={(event) => handleEmailInput(event.target.value)}
           />
           {verified ? (
-            <Button type="button" variant="outline" onClick={clearForEmail}>
+            <Button type="button" variant="outline" disabled={busy} onClick={clearForEmail}>
               이메일 바꾸기
             </Button>
           ) : (
             <Button
               type="button"
               className="shrink-0"
-              disabled={send.isPending || remaining > 0}
+              // 확인 요청과 겹치지 않게 막는다. 겹치면 서버가 이전 번호를 무효로 만든 뒤
+              // 확인이 도착해 CODE_MISMATCH가 되거나, 늦게 온 발송 성공이 비워 둔 칸을
+              // 다시 열고 쿨다운을 돌린다.
+              disabled={busy || send.isPending || verify.isPending || remaining > 0}
               onClick={handleSend}
             >
               {/* 꺼진 버튼에 이유가 없으면 죽은 버튼으로 보인다. 카운트다운이 그 이유다. */}
@@ -187,9 +214,13 @@ export function EmailCodeStep({
               inputMode="numeric"
               autoComplete="one-time-code"
               maxLength={CODE_LENGTH}
-              readOnly={verified || verify.isPending}
+              readOnly={verified || busy || verify.isPending}
               value={code}
-              onChange={(event) => setCode(event.target.value)}
+              onChange={(event) => {
+                setCode(event.target.value)
+                setCodeError(null)
+                verify.reset()
+              }}
             />
             {verified ? (
               <p className="self-center text-sm">인증됐어요</p>
@@ -197,7 +228,7 @@ export function EmailCodeStep({
               <Button
                 type="button"
                 className="shrink-0"
-                disabled={verify.isPending}
+                disabled={busy || verify.isPending || send.isPending}
                 onClick={handleVerify}
               >
                 확인

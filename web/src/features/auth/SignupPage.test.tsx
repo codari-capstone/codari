@@ -401,4 +401,58 @@ describe('회원가입 화면', () => {
 
     expect(await screen.findByRole('heading', { name: '문제 목록 도착' })).toBeInTheDocument()
   })
+
+  it('가입 요청 중에는 이메일 단계가 잠겨 두 번 제출되지 않는다', async () => {
+    // [이메일 바꾸기]로 다른 주소를 인증하면 onVerified가 submit.reset()을 부른다. 가드가
+    // 없으면 '진행 중'까지 지워 [가입 완료]가 다시 켜지고, 한 번 더 누르면 두 번째 POST가
+    // 나간다. 첫 요청이 성공하면 로그인 화면으로 가고 두 번째는 409로 돌아와 어긋난다.
+    const user = userEvent.setup()
+    let calls = 0
+    let finishSignup: () => void = () => {}
+    server.use(
+      http.post('*/api/auth/signup', async () => {
+        calls += 1
+        await new Promise<void>((resolve) => (finishSignup = resolve))
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+    renderSignup()
+
+    await verifyEmail(user)
+    await checkNickname(user, '코다리2')
+    await fillPasswords(user)
+    await user.click(submitButton())
+
+    // 제출 중에는 이메일을 바꿀 수도, 다시 인증할 수도 없다.
+    expect(screen.getByRole('button', { name: '이메일 바꾸기' })).toBeDisabled()
+    expect(submitButton()).toBeDisabled()
+
+    finishSignup()
+    await screen.findByRole('heading', { name: '로그인 화면' })
+    expect(calls).toBe(1)
+  })
+
+  it('EMAIL_TAKEN의 로그인하러 가기가 원래 가려던 화면을 싣는다', async () => {
+    // 가입 성공 뒤 이동은 from을 싣는데 이 링크가 안 실으면, /problems/42에서 넘어온
+    // 사람이 로그인에 성공해도 문제 목록으로 간다. 같은 화면의 두 동작이 달라진다.
+    const user = userEvent.setup()
+    server.use(
+      http.post('*/api/auth/signup/email-code', () =>
+        HttpResponse.json(
+          { status: 409, code: 'EMAIL_TAKEN', detail: '이미 가입된 이메일이에요' },
+          { status: 409 },
+        ),
+      ),
+    )
+    const { router } = renderSignup('/problems/42')
+
+    await user.type(await screen.findByLabelText('이메일'), 'taken@codari.test')
+    await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
+    await screen.findByText(/이미 가입된 이메일이에요/)
+
+    await user.click(screen.getByRole('link', { name: '로그인하러 가기' }))
+
+    await screen.findByRole('heading', { name: '로그인 화면' })
+    expect(router.state.location.state).toMatchObject({ from: '/problems/42' })
+  })
 })

@@ -8,6 +8,20 @@ beforeEach(() => vi.useFakeTimers())
 afterEach(() => vi.useRealTimers())
 
 describe('useResendCooldown', () => {
+  it('언마운트 뒤 start를 불러도 인터벌이 남지 않는다', () => {
+    // useMutation 옵션의 onSuccess는 컴포넌트가 사라진 뒤에도 실행된다. [인증번호 받기]를
+    // 누르고 화면을 떠나거나 emailStepKey가 올라가 다시 마운트되는 사이가 그 자리다.
+    // 그때 인터벌을 걸면 정리 effect는 이미 지나갔고, remaining 갱신이 렌더로 이어지지
+    // 않아 0에서 멈추는 effect도 돌지 않는다 — 새로고침할 때까지 1초마다 영원히 돈다.
+    const { result, unmount } = renderHook(() => useResendCooldown(60))
+    const start = result.current.start
+
+    unmount()
+    act(() => start())
+
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('처음에는 0이다', () => {
     const { result } = renderHook(() => useResendCooldown(60))
     expect(result.current.remaining).toBe(0)
