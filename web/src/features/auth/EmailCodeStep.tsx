@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { CODE_LENGTH, EMAIL_PATTERN, isValidCode } from './accountRules'
+import { CODE_LENGTH, EMAIL_PATTERN, INVALID_EMAIL_MESSAGE, isValidCode } from './accountRules'
 import { problemCode, problemMessage } from './problemCode'
 import { useResendCooldown } from './useResendCooldown'
 
@@ -82,7 +82,9 @@ export function EmailCodeStep({
 
   function handleSend() {
     if (!EMAIL_PATTERN.test(trimmedEmail)) {
-      setEmailError('이메일 형식이 아닙니다')
+      // 서버의 INVALID_EMAIL과 같은 문구다. 명세 '계정 규칙'이 "화면이 보내기 전에 미리
+      // 검사할 때도 같은 문구를 쓴다"고 정했다 (#113).
+      setEmailError(INVALID_EMAIL_MESSAGE)
       return
     }
     setEmailError(null)

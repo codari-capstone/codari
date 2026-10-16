@@ -42,7 +42,7 @@ describe('EmailCodeStep', () => {
     await user.type(screen.getByLabelText('이메일'), 'codari.test')
     await user.click(screen.getByRole('button', { name: '인증번호 받기' }))
 
-    expect(await screen.findByText('이메일 형식이 아닙니다')).toBeInTheDocument()
+    expect(await screen.findByText('이메일 형식이 올바르지 않아요')).toBeInTheDocument()
     expect(sendCode).not.toHaveBeenCalled()
   })
 

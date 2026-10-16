@@ -11,7 +11,7 @@ import { problemCode, problemMessage } from './problemCode'
 import { checkNickname, sendSignupCode, signUp, verifySignupCode } from './signupQuery'
 import { useAuth } from './useAuth'
 
-/** 가입 뒤 로그인 화면에 띄우는 안내. 명세에 없어 화면이 정한 문구다 (명세서 9절). */
+/** 가입 뒤 로그인 화면에 띄우는 안내. 명세 COM-06이 이 문구로 정했다 (#113). */
 const SIGNUP_NOTICE = '가입이 완료됐어요. 로그인해 주세요'
 
 /**

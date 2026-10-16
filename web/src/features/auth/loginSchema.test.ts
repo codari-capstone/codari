@@ -53,6 +53,16 @@ describe('loginSchema', () => {
     )
   })
 
+  // 문구까지 못 박는다. 거부 여부만 보면 문구가 바뀌어도(또는 가입·재설정 쪽과 갈라져도)
+  // 아무 테스트가 깨지지 않는데, 이 문장은 LoginPage가 그대로 화면에 띄우는 값이다.
+  // 명세 '계정 규칙'이 서버의 INVALID_EMAIL과 같은 문구를 쓰라고 정했다 (#113).
+  it('이메일 형식 오류 문구가 서버와 같다', () => {
+    const result = loginSchema.safeParse({ email: 'codari.test', password: 'Codari!test1' })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.message).toBe('이메일 형식이 올바르지 않아요')
+  })
+
   it('서버가 가입시켜 주는 주소를 로그인에서 막지 않는다', () => {
     // 서버 가입 규칙은 AccountRules.java의 /^[^@\s]+@[^@\s]+\.[^@\s]+$/다. zod의 z.email()은
     // 이보다 엄격해서 아래 두 주소를 거부한다. 그 규칙으로 가입한 사람이 로그인 폼을

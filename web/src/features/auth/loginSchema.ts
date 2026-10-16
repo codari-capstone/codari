@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { toUserMessage } from '@/constants/errors'
-import { EMAIL_PATTERN } from './accountRules'
+import { EMAIL_PATTERN, INVALID_EMAIL_MESSAGE } from './accountRules'
 
 /**
  * 로그인 입력 검사. 형식만 본다.
@@ -21,8 +21,13 @@ export const loginSchema = z.object({
     .string()
     .trim()
     .min(1, '이메일을 입력해 주세요')
-    // 로그인 검사가 가입 검사보다 엄격하면 가입된 주소가 막힌다. 비밀번호 규칙을 안 거는 것과 같은 이유다.
-    .regex(EMAIL_PATTERN, '이메일 형식이 아닙니다'),
+    // 명세는 로그인(COM-07)에서 형식을 "검사하지 않는다"고 정했다 — 서버가 실패 이유를
+    // 가르지 않기 때문이다. 이 검사는 서버에 보내 봐야 같은 문구만 돌아오는 왕복을 아끼는
+    // 화면 쪽 편의이고, 그래서 명세가 그은 상한을 지킨다: "로그인 화면이 보내기 전에 하는
+    // 검사는 가입이 받아 주는 주소를 모두 통과시켜야 한다" (#113). 엄격해지면 그 주소로
+    // 가입한 사람이 단일 문구 때문에 이유도 모른 채 막힌다. 문구는 가입·재설정과 한 곳에서
+    // 가져온다.
+    .regex(EMAIL_PATTERN, INVALID_EMAIL_MESSAGE),
   password: z.string().refine((v) => v.trim().length > 0, '비밀번호를 입력해 주세요'),
 })
 

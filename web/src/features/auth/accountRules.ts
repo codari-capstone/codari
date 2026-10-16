@@ -18,6 +18,15 @@
  */
 export const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
+/**
+ * 형식이 아닐 때의 문구. 서버 `AccountRules.java`의 `INVALID_EMAIL` detail과 같은 문장이다.
+ *
+ * 명세 '계정 규칙'이 "화면이 보내기 전에 미리 검사할 때도 같은 문구를 쓴다"고 정했다(#113).
+ * 두 화면(가입·재설정의 EmailCodeStep, 로그인 폼)이 글자를 따로 들고 있으면 한쪽만 고쳐도
+ * 아무것도 깨지지 않아, 같은 조건에 두 문장이 생긴다. 그래서 여기 한 곳에 둔다.
+ */
+export const INVALID_EMAIL_MESSAGE = '이메일 형식이 올바르지 않아요'
+
 /** 인증번호 자릿수. 계약의 패턴은 ^[0-9]{6}$다. */
 export const CODE_LENGTH = 6
 
