@@ -102,6 +102,10 @@ export interface ProvisionalPaths {
           status?: SolveStatus[]
           /** Spring Data 규약. 'id,asc' | 'id,desc' | 'difficulty,asc' | 'difficulty,desc' */
           sort?: string
+          /** 0부터 센다. size와 함께 빼면 전체를 준다 (#109). */
+          page?: number
+          /** 1~100. 화면은 늘 20을 보낸다 (PAGE_SIZE). */
+          size?: number
         }
       }
       responses: { 200: { content: { 'application/json': Page<ProblemSummary> } } }

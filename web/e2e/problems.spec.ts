@@ -6,13 +6,13 @@ test.describe('문제 목록', () => {
 
     await expect(page.getByRole('heading', { level: 1, name: '문제 목록' })).toBeVisible()
     await expect(page.getByRole('link', { name: '두 수의 합' })).toBeVisible()
-    // 머리 1 + 본문 8
-    await expect(page.getByRole('row')).toHaveCount(9)
+    // 머리 1 + 한 페이지 20 (LIST-05). 목에 문제가 25개 있다.
+    await expect(page.getByRole('row')).toHaveCount(21)
   })
 
   test('필터가 URL에 남아 새로고침해도 유지된다', async ({ page }) => {
     await page.goto('/problems')
-    await expect(page.getByRole('row')).toHaveCount(9)
+    await expect(page.getByRole('row')).toHaveCount(21)
 
     // check()는 클릭 직후 한 번만 checked를 확인해 던진다. 체크 상태는
     // onChange → setSearchParams(URL 갱신) → 리렌더를 거쳐 정해지는데, 그 사이
@@ -30,7 +30,7 @@ test.describe('문제 목록', () => {
     await expect(page.getByRole('row')).toHaveCount(3)
   })
 
-  test('난이도 정렬은 쉬움부터다', async ({ page }) => {
+  test('난이도 정렬은 쉬움부터고 어려움은 마지막 페이지에 있다', async ({ page }) => {
     await page.goto('/problems')
     await page.getByRole('button', { name: /난이도/ }).click()
 
@@ -38,8 +38,53 @@ test.describe('문제 목록', () => {
 
     const cells = page.locator('tbody tr td:nth-child(3)')
     await expect(cells.first()).toHaveText('쉬움')
-    // 문자열 정렬이면 '어려움'이 가운데로 온다
+    // 한 페이지가 20개라 '어려움' 2개는 2페이지로 밀린다. 1페이지 끝은 '보통'이다 —
+    // 문자열 정렬(EASY, HARD, MEDIUM)이면 여기서 '어려움'이 보인다.
+    await expect(cells.last()).toHaveText('보통')
+
+    await page.getByRole('button', { name: '다음' }).click()
+
+    await expect(page).toHaveURL(/page=2/)
+    // 정렬이 페이지를 넘어가도 유지된다 — page만 바뀌므로 1페이지로 돌아가지 않는다.
+    await expect(page).toHaveURL(/sort=difficulty%2Casc/)
     await expect(cells.last()).toHaveText('어려움')
+  })
+
+  test('페이지를 넘기면 주소에 남아 새로고침해도 유지된다', async ({ page }) => {
+    await page.goto('/problems')
+    await expect(page.getByRole('row')).toHaveCount(21)
+
+    await page.getByRole('button', { name: '다음' }).click()
+
+    await expect(page).toHaveURL(/page=2/)
+    // 25개 중 나머지 5개 + 머리 1
+    await expect(page.getByRole('row')).toHaveCount(6)
+    await expect(page.getByRole('button', { name: '2페이지' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+    // 개수는 보고 있는 페이지가 아니라 전체다.
+    await expect(page.getByText('문제 25개')).toBeVisible()
+
+    await page.reload()
+
+    await expect(page.getByRole('row')).toHaveCount(6)
+    await expect(page.getByRole('button', { name: '2페이지' })).toHaveAttribute(
+      'aria-current',
+      'page',
+    )
+  })
+
+  test('필터를 걸면 1페이지로 돌아간다', async ({ page }) => {
+    await page.goto('/problems?page=2')
+    await expect(page.getByRole('row')).toHaveCount(6)
+
+    await page.getByRole('checkbox', { name: '어려움' }).click()
+    await expect(page.getByRole('checkbox', { name: '어려움' })).toBeChecked()
+
+    // 2페이지에 머물면 빈 표가 된다 — 결과가 2개뿐이다.
+    await expect(page).not.toHaveURL(/page=2/)
+    await expect(page.getByRole('row')).toHaveCount(3)
   })
 
   test('좁은 화면에서 사이드바가 표 위로 쌓이고 문서가 가로로 넘치지 않는다', async ({ page }) => {

@@ -7,7 +7,7 @@ import {
   type ProblemListQuery,
   type ProblemSummary,
 } from '@/api/provisional'
-import { conceptTags } from './fixtures/problems'
+import { conceptTags, problems } from './fixtures/problems'
 import { SESSION_COOKIE } from './fixtures/users'
 import { server } from './server'
 
@@ -21,8 +21,10 @@ describe('MSW 문제 목록 핸들러', () => {
   it('필터가 없으면 전체를 번호순으로 돌려준다', async () => {
     const page = await fetchProblems({})
 
-    expect(page.content.map((p) => p.id)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
-    expect(page.totalElements).toBe(8)
+    const ids = page.content.map((p) => p.id)
+    expect(ids).toEqual([...ids].sort((a, b) => a - b))
+    expect(ids).toEqual(problems.map((p) => p.id))
+    expect(page.totalElements).toBe(problems.length)
   })
 
   it('keyword로 제목을 걸러낸다', async () => {
@@ -35,7 +37,11 @@ describe('MSW 문제 목록 핸들러', () => {
   it('난이도를 여러 개 고르면 OR로 걸러낸다', async () => {
     const page = await fetchProblems({ difficulty: ['HARD', 'MEDIUM'] })
 
-    expect(page.content.map((p) => p.id)).toEqual([3, 4, 5, 6, 7])
+    // 채움 문제(MEDIUM)가 섞이므로 번호를 그대로 적지 않는다. 고른 두 난이도만
+    // 남았는지와, 손으로 쓴 MEDIUM·HARD가 빠지지 않았는지를 본다.
+    expect(page.content.every((p) => p.difficulty !== 'EASY')).toBe(true)
+    expect(page.content.map((p) => p.id)).toEqual(expect.arrayContaining([3, 4, 5, 6, 7]))
+    expect(page.content.map((p) => p.id)).not.toContain(1)
   })
 
   it('태그로 걸러낸다', async () => {
@@ -60,16 +66,9 @@ describe('MSW 문제 목록 핸들러', () => {
   it('난이도 정렬은 알파벳순이 아니라 EASY → MEDIUM → HARD다', async () => {
     const page = await fetchProblems({ sort: 'difficulty,asc' })
 
-    expect(page.content.map((p) => p.difficulty)).toEqual([
-      'EASY',
-      'EASY',
-      'EASY',
-      'MEDIUM',
-      'MEDIUM',
-      'MEDIUM',
-      'HARD',
-      'HARD',
-    ])
+    // 개수가 아니라 순서가 규칙이다. 문자열 정렬이면 EASY, HARD, MEDIUM이 된다.
+    const seen = [...new Set(page.content.map((p) => p.difficulty))]
+    expect(seen).toEqual(['EASY', 'MEDIUM', 'HARD'])
   })
 
   it('난이도 내림차순은 HARD부터다', async () => {
@@ -82,7 +81,32 @@ describe('MSW 문제 목록 핸들러', () => {
   it('번호 내림차순', async () => {
     const page = await fetchProblems({ sort: 'id,desc' })
 
-    expect(page.content.map((p) => p.id)).toEqual([8, 7, 6, 5, 4, 3, 2, 1])
+    const ids = page.content.map((p) => p.id)
+    expect(ids).toEqual([...ids].sort((a, b) => b - a))
+    expect(ids[0]).toBe(Math.max(...problems.map((p) => p.id)))
+  })
+
+  it('page·size를 지켜 자르고 전체 개수는 그대로 준다', async () => {
+    const first = await fetchProblems({ page: 0, size: 20 })
+
+    expect(first.content).toHaveLength(20)
+    // 자르기 전 개수다. 둘을 같게 두면 화면이 개수를 content.length로 읽어도 안 들킨다.
+    expect(first.totalElements).toBe(problems.length)
+    expect(first.content.map((p) => p.id)).toEqual(problems.slice(0, 20).map((p) => p.id))
+
+    const second = await fetchProblems({ page: 1, size: 20 })
+
+    expect(second.content.map((p) => p.id)).toEqual(problems.slice(20).map((p) => p.id))
+    expect(second.totalElements).toBe(problems.length)
+  })
+
+  // #109의 동작이다 — offset이 행을 지나치면 오류가 아니라 빈 목록이다.
+  // 화면은 이걸 보고 마지막 페이지로 되돌린다.
+  it('마지막 페이지를 넘는 page는 빈 목록이지만 전체 개수는 준다', async () => {
+    const page = await fetchProblems({ page: 99, size: 20 })
+
+    expect(page.content).toEqual([])
+    expect(page.totalElements).toBe(problems.length)
   })
 
   it('조건에 맞는 게 없으면 빈 목록과 0을 돌려준다', async () => {

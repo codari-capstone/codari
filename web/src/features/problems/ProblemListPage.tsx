@@ -12,18 +12,21 @@ import {
   hasActiveFilter,
   isResetFiltersNavigation,
   nextSort,
+  pageCount,
   parseParams,
   RESET_FILTERS_STATE,
   serializeParams,
+  withChanges,
   type SortField,
 } from './problemListParams'
 import { problemListQuery } from './problemsQuery'
+import { ProblemPagination } from './ProblemPagination'
 import { ProblemTable } from './ProblemTable'
 
 /** 검색어를 URL에 반영하기까지 기다리는 시간. */
 const SEARCH_DEBOUNCE_MS = 300
 
-/** 문제 목록 (LIST-01~04). */
+/** 문제 목록 (LIST-01~05). */
 export function Component() {
   const [searchParams, setSearchParams] = useSearchParams()
   // parseParams는 렌더마다 새 객체를 만든다. 아래 디바운스 effect의 의존성에 draft도
@@ -83,17 +86,37 @@ export function Component() {
 
     const timer = setTimeout(() => {
       lastWritten.current = draft.trim()
-      setSearchParams(serializeParams({ ...params, keyword: draft.trim() }), { replace: true })
+      setSearchParams(serializeParams(withChanges(params, { keyword: draft.trim() })), {
+        replace: true,
+      })
     }, SEARCH_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)
   }, [draft, params, setSearchParams])
 
   function handleSort(field: SortField) {
-    setSearchParams(serializeParams({ ...params, ...nextSort(params, field) }))
+    setSearchParams(serializeParams(withChanges(params, nextSort(params, field))))
+  }
+
+  function handlePageChange(page: number) {
+    setSearchParams(serializeParams(withChanges(params, { page })))
+    // 페이지를 넘기면 표의 처음부터 읽는다. 아래쪽 버튼을 눌렀으므로 그대로 두면
+    // 새 페이지의 첫 줄이 화면 위로 지나가 있다.
+    window.scrollTo({ top: 0 })
   }
 
   const filtered = hasActiveFilter(params)
+  const pages = data ? pageCount(data.totalElements) : 1
+  // 주소에 적힌 페이지가 결과보다 뒤인 경우다 (손으로 고친 주소, 또는 문제가 지워진
+  // 옛 링크). 서버는 오류가 아니라 빈 표를 준다(#109: offset이 행을 지나친다).
+  // 결과가 있다는 것은 아는 상태이므로 마지막 페이지로 되돌린다.
+  const outOfRange = data !== undefined && data.totalElements > 0 && params.page > pages
+
+  useEffect(() => {
+    if (!outOfRange) return
+    // replace로 바꾼다. push하면 뒤로가기가 없는 페이지로 되돌아가 무한 왕복이 된다.
+    setSearchParams(serializeParams(withChanges(params, { page: pages })), { replace: true })
+  }, [outOfRange, pages, params, setSearchParams])
 
   return (
     <section className="flex flex-col gap-4">
@@ -141,7 +164,13 @@ export function Component() {
 
       {error ? <ErrorState problem={error} onRetry={() => void refetch()} /> : null}
 
-      {data && !error && !isSessionLoading ? (
+      {/*
+        범위 밖이면 빈 표가 와 있지만 "문제가 없다"가 아니다. 위 effect가 마지막
+        페이지로 되돌리는 동안 잘못된 안내를 띄우지 않도록 스켈레톤을 둔다.
+      */}
+      {outOfRange ? <ListSkeleton rows={8} /> : null}
+
+      {data && !error && !isSessionLoading && !outOfRange ? (
         data.content.length === 0 ? (
           filtered ? (
             <EmptyState
@@ -169,6 +198,14 @@ export function Component() {
                 onSort={handleSort}
               />
             </div>
+            {/* 한 페이지로 끝나면 이동할 곳이 없다. 꺼진 버튼만 둘 띄우지 않는다. */}
+            {pages > 1 ? (
+              <ProblemPagination
+                page={params.page}
+                pageCount={pages}
+                onPageChange={handlePageChange}
+              />
+            ) : null}
           </>
         )
       ) : null}

@@ -11,6 +11,7 @@ import { ThemeProvider } from '@/app/ThemeProvider'
 import * as useAuthModule from '@/features/auth/useAuth'
 import { problems } from '@/mocks/fixtures/problems'
 import { server } from '@/mocks/server'
+import { PAGE_SIZE } from './problemListParams'
 import { Component as ProblemListPage } from './ProblemListPage'
 
 // AppShell -> AppHeader -> ThemeToggle이 useTheme을 쓴다. ThemeProvider 없이
@@ -65,19 +66,102 @@ describe('ProblemListPage', () => {
     renderPage()
 
     expect(await screen.findByRole('link', { name: '두 수의 합' })).toBeInTheDocument()
-    expect(screen.getAllByRole('row')).toHaveLength(9) // 머리 1 + 본문 8
+    expect(screen.getAllByRole('row')).toHaveLength(PAGE_SIZE + 1) // 머리 1 + 한 페이지 20
   })
 
   it('결과 개수를 보여 준다', async () => {
     renderPage()
 
-    expect(await screen.findByText(/문제 8개/)).toBeInTheDocument()
+    // 보고 있는 페이지(20)가 아니라 전체(25)다.
+    expect(await screen.findByText(`문제 ${problems.length}개`)).toBeInTheDocument()
   })
 
   it('필터가 걸리면 개수 문구가 바뀐다', async () => {
     renderPage('/problems?difficulty=HARD')
 
     expect(await screen.findByText(/조건에 맞는 문제 2개/)).toBeInTheDocument()
+  })
+
+  describe('페이지 나누기 (LIST-05)', () => {
+    it('한 페이지에 20개까지만 보여 준다', async () => {
+      renderPage()
+
+      expect(await screen.findByRole('link', { name: '두 수의 합' })).toBeInTheDocument()
+      expect(screen.getAllByRole('row')).toHaveLength(PAGE_SIZE + 1)
+      // 21번째 문제는 2페이지에 있다.
+      expect(
+        screen.queryByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('다음 페이지로 가면 나머지를 보여 주고 주소에 남는다', async () => {
+      const user = userEvent.setup()
+      const router = renderPage()
+      await screen.findByRole('link', { name: '두 수의 합' })
+
+      await user.click(screen.getByRole('button', { name: '다음' }))
+
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+      expect(router.state.location.search).toBe('?page=2')
+      // 나머지 5개. 머리 1줄을 더한다.
+      expect(screen.getAllByRole('row')).toHaveLength(problems.length - PAGE_SIZE + 1)
+      // 개수는 보고 있는 페이지가 아니라 전체다.
+      expect(screen.getByText(`문제 ${problems.length}개`)).toBeInTheDocument()
+    })
+
+    it('주소의 page를 그대로 읽는다', async () => {
+      renderPage('/problems?page=2')
+
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: '두 수의 합' })).not.toBeInTheDocument()
+    })
+
+    // 2페이지를 보다가 필터를 걸면 결과가 2개로 줄어 2페이지는 빈 표가 된다.
+    it('필터를 바꾸면 1페이지로 돌아간다', async () => {
+      const user = userEvent.setup()
+      const router = renderPage('/problems?page=2')
+      await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` })
+
+      await user.click(screen.getByRole('checkbox', { name: '어려움' }))
+
+      await waitFor(() => expect(router.state.location.search).not.toContain('page=2'))
+      expect(router.state.location.search).toContain('difficulty=HARD')
+      expect(await screen.findByText(/조건에 맞는 문제 2개/)).toBeInTheDocument()
+    })
+
+    it('정렬을 바꾸면 1페이지로 돌아간다', async () => {
+      const user = userEvent.setup()
+      const router = renderPage('/problems?page=2')
+      await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` })
+
+      await user.click(screen.getByRole('button', { name: /난이도/ }))
+
+      await waitFor(() => expect(router.state.location.search).not.toContain('page=2'))
+    })
+
+    // 손으로 고친 주소나, 문제가 지워진 뒤의 옛 링크다. 서버는 오류가 아니라 빈 표를
+    // 주므로(#109) 화면이 마지막 페이지로 되돌린다.
+    it('없는 페이지면 마지막 페이지로 돌린다', async () => {
+      const router = renderPage('/problems?page=99')
+
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+      expect(router.state.location.search).toBe('?page=2')
+      // 되돌리는 동안 "문제가 없다"고 하지 않는다.
+      expect(screen.queryByText('아직 등록된 문제가 없습니다')).not.toBeInTheDocument()
+    })
+
+    it('한 페이지로 끝나면 페이지 이동을 띄우지 않는다', async () => {
+      renderPage('/problems?difficulty=HARD')
+
+      await screen.findByText(/조건에 맞는 문제 2개/)
+      expect(screen.queryByRole('navigation', { name: '페이지' })).not.toBeInTheDocument()
+    })
   })
 
   // 개수는 응답의 totalElements에서 읽어야 한다. MSW 핸들러는 totalElements를
