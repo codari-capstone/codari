@@ -24,6 +24,8 @@ public class User {
 
     private String nickname;
 
+    private String avatarUrl;
+
     @Enumerated(EnumType.STRING)
     private Role role = Role.USER;
 
@@ -36,12 +38,27 @@ public class User {
         this.nickname = nickname;
     }
 
+    // GitHub 가입 계정은 이메일과 비밀번호가 없다.
+    public static User github(String nickname, String avatarUrl) {
+        User user = new User(null, null, nickname);
+        user.avatarUrl = avatarUrl;
+        return user;
+    }
+
     public Long getId() {
         return id;
     }
 
     public String getPasswordHash() {
         return passwordHash;
+    }
+
+    public String getNickname() {
+        return nickname;
+    }
+
+    public String getAvatarUrl() {
+        return avatarUrl;
     }
 
     public int getTokenVersion() {

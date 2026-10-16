@@ -321,6 +321,96 @@ paths:
         '400':
           $ref: '#/components/responses/Problem'
 
+  /api/auth/github:
+    get:
+      operationId: startGitHubLogin
+      summary: GitHub 로그인 시작 (COM-02)
+      description: |
+        브라우저를 이 주소로 이동시킨다(fetch가 아님). GitHub 인증 화면으로 보낸다. 이메일 권한은 요청하지 않는다.
+        원래 보던 페이지는 웹이 이동 전에 기억해 두었다가, 돌아온 뒤 그 페이지로 보낸다.
+        서버에 GitHub 설정(`GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET`)이 없으면 503 `GITHUB_UNAVAILABLE`.
+      tags: [auth]
+      security: []
+      responses:
+        '302':
+          description: GitHub 인증 화면으로 이동
+        '503':
+          $ref: '#/components/responses/Problem'
+
+  /api/auth/github/callback:
+    get:
+      operationId: gitHubLoginCallback
+      summary: GitHub 로그인 콜백 (COM-02)
+      description: |
+        GitHub OAuth App에 등록하는 콜백 주소다. 처리 후 웹의 `/login/github?result=...`로 보낸다.
+        - `success`: 이미 가입한 계정이라 로그인됨. 웹은 `POST /api/auth/refresh`로 access token을 받는다.
+        - `signup`: 처음이라 닉네임 입력 화면을 보여 주고 `POST /api/auth/github/signup`을 호출한다(30분 안).
+        - `error`: 로그인하지 못함. 로그인 화면에 실패를 알린다. 다음 경우가 모두 여기에 해당한다.
+          - 사용자가 GitHub에서 취소했거나 `code`·`state`가 없음
+          - `state`가 쿠키와 다름(다른 사이트가 시작한 로그인) 또는 `state` 쿠키 만료(시작 후 10분)
+          - GitHub 토큰 발급 실패, GitHub 응답 시간 초과(5초), GitHub 오류 응답
+          - 서버 처리 오류
+      tags: [auth]
+      security: []
+      parameters:
+        - in: query
+          name: code
+          schema:
+            type: string
+        - in: query
+          name: state
+          schema:
+            type: string
+      responses:
+        '302':
+          description: 웹으로 이동
+
+  /api/auth/github/signup:
+    post:
+      operationId: gitHubSignUp
+      summary: GitHub 가입 완료 (COM-02)
+      description: |
+        콜백이 남긴 쿠키로 GitHub 인증 결과를 확인하고, 닉네임만 받아 가입한다. 로그인시키지 않으므로 웹은 로그인 화면으로 보낸다. 비밀번호는 만들지 않는다.
+        오류 `code`: `VERIFICATION_EXPIRED`(30분 지남, GitHub 로그인 다시), `INVALID_NICKNAME`,
+        `NICKNAME_TAKEN`(그 사이 선점됨, 닉네임만 다시 입력), `ALREADY_REGISTERED`.
+      tags: [auth]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nickname]
+              properties:
+                nickname:
+                  type: string
+                  description: 2~16자, 한글·영문·숫자
+      responses:
+        '204':
+          description: 가입 완료
+        '400':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+
+  /api/users/me:
+    get:
+      operationId: getCurrentUser
+      summary: 로그인한 사용자 정보 (COM-01, COM-05)
+      description: |
+        상단의 사용자 메뉴(닉네임)와 관리자 메뉴(`role`)에 쓴다. 닉네임은 바뀔 수 있어 토큰이 아니라 이 API로 받는다.
+      tags: [users]
+      responses:
+        '200':
+          description: 로그인한 사용자
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   securitySchemes:
     bearerAuth:
@@ -336,6 +426,22 @@ components:
         email:
           type: string
           format: email
+
+    CurrentUser:
+      type: object
+      required: [id, nickname, role]
+      properties:
+        id:
+          type: integer
+          format: int64
+        nickname:
+          type: string
+        role:
+          type: string
+          enum: [USER, ADMIN]
+        avatarUrl:
+          type: [string, 'null']
+          description: GitHub 가입 계정의 프로필 이미지. 없으면 null
 
     AccessTokenResponse:
       type: object
