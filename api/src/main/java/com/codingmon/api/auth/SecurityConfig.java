@@ -1,12 +1,9 @@
 package com.codingmon.api.auth;
 
-import java.io.IOException;
-
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
@@ -19,15 +16,15 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 
-import jakarta.servlet.http.HttpServletResponse;
+import com.codingmon.api.ApiErrors;
 
 @Configuration
 class SecurityConfig {
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        AuthenticationEntryPoint unauthorized = (request, response, e) -> problem(response, HttpStatus.UNAUTHORIZED);
-        AccessDeniedHandler forbidden = (request, response, e) -> problem(response, HttpStatus.FORBIDDEN);
+        AuthenticationEntryPoint unauthorized = (request, response, e) -> ApiErrors.write(response, HttpStatus.UNAUTHORIZED);
+        AccessDeniedHandler forbidden = (request, response, e) -> ApiErrors.write(response, HttpStatus.FORBIDDEN);
         http
                 // 세션·폼 로그인을 쓰지 않는다. 쿠키로 오는 refresh token은 SameSite=Strict가 CSRF를 막는다.
                 .csrf(csrf -> csrf.disable())
@@ -69,13 +66,5 @@ class SecurityConfig {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(authorities);
         return converter;
-    }
-
-    // 필터 단계 오류는 MVC 예외 처리를 거치지 않으므로 RFC 9457 본문을 직접 쓴다.
-    private static void problem(HttpServletResponse response, HttpStatus status) throws IOException {
-        response.setStatus(status.value());
-        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.getWriter().write("{\"type\":\"about:blank\",\"title\":\"%s\",\"status\":%d}"
-                .formatted(status.getReasonPhrase(), status.value()));
     }
 }
