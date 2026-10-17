@@ -122,10 +122,15 @@ class Judge0Client:
         return self._ok(status, payload)["token"]
 
     def submit_batch(self, bodies):
-        """submission_body()로 만든 요청 목록을 한 번에 보낸다. 항목별 토큰 또는 오류를 돌려준다."""
+        """submission_body()로 만든 요청 목록을 한 번에 보낸다. 항목별 토큰 또는 오류를 돌려준다.
+
+        일부만 잘못되면 201, 모두 잘못되면 422로 오지만 둘 다 항목별 목록이라 같은 모양으로 돌려준다.
+        """
         status, payload = self.request(
             "POST", "/submissions/batch", {"submissions": list(bodies)}, params={"base64_encoded": "true"}
         )
+        if status == 422 and isinstance(payload, list):
+            return payload
         return self._ok(status, payload)
 
     def get(self, token, fields=RESULT_FIELDS):

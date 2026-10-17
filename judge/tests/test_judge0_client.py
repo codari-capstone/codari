@@ -93,6 +93,20 @@ class RequestTest(unittest.TestCase):
         # 실패한 POST를 스스로 다시 보내지 않는다 (request 1회 + submit 1회)
         self.assertEqual(urlopen.call_count, 2)
 
+    def test_batch_returns_item_errors_even_when_all_items_fail(self):
+        errors = [{"source_code": ["can't be blank"]}]
+        with mock.patch("urllib.request.urlopen", side_effect=lambda *a, **k: _raise(http_error(422, json.dumps(errors).encode()))):
+            self.assertEqual(self.client.submit_batch([{}]), errors)
+        mixed = [{"token": "abc"}, {"source_code": ["can't be blank"]}]
+        with mock.patch("urllib.request.urlopen", return_value=FakeResponse(201, mixed)):
+            self.assertEqual(self.client.submit_batch([{}, {}]), mixed)
+
+    def test_batch_still_raises_on_whole_batch_errors(self):
+        body = b'{"error":"number of submissions in a batch should be less than or equal to 20"}'
+        with mock.patch("urllib.request.urlopen", side_effect=lambda *a, **k: _raise(http_error(400, body))):
+            with self.assertRaises(jc.Judge0HTTPError):
+                self.client.submit_batch([{}] * 21)
+
 
 def _raise(exc):
     raise exc

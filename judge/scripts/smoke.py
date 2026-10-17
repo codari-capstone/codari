@@ -4,7 +4,8 @@
   cd judge && python3 scripts/smoke.py
 
 확인 항목: 인증(401/200), /system_info, /config_info가 judge0.conf와 같은지, 언어 71·54,
-Python·C++17 hello world, 동시 실행 2개, 호출자가 바꾸면 안 되는 값의 거절(422/400), 권한(403).
+Python·C++17 hello world, 권한(AUTHZ 없이 403, AUTHZ로 삭제 200), 동시 실행 2개,
+호출자가 바꾸면 안 되는 값의 거절(422/400).
 토큰은 JUDGE0_AUTHN_TOKEN·JUDGE0_AUTHZ_TOKEN, 없으면 judge/.env의 AUTHN_TOKEN·AUTHZ_TOKEN을 쓴다.
 """
 
@@ -119,6 +120,9 @@ def main():
     print("[실행]")
     py = client.run(PY_HELLO, PYTHON_ID)
     c.check(py["status"]["id"] == 3 and py["stdout"] == "hello 3.8.1\n", "Python hello → status 3", repr(py))
+    # AUTHZ_TOKEN이 비어 있어도 위의 403은 나온다. 토큰이 실제로 들어갔는지는 삭제가 되는지로 본다
+    status, _ = client.request("DELETE", f"/submissions/{py.get('token')}", params={"fields": "token"}, authz=True)
+    c.check(status == 200, "AUTHZ로 hello 제출 삭제 → 200", f"실제 {status}")
     cpp = client.run(CPP_HELLO, CPP_ID, compiler_options=CPP_COMPILER_OPTIONS)
     c.check(cpp["status"]["id"] == 3 and cpp["stdout"] == "hello 201703 3\n", "C++17 hello → status 3", repr(cpp))
 

@@ -44,8 +44,9 @@ else
   bad ".env 가 없다 (cp .env.example .env && chmod 600 .env 후 값 채우기)"
 fi
 
-# load-config가 judge0.conf를 allexport로 source하므로 빈 줄이라도 있으면 .env 값을 덮어쓴다
-if grep -nE '^(AUTHN_TOKEN|AUTHZ_TOKEN|REDIS_PASSWORD|POSTGRES_PASSWORD)=' judge0.conf; then
+# load-config가 judge0.conf를 allexport로 source하므로 빈 줄이라도 있으면 .env 값을 덮어쓴다.
+# 걸린 줄은 줄 번호와 키 이름까지만 출력한다(값이 들어 있어도 터미널에 남지 않게)
+if grep -nEo '^(AUTHN_TOKEN|AUTHZ_TOKEN|REDIS_PASSWORD|POSTGRES_PASSWORD)=' judge0.conf; then
   bad "judge0.conf 에 비밀값 키 줄이 있다. 지워야 .env 값이 적용된다"
 else
   pass "judge0.conf 에 비밀값 키 줄 없음"

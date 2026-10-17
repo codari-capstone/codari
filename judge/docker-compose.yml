@@ -3,11 +3,13 @@
 #
 # 공식 파일과 다른 점 (이유는 judge/README.md "설정 요약")
 # - 이미지를 태그+digest로 고정한다. 공식 파일은 judge0 이미지를 latest로 적어 둔다.
-# - 비밀값은 judge0.conf가 아니라 .env에서 주입한다(.env.example 참고). db·redis에는 자기 비밀번호만 넘긴다.
+# - 비밀값은 judge0.conf가 아니라 .env에서 주입한다(.env.example 참고). 네 서비스 모두 같은 보간으로 받는다.
+# - 시작 스크립트(scripts/server·workers)를 judge0-scripts/의 수정본으로 바꿔 환경 변수가 로그에 찍히지 않게 한다.
 # - 2358은 JUDGE0_BIND_ADDR(기본 127.0.0.1)에만 게시하고, DB·Redis 포트는 게시하지 않는다.
 # - db·redis healthcheck가 통과한 뒤 server·workers를 띄운다.
 #
-# Judge0 이미지는 linux/amd64 전용이고 cgroup v1 호스트가 필요하다. Apple Silicon 맥에서는 실행할 수 없다.
+# Judge0 이미지는 linux/amd64 전용이고 cgroup v1 호스트가 필요하다.
+# 맥은 Docker Desktop을 cgroup v1 모드로 바꿔야 뜬다(README "맥(Apple Silicon)에서 실행").
 
 name: judge0
 
@@ -15,7 +17,6 @@ x-logging: &default-logging
   logging:
     driver: json-file
     options:
-      # 시작 스크립트가 환경 변수(비밀값 포함)를 로그에 남기므로 로그를 작게 유지하고 외부에 공유하지 않는다.
       max-size: 10m
       max-file: "3"
 
@@ -24,7 +25,14 @@ x-judge0: &judge0
   platform: linux/amd64
   volumes:
     - ./judge0.conf:/judge0.conf:ro
-  env_file: .env # AUTHN_TOKEN·AUTHZ_TOKEN·REDIS_PASSWORD·POSTGRES_PASSWORD
+    - ./judge0-scripts/server:/api/scripts/server:ro
+    - ./judge0-scripts/workers:/api/scripts/workers:ro
+  # 값은 같은 폴더의 .env에서 보간된다(셸에 같은 이름이 export돼 있으면 그 값이 우선). 없으면 기동 전에 실패한다
+  environment:
+    AUTHN_TOKEN: ${AUTHN_TOKEN:?judge/.env에 AUTHN_TOKEN이 필요하다}
+    AUTHZ_TOKEN: ${AUTHZ_TOKEN:?judge/.env에 AUTHZ_TOKEN이 필요하다}
+    REDIS_PASSWORD: ${REDIS_PASSWORD:?judge/.env에 REDIS_PASSWORD가 필요하다}
+    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?judge/.env에 POSTGRES_PASSWORD가 필요하다}
   privileged: true # isolate 샌드박스가 cgroup을 다루려면 필요하다(공식 구성과 동일)
   depends_on:
     db:
@@ -46,14 +54,15 @@ services:
 
   db:
     image: postgres:16.2@sha256:4aea012537edfad80f98d870a36e6b90b4c09b27be7f4b4759d72db863baeebb
+    # POSTGRES_USER·POSTGRES_DB를 server와 같은 judge0.conf에서 받는다(비밀값은 conf에 없다)
     env_file: judge0.conf
     environment:
-      # db에는 자기 비밀번호만 넘긴다. 값은 같은 폴더의 .env에서 보간되고, 없으면 기동 전에 실패한다
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?judge/.env에 POSTGRES_PASSWORD가 필요하다}
     volumes:
       - data:/var/lib/postgresql/data/
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U judge0 -d judge0"]
+      # TCP로 확인한다. 첫 초기화 중에는 소켓에서만 듣는 임시 서버가 떠서 소켓 확인은 너무 일찍 통과한다
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 3s
       retries: 12
@@ -62,11 +71,11 @@ services:
 
   redis:
     image: redis:7.2.4@sha256:5a93f6b2e391b78e8bd3f9e7e1e1e06aeb5295043b4703fb88392835cec924a0
+    # 공식 구성처럼 영속화하지 않는다. 컨테이너를 다시 만들면 대기 중인 제출이 사라진다(README "운영 명령")
     command: [
       "bash", "-c",
       'docker-entrypoint.sh --appendonly no --requirepass "$$REDIS_PASSWORD"'
     ]
-    env_file: judge0.conf
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?judge/.env에 REDIS_PASSWORD가 필요하다}
     healthcheck:

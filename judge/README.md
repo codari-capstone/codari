@@ -14,9 +14,10 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 |---|---|
 | `docker-compose.yml` | server·workers·내부 PostgreSQL·Redis. 이미지 digest 고정, 2358은 `JUDGE0_BIND_ADDR`에만 게시 |
 | `judge0.conf` | 공식 `judge0.conf` 원문에 아래 "설정 요약"의 값을 넣은 파일. 비밀값 키는 없다 |
+| `judge0-scripts/` | 1.13.1 이미지의 `scripts/server`·`scripts/workers` 사본. 환경 변수를 로그로 출력하는 한 줄만 막았다 |
 | `.env.example` | 비밀값 견본. VM에서 `.env`로 복사해 채운다(저장소에 올리지 않는다) |
 | `scripts/preflight.sh` | 기동 전 확인: x86_64, cgroup v1, Docker·Compose, `.env`, conf에 비밀값 키가 없는지 |
-| `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 2개, 금지 요청 거절 |
+| `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), AUTHZ(403·삭제 200), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 2개, 금지 요청 거절 |
 | `scripts/judge0_client.py` | 표준 라이브러리 클라이언트. smoke·실측·검증이 함께 쓴다 |
 | `tests/` | 클라이언트·smoke 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
 
@@ -34,6 +35,8 @@ docker compose pull
 docker compose up -d          # db·redis healthcheck가 통과한 뒤 server·workers가 뜬다
 python3 scripts/smoke.py      # 종료 코드 0이면 통과
 ```
+
+compose는 네 비밀값을 `.env`에서 보간하는데, 셸에 같은 이름이 export돼 있으면 그 값을 먼저 쓴다. 이 네 이름은 셸에 export하지 않는다.
 
 `depends_on` healthcheck로 기동이 안 되면 공식 릴리스 노트의 순서로 띄운다: `docker compose up -d db redis`, 10초 대기, `docker compose up -d`.
 
@@ -56,11 +59,11 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | 상태 | `docker compose ps` |
 | 로그 | `docker compose logs -f --tail 100 server workers` |
 | 워커만 재시작 | `docker compose restart workers` |
-| 중지 (Judge0 DB 보존) | `docker compose down` |
+| 중지 (Judge0 DB 보존) | `docker compose down` — Redis 큐는 보존하지 않으므로(공식 구성과 같음) 대기·실행 중이던 제출은 결과 없이 "In Queue"로 남는다. API 서버를 멈추고 큐가 빈 뒤에 중지한다 |
 | 다시 시작 | `docker compose up -d` |
 | Judge0 DB까지 삭제 | `docker compose down -v` — 제출 기록이 모두 지워진다. 일반 중지에 쓰지 않는다 |
 
-Judge0 시작 스크립트는 환경 변수 전체(비밀값 포함)를 로그에 남긴다. `docker compose logs` 원문은 PR·이슈·메신저에 붙이지 않는다.
+공식 시작 스크립트는 `export | sudo tee /api/environment`로 환경 변수 전체(토큰·비밀번호 포함)를 로그에도 출력한다. 그래서 `judge0-scripts/`의 사본을 읽기 전용으로 마운트해 파일에만 쓰게 한다(cron이 이 파일을 읽는다). 이미지를 바꿀 때는 새 이미지의 두 스크립트와 비교해 사본을 다시 만든다.
 
 `GET /workers`는 워커 상태 확인에 쓰지 않는다. 호출할 때마다 서버 컨테이너가 Resque의 `prune_dead_workers`를 실행하는데, 워커 PID를 자기 컨테이너에서 찾다 못 찾으면 등록을 지운다. 그래서 워커가 뜬 지 60초가 지나면 `available`이 0으로 나온다. 작업은 계속 정상 처리된다. 워커가 살아 있는지는 `docker compose ps`와 실제 제출로 확인한다(smoke의 "실행 슬롯" 항목).
 
@@ -78,6 +81,7 @@ Judge0 시작 스크립트는 환경 변수 전체(비밀값 포함)를 로그�
 | `ENABLE_COMPILER_OPTIONS` / `ALLOWED_LANGUAGES_FOR_COMPILER_OPTIONS` | true / `C++` | true / 전체 | GCC 9.2 기본 표준이 gnu++14라 C++17에 옵션이 필요하다. API 서버만 `-O2 -std=c++17`을 보낸다. 이름 접두어 일치라 Python에 옵션을 보내면 422 |
 | `ALLOW_ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT` / `…_MEMORY_LIMIT` | false / false | true / true | 켜면 isolate가 cgroup 대신 주소 공간 제한(`-m`)을 써서 메모리 측정 기준이 바뀐다 |
 | `COUNT` | 2 | 2×nproc | 실행 슬롯 2개 |
+| `MAX_QUEUE_SIZE` | 100 | 100 | 명시. 테스트케이스 20개짜리 제출 5개면 찬다. 넘치면 503이 오고 API 서버가 백오프로 다시 보낸다(#67). 동시 사용자 목표와 함께 #65에서 확정 |
 | `NUMBER_OF_RUNS` / `MAX_NUMBER_OF_RUNS` | 1 / 1 | 1 / 20 | 한 제출이 슬롯을 여러 번 점유하지 못하게 한다 |
 | `MAX_SUBMISSION_BATCH_SIZE` | 20 | 20 | 테스트케이스 묶음 제출 단위(명시) |
 | `ENABLE_SUBMISSION_DELETE` | true | false | 결과를 읽은 뒤 비공개 입력을 지울 수 있게 한다(AUTHZ 토큰 필요). 사용 여부는 #29에서 정한다 |
@@ -90,6 +94,8 @@ Judge0 시작 스크립트는 환경 변수 전체(비밀값 포함)를 로그�
 | `MEMORY_LIMIT` / `MAX_…` | 262144 / 524288 KB | 128000 / 512000 | 실측 전 시작값 |
 | `STACK_LIMIT` / `MAX_…` | 262144 / 524288 KB | 64000 / 128000 | 스택을 메모리 제한과 같게 둔다(깊은 재귀가 메모리 전에 끊기지 않게) |
 | `MAX_FILE_SIZE` / `MAX_MAX_FILE_SIZE` | 1024 / 4096 KB | 1024 / 4096 | 출력 제한. 컴파일 산출물도 상한을 받는다. #65에서 확정 |
+
+`MAX_…` 값은 호출자가 요청할 수 있는 상한이면서 **컴파일 단계의 제한**이기도 하다. Judge0는 컴파일을 `-t MAX_CPU_TIME_LIMIT -w MAX_WALL_TIME_LIMIT --cg-mem=MAX_MEMORY_LIMIT`로 돌린다(로컬 워커 로그에서 `-t 20.0 -w 30.0 --cg-mem=524288` 확인). 그래서 두 슬롯이 동시에 C++를 컴파일하면 각각 512 MB까지 쓸 수 있고, 이 값을 줄이면 컴파일 한도도 같이 줄어든다. 컴파일 메모리는 #65에서 함께 잰다.
 
 비밀값(`AUTHN_TOKEN`, `AUTHZ_TOKEN`, `REDIS_PASSWORD`, `POSTGRES_PASSWORD`)은 `judge0.conf`에 두지 않는다. Judge0의 `scripts/load-config`가 conf를 allexport로 읽기 때문에, `AUTHN_TOKEN=` 같은 빈 줄이 하나라도 있으면 `.env`로 넣은 값을 빈 값으로 덮어써 인증이 꺼진다. `preflight.sh`가 이 줄이 없는지 확인한다. 운영 비밀값은 SSM Parameter Store에 두고 VM의 `.env`로 옮긴다.
 
