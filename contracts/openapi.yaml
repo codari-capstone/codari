@@ -534,6 +534,57 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
 
+  /api/submissions:
+    post:
+      operationId: submitCode
+      summary: 코드 제출 (SOLVE-09)
+      description: |
+        제출을 채점 대기(`QUEUED`)로 저장하고 바로 답한다. 채점 상태와 판정은 결과 조회(#30)로 확인한다.
+        문제의 지금 공개된 버전으로 채점한다. 제출할 때마다 새 제출로 저장해 시도 횟수를 센다.
+        오류 `code`: `SOURCE_EMPTY`(빈 코드 또는 공백뿐), `SOURCE_TOO_LONG`(UTF-8 기준 64KB 초과), `PROBLEM_NOT_FOUND`(없는 문제 또는 공개된 버전이 없는 문제).
+        모르는 언어, 그 문제가 지원하지 않는 언어, NUL 문자가 든 코드는 `code` 없는 400이다.
+      tags: [submissions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [problemId, language, sourceCode]
+              properties:
+                problemId:
+                  type: integer
+                  format: int64
+                  description: 문제 목록·상세의 `id`
+                language:
+                  $ref: '#/components/schemas/Language'
+                sourceCode:
+                  type: string
+      responses:
+        '202':
+          description: 접수됨
+          headers:
+            Location:
+              description: 이 제출의 결과 조회 경로
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                    description: 제출 번호
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Problem'
+
   /api/concept-tags:
     get:
       operationId: listConceptTags
@@ -592,6 +643,10 @@ components:
     Difficulty:
       type: string
       enum: [EASY, MEDIUM, HARD]
+
+    Language:
+      type: string
+      enum: [PYTHON, CPP]
 
     SolveStatus:
       type: string
@@ -687,8 +742,7 @@ components:
             required: [language, timeLimitMs, memoryLimitMb, starterCode]
             properties:
               language:
-                type: string
-                enum: [PYTHON, CPP]
+                $ref: '#/components/schemas/Language'
               timeLimitMs:
                 type: integer
               memoryLimitMb:
