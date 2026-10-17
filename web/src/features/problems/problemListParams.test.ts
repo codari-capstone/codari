@@ -132,8 +132,10 @@ describe('page 읽기', () => {
   })
 
   // 주소는 사용자가 손으로 고친다. 0이나 음수를 그대로 쓰면 toQuery가 음수 page를
-  // 보내고 서버가 400을 준다(#109: page는 0 이상).
-  it.each(['page=0', 'page=-2', 'page=1.5', 'page=abc', 'page='])(
+  // 보내고 서버가 400을 준다(#109: page는 0 이상). int 범위를 넘는 값도 같은 이유로
+  // 버린다 — 서버가 page를 int로 받으므로 바인딩 실패로 400이 되고, 자가 치유는
+  // 200 빈 응답에서만 돌아서 오류 화면만 남는다.
+  it.each(['page=0', 'page=-2', 'page=1.5', 'page=abc', 'page=', 'page=2147483648', 'page=1e300'])(
     '모르는 page는 1로 본다: %s',
     (search) => {
       expect(parse(search).page).toBe(1)

@@ -172,6 +172,52 @@ describe('ProblemListPage', () => {
       expect(router.state.location.search).toBe('?page=2')
     })
 
+    // 응답을 기다리는 동안 페이지 수를 1로 떨어뜨리면 이동 nav가 언마운트된다.
+    // 그러면 '다음'에 있던 키보드 포커스가 body로 떨어지고, 표는 그대로 남은 채
+    // 그 아래 버튼 줄만 사라졌다 나타나 화면이 뛴다.
+    it('다음 페이지를 기다리는 동안에도 페이지 이동이 사라지지 않는다', async () => {
+      let release = () => {}
+      server.use(
+        http.get('*/api/problems', async ({ request }) => {
+          const page = Number(new URL(request.url).searchParams.get('page') ?? 0)
+          // 2페이지 응답만 붙잡아 placeholder 구간을 길게 만든다.
+          if (page > 0) await new Promise<void>((resolve) => (release = resolve))
+          return HttpResponse.json({
+            content: problems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+            totalElements: problems.length,
+          })
+        }),
+      )
+      const user = userEvent.setup()
+      renderPage()
+      await screen.findByRole('link', { name: '두 수의 합' })
+
+      await user.click(screen.getByRole('button', { name: '다음' }))
+
+      expect(screen.getByRole('navigation', { name: '페이지' })).toBeInTheDocument()
+
+      await act(async () => release())
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+    })
+
+    it('지금 보고 있는 페이지 번호를 다시 눌러도 맨 위로 올리지 않는다', async () => {
+      const scrollTo = vi.spyOn(window, 'scrollTo')
+      const user = userEvent.setup()
+      renderPage('/problems?page=2')
+      await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` })
+
+      await user.click(screen.getByRole('button', { name: '2페이지' }))
+
+      expect(scrollTo).not.toHaveBeenCalled()
+
+      // 다른 페이지로 갈 때는 올려야 한다 — 위 기대가 '늘 안 올린다'로 통과하지 않게 둔다.
+      await user.click(screen.getByRole('button', { name: '1페이지' }))
+
+      expect(scrollTo).toHaveBeenCalled()
+    })
+
     it('정렬을 바꾸면 1페이지로 돌아간다', async () => {
       const user = userEvent.setup()
       const router = renderPage('/problems?page=2')

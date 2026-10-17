@@ -31,6 +31,17 @@ function problem(status: number, code: string, detail: string) {
   return HttpResponse.json({ status, code, detail }, { status })
 }
 
+/**
+ * 잘못된 쿼리 응답. 서버는 ResponseStatusException으로 주므로 code 없이 detail만 있다
+ * (ProblemController.badRequest) — code를 붙이면 목에만 있는 분기가 생긴다.
+ */
+function badRequest(detail: string) {
+  return HttpResponse.json({ status: 400, title: 'Bad Request', detail }, { status: 400 })
+}
+
+/** 한 페이지의 최대 개수. 서버 ProblemController.MAX_PAGE_SIZE와 같은 값이다. */
+const MAX_PAGE_SIZE = 20
+
 /** 비로그인·인증 실패 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
 function unauthorized() {
   return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
@@ -83,7 +94,18 @@ export const handlers: RequestHandler[] = [
     // 넘는 page는 오류가 아니라 빈 content이고, 화면이 그걸 보고 마지막 페이지로 되돌린다.
     // totalElements는 자르기 전 전체 개수다("페이지와 상관없이 조건에 맞는 문제 수").
     const page = Number(query.get('page') ?? 0)
-    const size = Number(query.get('size') ?? 20)
+    const size = Number(query.get('size') ?? MAX_PAGE_SIZE)
+    // 서버(ProblemController)와 같은 자리에서 400을 준다. 여기서 받아 주면 size=100이나
+    // size=abc로도 통과하는 테스트가 생기고, 그 테스트는 실제 서버에서 깨진다.
+    if (
+      !Number.isInteger(page) ||
+      page < 0 ||
+      !Number.isInteger(size) ||
+      size < 1 ||
+      size > MAX_PAGE_SIZE
+    ) {
+      return badRequest(`page는 0 이상, size는 1~${MAX_PAGE_SIZE}이다`)
+    }
 
     return HttpResponse.json({
       content: sorted.slice(page * size, page * size + size),

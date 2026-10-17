@@ -14,6 +14,10 @@ afterEach(() => {
 
 afterAll(() => server.close())
 
+// jsdom에는 scrollTo가 없어 호출마다 'Not implemented' 오류를 콘솔에 찍는다. 페이지를
+// 넘기는 테스트가 그걸로 로그를 덮어 실제 회귀를 가린다. 아무것도 하지 않는 함수로 둔다.
+window.scrollTo = () => {}
+
 // jsdom에는 matchMedia가 없다. 테마 초기값 조회가 던지지 않게 기본값(라이트)을 준다.
 if (!window.matchMedia) {
   window.matchMedia = (query: string) =>

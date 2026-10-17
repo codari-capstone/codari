@@ -12,6 +12,7 @@ import {
   hasActiveFilter,
   isResetFiltersNavigation,
   nextSort,
+  PAGE_SIZE,
   pageCount,
   parseParams,
   RESET_FILTERS_STATE,
@@ -99,6 +100,9 @@ export function Component() {
   }
 
   function handlePageChange(page: number) {
+    // 지금 페이지의 번호 버튼을 누른 경우다. 그대로 올리면 내용은 그대로인데 scrollTo만 돌아
+    // 화면이 맨 위로 튄다. 이전·다음은 disabled가 막으므로 막을 곳은 번호 버튼뿐이다.
+    if (page === params.page) return
     setSearchParams(serializeParams(withChanges(params, { page })))
     // 페이지를 넘기면 표의 처음부터 읽는다. 아래쪽 버튼을 눌렀으므로 그대로 두면
     // 새 페이지의 첫 줄이 화면 위로 지나가 있다.
@@ -106,12 +110,16 @@ export function Component() {
   }
 
   const filtered = hasActiveFilter(params)
-  // 페이지 수와 범위 밖 판정은 지금 조건의 응답으로만 한다. keepPreviousData가 넘겨 주는
+  // 범위 밖 판정은 지금 조건의 응답으로만 한다. keepPreviousData가 넘겨 주는
   // 묵은 응답으로 판단하면, 예를 들어 결과가 2건이던 필터에서 뒤로가기로 page=2(유효한
   // 페이지)에 들어올 때 옛 totalElements로 범위 밖이라 보고 1페이지로 끌어가며
   // 히스토리 항목까지 지운다.
   const fresh = isPlaceholderData ? undefined : data
-  const pages = fresh ? pageCount(fresh.totalElements) : 1
+  // 그리는 쪽은 반대로 묵은 응답의 페이지 수라도 쓴다. 응답을 기다리는 동안 1로 떨어뜨리면
+  // 아래 `pages > 1`이 꺼져 이동 nav가 언마운트된다 — '다음'에 있던 키보드 포커스가 body로
+  // 떨어지고, 표는 opacity-60으로 남은 채 그 아래 버튼 줄만 사라졌다 나타나 화면이 뛴다.
+  // fresh가 있을 때는 data와 같은 객체라 위 판정과 어긋나지 않는다.
+  const pages = data ? pageCount(data.totalElements) : 1
   // 주소에 적힌 페이지가 결과보다 뒤인 경우다 (손으로 고친 주소, 또는 문제가 지워진
   // 옛 링크). 서버는 오류가 아니라 빈 표를 준다(#109: offset이 행을 지나친다).
   // 결과가 있다는 것은 아는 상태이므로 마지막 페이지로 되돌린다.
@@ -169,7 +177,7 @@ export function Component() {
         세션 확인이 조건에 들어오면서 "목록은 오류로 끝났는데 /api/me는 아직"인 구간이
         생겨 스켈레톤과 오류가 나란히 그려진다.
       */}
-      {waiting && !error ? <ListSkeleton rows={8} /> : null}
+      {waiting && !error ? <ListSkeleton rows={PAGE_SIZE} /> : null}
 
       {error ? <ErrorState problem={error} onRetry={() => void refetch()} /> : null}
 

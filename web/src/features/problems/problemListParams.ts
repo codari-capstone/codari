@@ -67,13 +67,17 @@ export function parseParams(search: URLSearchParams): ProblemListParams {
 /**
  * 주소의 페이지 번호. 1 이상의 정수가 아니면 1페이지로 본다.
  *
- * 결과 수를 모르는 시점이라 "너무 큰 페이지"는 여기서 가릴 수 없다. 그건 응답을
- * 받은 뒤 화면이 마지막 페이지로 되돌린다 (ProblemListPage).
+ * 결과 수를 모르는 시점이라 "결과보다 뒤인 페이지"는 여기서 가릴 수 없다. 그건 응답을
+ * 받은 뒤 화면이 마지막 페이지로 되돌린다 (ProblemListPage). 다만 자가 치유는 200 빈
+ * 응답에서만 도므로, 400으로 끝나는 값은 여기서 버려야 한다. 서버가 page를 `int`로
+ * 받으니(ProblemController) 그 범위를 넘는 값은 바인딩 실패로 400이 되고 오류 화면만 남는다.
  */
+const MAX_PAGE = 2_147_483_647
+
 function parsePage(value: string | null): number {
   if (value === null) return DEFAULT_PARAMS.page
   const parsed = Number(value)
-  if (!Number.isInteger(parsed) || parsed < 1) return DEFAULT_PARAMS.page
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_PAGE) return DEFAULT_PARAMS.page
   return parsed
 }
 
