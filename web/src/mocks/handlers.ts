@@ -79,25 +79,16 @@ export const handlers: RequestHandler[] = [
     )
     if (direction === 'desc') sorted.reverse()
 
-    // page·size를 지켜 자른다. totalElements는 **자르기 전** 전체 개수다(계약: "페이지와
-    // 상관없이 조건에 맞는 문제 수"). 둘을 같게 두면 화면이 개수를 content.length로 읽어도
-    // 테스트가 잡지 못한다.
-    //
-    // 서버는 page·size를 둘 다 빼면 전체를 주고, 하나만 주면 나머지를 page=0·size=20으로
-    // 채운다(#109). 마지막 페이지를 넘는 page는 오류가 아니라 빈 content다 — offset이
-    // 행을 지나치기 때문이고, 화면이 그걸 보고 마지막 페이지로 되돌린다.
-    const pageParam = query.get('page')
-    const sizeParam = query.get('size')
-    const paged =
-      pageParam === null && sizeParam === null
-        ? sorted
-        : (() => {
-            const page = pageParam === null ? 0 : Number(pageParam)
-            const size = sizeParam === null ? 20 : Number(sizeParam)
-            return sorted.slice(page * size, page * size + size)
-          })()
+    // 계약대로 항상 페이지로 나눈다 — page 기본 0, size 기본 20(최대 20). 마지막 페이지를
+    // 넘는 page는 오류가 아니라 빈 content이고, 화면이 그걸 보고 마지막 페이지로 되돌린다.
+    // totalElements는 자르기 전 전체 개수다("페이지와 상관없이 조건에 맞는 문제 수").
+    const page = Number(query.get('page') ?? 0)
+    const size = Number(query.get('size') ?? 20)
 
-    return HttpResponse.json({ content: paged, totalElements: sorted.length })
+    return HttpResponse.json({
+      content: sorted.slice(page * size, page * size + size),
+      totalElements: sorted.length,
+    })
   }),
 
   http.get('*/api/me', ({ cookies }) => {
