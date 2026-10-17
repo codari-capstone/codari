@@ -39,7 +39,7 @@ class ProblemController {
             @RequestParam(required = false) List<SolveStatus> status,
             @RequestParam(defaultValue = "id,asc") String sort,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "" + MAX_PAGE_SIZE) int size,
             @AuthenticationPrincipal Jwt jwt) {
         String[] sortParts = sort.split(",", -1);
         if (sortParts.length != 2) {
