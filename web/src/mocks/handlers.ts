@@ -12,6 +12,7 @@ import {
   verifyMockCode,
   type VerifyResult,
 } from './fixtures/emailCodes'
+import { problemDetails } from './fixtures/problemDetails'
 import { conceptTags, problems } from './fixtures/problems'
 import { mockAccounts, SESSION_COOKIE } from './fixtures/users'
 
@@ -107,6 +108,25 @@ export const handlers: RequestHandler[] = [
       content: sorted.slice(page * size, page * size + size),
       totalElements: sorted.length,
     })
+  }),
+
+  /**
+   * 문제 상세 (SOLVE-01~04·06).
+   *
+   * 없는 번호와 공개된 버전이 없는 문제를 서버가 같은 404로 답한다(계약: 공개 전 문제가
+   * 있는지 드러내지 않는다). 목에는 비공개 문제가 없으니 "없는 번호"만 재현한다.
+   *
+   * 이 핸들러도 인증을 모른다. 실제 서버는 비로그인에 401을 주지만(계약), 목이 세션을
+   * 보지 않는 것은 목록 핸들러와 같은 선택이다 — 화면은 RequireAuth 뒤에 있다.
+   */
+  http.get('*/api/problems/:id', ({ params }) => {
+    const id = Number(params.id)
+    // 정수가 아니면 서버의 `long id` 바인딩이 실패해 400이다. 없는 번호는 404다.
+    if (!Number.isInteger(id)) return badRequest('id는 정수여야 한다')
+
+    const detail = problemDetails.find((item) => item.id === id)
+    if (!detail) return problem(404, 'PROBLEM_NOT_FOUND', '문제를 찾을 수 없어요')
+    return HttpResponse.json(detail)
   }),
 
   http.get('*/api/me', ({ cookies }) => {
