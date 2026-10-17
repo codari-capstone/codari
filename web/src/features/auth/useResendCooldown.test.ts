@@ -1,0 +1,86 @@
+import { act, renderHook } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+import { useResendCooldown } from './useResendCooldown'
+
+beforeEach(() => vi.useFakeTimers())
+// 테스트가 중간에 실패해도 실제 타이머로 되돌려야 뒤의 테스트가 가짜 타이머를 물려받지 않는다.
+afterEach(() => vi.useRealTimers())
+
+describe('useResendCooldown', () => {
+  it('언마운트 뒤 start를 불러도 인터벌이 남지 않는다', () => {
+    // useMutation 옵션의 onSuccess는 컴포넌트가 사라진 뒤에도 실행된다. [인증번호 받기]를
+    // 누르고 화면을 떠나거나 emailStepKey가 올라가 다시 마운트되는 사이가 그 자리다.
+    // 그때 인터벌을 걸면 정리 effect는 이미 지나갔고, remaining 갱신이 렌더로 이어지지
+    // 않아 0에서 멈추는 effect도 돌지 않는다 — 새로고침할 때까지 1초마다 영원히 돈다.
+    const { result, unmount } = renderHook(() => useResendCooldown(60))
+    const start = result.current.start
+
+    unmount()
+    act(() => start())
+
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('처음에는 0이다', () => {
+    const { result } = renderHook(() => useResendCooldown(60))
+    expect(result.current.remaining).toBe(0)
+  })
+
+  it('start하면 남은 초가 1초마다 줄어 0에서 멈춘다', () => {
+    const { result } = renderHook(() => useResendCooldown(3))
+
+    act(() => result.current.start())
+    expect(result.current.remaining).toBe(3)
+
+    act(() => void vi.advanceTimersByTime(1000))
+    expect(result.current.remaining).toBe(2)
+
+    act(() => void vi.advanceTimersByTime(5000))
+    expect(result.current.remaining).toBe(0)
+  })
+
+  it('다시 start하면 처음 값으로 돌아가고 인터벌은 하나만 돈다', () => {
+    const { result } = renderHook(() => useResendCooldown(5))
+
+    act(() => result.current.start())
+    act(() => void vi.advanceTimersByTime(2000))
+    expect(result.current.remaining).toBe(3)
+
+    act(() => result.current.start())
+    expect(result.current.remaining).toBe(5)
+
+    // 이전 인터벌이 남아 있으면 1초에 두 번 줄어 3이 된다.
+    act(() => void vi.advanceTimersByTime(1000))
+    expect(result.current.remaining).toBe(4)
+  })
+
+  it('reset하면 0이 되고 타이머가 멈춘다', () => {
+    const { result } = renderHook(() => useResendCooldown(5))
+    act(() => result.current.start())
+
+    act(() => result.current.reset())
+    expect(result.current.remaining).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('0에 닿으면 타이머가 멈춘다', () => {
+    const { result } = renderHook(() => useResendCooldown(2))
+    act(() => result.current.start())
+
+    act(() => void vi.advanceTimersByTime(2000))
+    expect(result.current.remaining).toBe(0)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('언마운트하면 타이머를 정리한다', () => {
+    // 정리하지 않으면 언마운트된 컴포넌트의 state를 갱신한다 (Review Focus 4).
+    const { result, unmount } = renderHook(() => useResendCooldown(60))
+    act(() => result.current.start())
+    // 도는 동안 0이 아니어야 아래 단정이 빈 단정이 아니다.
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+    unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})

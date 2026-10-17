@@ -3,8 +3,8 @@ import createClient, { type ClientOptions } from 'openapi-fetch'
 import type { paths } from './schema'
 
 /**
- * 두 클라이언트가 공유하는 설정. 명세 확정 전까지는 api(빈 paths)와
- * provisionalApi(손으로 쓴 paths)가 공존하므로, 설정을 복사해 두면 반드시 갈라진다.
+ * 두 클라이언트가 공유하는 설정. api(생성된 paths)와
+ * provisionalApi(손으로 쓴 paths)가 아직 공존하므로, 설정을 복사해 두면 반드시 갈라진다.
  *
  * baseUrl을 현재 origin으로 두는 이유: 개발에서는 Vite 프록시가, 운영에서는 ALB가
  * /api 요청을 Spring Boot로 넘긴다. 화면과 API가 같은 도메인이라 쿠키·CORS 설정이 단순하다.
@@ -29,6 +29,8 @@ export const clientOptions: ClientOptions = {
  * 모든 API 호출은 이 클라이언트를 거친다. 경로·파라미터·응답 타입이
  * OpenAPI 명세에서 생성한 타입으로 자동 검사된다.
  *
- * 명세(#2)가 아직 없어 paths가 비어 있다. 그동안의 호출은 provisionalApi를 쓴다.
+ * api는 contracts/openapi.yaml에서 생성한 실제 계약(schema.d.ts의 paths)으로 타입이
+ * 잡힌다. 새 코드는 이 클라이언트를 쓴다. provisionalApi는 /api/me·로그인·로그아웃에만
+ * 남아 있다. 그 셋은 세션 모델이 계약과 달라 COM-04와 함께 옮긴다.
  */
 export const api = createClient<paths>(clientOptions)

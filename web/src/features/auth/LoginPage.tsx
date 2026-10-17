@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm } from 'react-hook-form'
-import { Navigate, useLocation, useNavigate } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,10 @@ export function Component() {
   const queryClient = useQueryClient()
   const { isAuthenticated, isLoading } = useAuth()
 
-  const target = safeRedirect((location.state as { from?: unknown } | null)?.from)
+  const state = location.state as { from?: unknown; notice?: unknown } | null
+  const target = safeRedirect(state?.from)
+  // 가입·재설정이 넘긴 한 줄. state는 사용자가 심을 수 있으니 문자열만 받는다.
+  const notice = typeof state?.notice === 'string' ? state.notice : null
 
   const {
     register,
@@ -59,6 +62,12 @@ export function Component() {
   return (
     <section className="mx-auto flex w-full max-w-sm flex-col gap-6 py-10">
       <h1 className="text-2xl font-semibold">로그인</h1>
+
+      {notice ? (
+        <p role="status" className="text-sm">
+          {notice}
+        </p>
+      ) : null}
 
       {/*
         form의 onSubmit에 건다. 제출 버튼의 onClick에 걸어도 Enter는 브라우저가 기본 버튼을
@@ -116,6 +125,25 @@ export function Component() {
           {login.isPending ? '로그인 중…' : '로그인'}
         </Button>
       </form>
+
+      {/*
+        원래 가려던 화면을 두 화면에 넘긴다. 둘 다 끝나면 로그인 화면으로 되돌려 보내므로,
+        싣지 않으면 로그인에 성공해도 문제 상세가 아니라 목록으로 간다. 넘기는 값은 이미
+        safeRedirect를 통과한 target이다.
+      */}
+      <p className="text-muted-foreground text-sm">
+        <Link to="/signup" state={{ from: target }} className="text-primary hover:underline">
+          회원가입
+        </Link>
+        {' · '}
+        <Link
+          to="/password-reset"
+          state={{ from: target }}
+          className="text-primary hover:underline"
+        >
+          비밀번호 찾기
+        </Link>
+      </p>
     </section>
   )
 }
