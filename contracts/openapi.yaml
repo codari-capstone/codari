@@ -541,9 +541,11 @@ paths:
       description: |
         제출을 채점 대기(`QUEUED`)로 저장하고 바로 답한다. 채점 상태와 판정은 결과 조회(#30)로 확인한다.
         문제의 지금 공개된 버전으로 채점한다. 제출할 때마다 새 제출로 저장해 시도 횟수를 센다.
-        오류 `code`: `SOURCE_EMPTY`(빈 코드 또는 공백뿐), `SOURCE_TOO_LONG`(UTF-8 기준 64KB 초과), `PROBLEM_NOT_FOUND`(없는 문제 또는 공개된 버전이 없는 문제).
-        모르는 언어, 그 문제가 지원하지 않는 언어, NUL 문자가 든 코드는 `code` 없는 400이다.
+        오류 `code`: `SOURCE_EMPTY`(빈 코드 또는 공백뿐), `SOURCE_TOO_LONG`(UTF-8 기준 64KB 초과), `PROBLEM_NOT_FOUND`(없는 문제 또는 공개된 버전이 없는 문제),
+        `LANGUAGE_NOT_SUPPORTED`(지금 공개된 버전이 그 언어를 지원하지 않음. 열어 둔 화면 사이에 새 버전이 공개된 경우).
+        모르는 언어, NUL 문자가 든 코드는 `code` 없는 400이다.
         요청 본문이 512KB를 넘으면 본문을 읽지 않고 413을 준다(모든 API 공통). 64KB 이내 코드는 JSON 이스케이프로 늘어나도 걸리지 않는다.
+        `Content-Length`를 밝히지 않는 요청(chunked)은 이 검사를 거치지 않는다(#14에서 다룬다).
       tags: [submissions]
       requestBody:
         required: true
