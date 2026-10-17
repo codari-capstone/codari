@@ -133,6 +133,45 @@ describe('ProblemListPage', () => {
       expect(await screen.findByText(/조건에 맞는 문제 2개/)).toBeInTheDocument()
     })
 
+    // 아래 '필터를 바꾸면' 테스트는 결과가 1페이지인 필터('어려움', 2건)를 써서,
+    // 페이지가 리셋되지 않아도 범위 밖 자가 치유가 1페이지로 끌어다 준다 — 즉 리셋이
+    // 빠져도 통과한다. 결과가 2페이지인 필터를 써서 그 구멍을 막는다.
+    it('결과가 여러 페이지인 필터를 걸어도 1페이지로 돌아간다', async () => {
+      // 풀이 상태 필터는 로그인한 사람에게만 보인다 (COM-05).
+      vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+        user: { id: 1, nickname: '코다리', role: 'USER' },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      const router = renderPage('/problems?page=2')
+      await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` })
+
+      // 채움 문제가 모두 '안 품'이라 결과가 21건(2페이지)이다. 2페이지에 머물면
+      // 자가 치유가 돌지 않아 한 줄만 보인다.
+      await user.click(screen.getByRole('checkbox', { name: '안 품' }))
+
+      await waitFor(() => expect(router.state.location.search).toContain('status=UNSOLVED'))
+      expect(router.state.location.search).not.toContain('page=')
+      expect(await screen.findByRole('link', { name: '문자열 뒤집기' })).toBeInTheDocument()
+    })
+
+    // 묵은 응답(keepPreviousData)으로 페이지 수를 판단하면, 결과가 2건이던 필터에서
+    // 유효한 page=2로 옮겨올 때 범위 밖이라 보고 1페이지로 끌어가며 히스토리까지 지운다.
+    it('결과가 적던 필터에서 유효한 페이지로 옮겨도 끌려가지 않는다', async () => {
+      const router = renderPage('/problems?difficulty=HARD')
+      await screen.findByText(/조건에 맞는 문제 2개/)
+
+      await act(async () => {
+        await router.navigate('/problems?page=2')
+      })
+
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+      expect(router.state.location.search).toBe('?page=2')
+    })
+
     it('정렬을 바꾸면 1페이지로 돌아간다', async () => {
       const user = userEvent.setup()
       const router = renderPage('/problems?page=2')

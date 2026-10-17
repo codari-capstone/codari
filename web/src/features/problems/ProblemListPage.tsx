@@ -41,7 +41,7 @@ export function Component() {
   // 그려진 뒤 열이 하나 늘며 표가 움직인다.
   const { isAuthenticated, isLoading: isSessionLoading } = useAuth()
 
-  const { data, isPending, isFetching, error, refetch } = useQuery({
+  const { data, isPending, isFetching, isPlaceholderData, error, refetch } = useQuery({
     ...problemListQuery(params),
     // 필터를 바꾸는 동안 이전 표를 유지한다. 스켈레톤으로 갈아끼우면 표가
     // 사라졌다 나타나며 화면이 뛴다. v5에서는 keepPreviousData를 placeholderData에 넘긴다.
@@ -106,11 +106,20 @@ export function Component() {
   }
 
   const filtered = hasActiveFilter(params)
-  const pages = data ? pageCount(data.totalElements) : 1
+  // 페이지 수와 범위 밖 판정은 지금 조건의 응답으로만 한다. keepPreviousData가 넘겨 주는
+  // 묵은 응답으로 판단하면, 예를 들어 결과가 2건이던 필터에서 뒤로가기로 page=2(유효한
+  // 페이지)에 들어올 때 옛 totalElements로 범위 밖이라 보고 1페이지로 끌어가며
+  // 히스토리 항목까지 지운다.
+  const fresh = isPlaceholderData ? undefined : data
+  const pages = fresh ? pageCount(fresh.totalElements) : 1
   // 주소에 적힌 페이지가 결과보다 뒤인 경우다 (손으로 고친 주소, 또는 문제가 지워진
   // 옛 링크). 서버는 오류가 아니라 빈 표를 준다(#109: offset이 행을 지나친다).
   // 결과가 있다는 것은 아는 상태이므로 마지막 페이지로 되돌린다.
-  const outOfRange = data !== undefined && data.totalElements > 0 && params.page > pages
+  const outOfRange = fresh !== undefined && fresh.totalElements > 0 && params.page > pages
+  // 묵은 응답이 빈 표인 구간(치유 직후가 그렇다)은 로딩으로 본다. 그대로 그리면
+  // "아직 등록된 문제가 없습니다"가 깜빡인다.
+  const waiting =
+    isPending || isSessionLoading || outOfRange || (isPlaceholderData && data?.content.length === 0)
 
   useEffect(() => {
     if (!outOfRange) return
@@ -160,17 +169,11 @@ export function Component() {
         세션 확인이 조건에 들어오면서 "목록은 오류로 끝났는데 /api/me는 아직"인 구간이
         생겨 스켈레톤과 오류가 나란히 그려진다.
       */}
-      {(isPending || isSessionLoading) && !error ? <ListSkeleton rows={8} /> : null}
+      {waiting && !error ? <ListSkeleton rows={8} /> : null}
 
       {error ? <ErrorState problem={error} onRetry={() => void refetch()} /> : null}
 
-      {/*
-        범위 밖이면 빈 표가 와 있지만 "문제가 없다"가 아니다. 위 effect가 마지막
-        페이지로 되돌리는 동안 잘못된 안내를 띄우지 않도록 스켈레톤을 둔다.
-      */}
-      {outOfRange ? <ListSkeleton rows={8} /> : null}
-
-      {data && !error && !isSessionLoading && !outOfRange ? (
+      {data && !error && !waiting ? (
         data.content.length === 0 ? (
           filtered ? (
             <EmptyState
