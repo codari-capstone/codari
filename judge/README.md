@@ -38,7 +38,9 @@ python3 scripts/smoke.py      # 종료 코드 0이면 통과
 
 compose는 네 비밀값을 `.env`에서 보간하는데, 셸에 같은 이름이 export돼 있으면 그 값을 먼저 쓴다. 이 네 이름은 셸에 export하지 않는다.
 
-`depends_on` healthcheck로 기동이 안 되면 공식 릴리스 노트의 순서로 띄운다: `docker compose up -d db redis`, 10초 대기, `docker compose up -d`.
+smoke는 `JUDGE0_URL`이 없으면 `.env`의 `JUDGE0_BIND_ADDR`(2358을 게시한 주소)로 접속한다. SSM 포트 포워딩으로 맥에서 돌릴 때는 `JUDGE0_URL=http://127.0.0.1:<로컬 포트>`와 토큰 환경 변수(`JUDGE0_AUTHN_TOKEN`·`JUDGE0_AUTHZ_TOKEN`)를 준다.
+
+`depends_on` healthcheck로 기동이 안 되면 `docker compose ps`와 `docker compose logs db redis`로 원인을 본다. 그다음 공식 릴리스 노트의 순서로 띄운다: `docker compose up -d db redis` → 둘이 `healthy`가 된 것을 `docker compose ps`로 확인 → `docker compose up -d`.
 
 ## 맥(Apple Silicon)에서 실행
 
@@ -59,8 +61,8 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | 상태 | `docker compose ps` |
 | 로그 | `docker compose logs -f --tail 100 server workers` |
 | 워커만 재시작 | `docker compose restart workers` |
-| 중지 (Judge0 DB 보존) | `docker compose down` — Redis 큐는 보존하지 않으므로(공식 구성과 같음) 대기·실행 중이던 제출은 결과 없이 "In Queue"로 남는다. API 서버를 멈추고 큐가 빈 뒤에 중지한다 |
-| 다시 시작 | `docker compose up -d` |
+| 중지 (Judge0 DB 보존) | `docker compose down` — Redis 큐는 보존하지 않는다(공식 구성과 같음). 대기 중이던 제출은 status 1(In Queue), 실행 중이던 제출은 status 2(Processing)에 멈춘 채 남는다. API 서버의 새 제출을 멈추고, 보낸 제출의 결과가 모두 나온 것을 확인한 뒤 중지한다(`/workers`는 근거로 쓰지 않는다) |
+| 다시 시작 | `docker compose up -d`. `judge0-scripts/`나 `judge0.conf`만 바꿨다면 `docker compose up -d --force-recreate server workers` — 두 파일은 마운트라 내용만 바뀌면 compose가 컨테이너를 다시 만들지 않는다 |
 | Judge0 DB까지 삭제 | `docker compose down -v` — 제출 기록이 모두 지워진다. 일반 중지에 쓰지 않는다 |
 
 공식 시작 스크립트는 `export | sudo tee /api/environment`로 환경 변수 전체(토큰·비밀번호 포함)를 로그에도 출력한다. 그래서 `judge0-scripts/`의 사본을 읽기 전용으로 마운트해 파일에만 쓰게 한다(cron이 이 파일을 읽는다). 이미지를 바꿀 때는 새 이미지의 두 스크립트와 비교해 사본을 다시 만든다.
@@ -69,7 +71,7 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 
 ## 설정 요약
 
-`judge0.conf`에서 공식 기본값과 다르게 둔 값이다. `scripts/smoke.py`가 기동 후 `/config_info`와 이 파일을 대조한다.
+`judge0.conf`에서 공식 기본값과 다르게 둔 값이다. `scripts/smoke.py`가 기동 후 `/config_info`와 이 파일을 대조한다. `/config_info`가 내보내지 않는 키(`COUNT`, `JUDGE0_TELEMETRY_ENABLE`, `RAILS_SERVER_PROCESSES`, DB·Redis 접속 키)는 smoke가 목록으로만 보여 준다. `COUNT`는 smoke의 실행 슬롯 항목이 따로 확인한다.
 
 | 변수 | 값 | 공식 기본값 | 이유 |
 |---|---|---|---|
@@ -81,7 +83,7 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | `ENABLE_COMPILER_OPTIONS` / `ALLOWED_LANGUAGES_FOR_COMPILER_OPTIONS` | true / `C++` | true / 전체 | GCC 9.2 기본 표준이 gnu++14라 C++17에 옵션이 필요하다. API 서버만 `-O2 -std=c++17`을 보낸다. 이름 접두어 일치라 Python에 옵션을 보내면 422 |
 | `ALLOW_ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT` / `…_MEMORY_LIMIT` | false / false | true / true | 켜면 isolate가 cgroup 대신 주소 공간 제한(`-m`)을 써서 메모리 측정 기준이 바뀐다 |
 | `COUNT` | 2 | 2×nproc | 실행 슬롯 2개 |
-| `MAX_QUEUE_SIZE` | 100 | 100 | 명시. 테스트케이스 20개짜리 제출 5개면 찬다. 넘치면 503이 오고 API 서버가 백오프로 다시 보낸다(#67). 동시 사용자 목표와 함께 #65에서 확정 |
+| `MAX_QUEUE_SIZE` | 100 | 100 | 명시. 대기 중인 제출(테스트케이스 하나가 제출 하나) 수의 상한이라, 20개짜리 묶음 5개면 찬다. 넘치면 503이 온다. 백오프 재시도는 #67의 규약이고 구현은 #29에서 한다. 동시 사용자 목표와 함께 #65에서 확정 |
 | `NUMBER_OF_RUNS` / `MAX_NUMBER_OF_RUNS` | 1 / 1 | 1 / 20 | 한 제출이 슬롯을 여러 번 점유하지 못하게 한다 |
 | `MAX_SUBMISSION_BATCH_SIZE` | 20 | 20 | 테스트케이스 묶음 제출 단위(명시) |
 | `ENABLE_SUBMISSION_DELETE` | true | false | 결과를 읽은 뒤 비공개 입력을 지울 수 있게 한다(AUTHZ 토큰 필요). 사용 여부는 #29에서 정한다 |

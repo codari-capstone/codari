@@ -5,6 +5,8 @@ smoke·실측·검증 스크립트가 함께 쓴다. 요청 규약은 #29(채점
 - 텍스트는 항상 base64로 주고받는다. 비UTF-8 출력이 섞여도 결과 조회가 깨지지 않는다.
 - 결과는 토큰으로 폴링한다(채점 서버는 ENABLE_WAIT_RESULT=false).
 - POST가 실패해도 자동으로 다시 보내지 않는다. 다시 보내면 같은 코드가 두 번 실행될 수 있다.
+- 결과 조회(GET)는 연결 오류·5xx면 폴링 기한 안에서 다시 묻는다.
+- 제한값은 LIMIT_FIELDS의 숫자 필드만 받는다. expected_output 같은 텍스트 필드는 보내지 않는다.
 - 접속 주소와 토큰은 환경 변수로만 받고 출력에 남기지 않는다.
 
 환경 변수:
@@ -40,6 +42,13 @@ RESULT_FIELDS = (
     "time,wall_time,memory,exit_code,exit_signal,created_at,finished_at"
 )
 BASE64_FIELDS = ("stdout", "stderr", "compile_output", "message")
+# submission_body()가 그대로 넣는 숫자 제한값. 텍스트 필드(expected_output 등)는 base64로 넣어야 하므로 받지 않는다.
+LIMIT_FIELDS = (
+    "cpu_time_limit", "cpu_extra_time", "wall_time_limit", "memory_limit", "stack_limit",
+    "max_processes_and_or_threads", "max_file_size",
+)
+# 결과 조회가 연결 오류·5xx로 실패했을 때 다시 묻는 간격의 상한(초)
+MAX_RETRY_INTERVAL_S = 2.0
 
 
 class Judge0HTTPError(Exception):
@@ -110,6 +119,9 @@ class Judge0Client:
         return payload
 
     def submission_body(self, source_code, language_id, stdin="", compiler_options=None, **limits):
+        unknown = sorted(set(limits) - set(LIMIT_FIELDS))
+        if unknown:
+            raise TypeError(f"제한값이 아닌 필드는 받지 않는다: {unknown} (허용: {', '.join(LIMIT_FIELDS)})")
         body = {"source_code": b64encode(source_code), "language_id": language_id, "stdin": b64encode(stdin)}
         if compiler_options:
             body["compiler_options"] = compiler_options
@@ -140,10 +152,25 @@ class Judge0Client:
         return decode_result(self._ok(status, payload, expected=(200,)))
 
     def wait(self, token, deadline_s=60.0, interval_s=0.2, sleep=time.sleep, clock=time.monotonic):
-        """최종 상태가 될 때까지 폴링한다. 기한을 넘기면 PollTimeout."""
+        """최종 상태가 될 때까지 폴링한다. 기한을 넘기면 PollTimeout.
+
+        조회 GET이 연결 오류나 5xx로 실패하면 기한 안에서 간격을 늘려 다시 묻는다(#67 6절).
+        조회는 다시 보내도 부작용이 없다. 4xx는 다시 물어도 같으므로 그대로 던진다.
+        """
         end = clock() + deadline_s
+        failures = 0
         while True:
-            result = self.get(token)
+            try:
+                result = self.get(token)
+            except (Judge0HTTPError, OSError) as e:
+                if isinstance(e, Judge0HTTPError) and e.status < 500:
+                    raise
+                if clock() >= end:
+                    raise PollTimeout(f"{token}: {deadline_s}초 안에 결과를 조회하지 못함 ({e})") from e
+                failures += 1
+                sleep(min(interval_s * 2 ** failures, MAX_RETRY_INTERVAL_S))
+                continue
+            failures = 0
             if result["status"]["id"] not in PENDING_STATUSES:
                 return result
             if clock() >= end:

@@ -71,7 +71,7 @@ services:
 
   redis:
     image: redis:7.2.4@sha256:5a93f6b2e391b78e8bd3f9e7e1e1e06aeb5295043b4703fb88392835cec924a0
-    # 공식 구성처럼 영속화하지 않는다. 컨테이너를 다시 만들면 대기 중인 제출이 사라진다(README "운영 명령")
+    # 공식 구성처럼 영속화하지 않는다. 컨테이너를 다시 만들면 큐가 비어 대기·실행 중이던 제출이 결과 없이 멈춘다(README "운영 명령")
     command: [
       "bash", "-c",
       'docker-entrypoint.sh --appendonly no --requirepass "$$REDIS_PASSWORD"'

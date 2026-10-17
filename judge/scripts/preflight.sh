@@ -54,6 +54,11 @@ fi
 grep -qE '^ENABLE_NETWORK=false$' judge0.conf && grep -qE '^ALLOW_ENABLE_NETWORK=false$' judge0.conf \
   && pass "ENABLE_NETWORK=false, ALLOW_ENABLE_NETWORK=false" || bad "네트워크 설정이 false 가 아니다"
 
+# compose가 이 두 파일을 시작 스크립트로 마운트한다. 실행 권한이 없으면 server·workers가 재시작을 반복한다
+for script in judge0-scripts/server judge0-scripts/workers; do
+  [ -x "$script" ] && pass "$script 실행 권한" || bad "$script 가 없거나 실행 권한이 없다 (chmod +x $script)"
+done
+
 echo
 [ "$fail" -eq 0 ] && echo "preflight 통과" || echo "preflight 실패"
 exit "$fail"

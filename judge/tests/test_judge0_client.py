@@ -64,6 +64,11 @@ class SubmissionBodyTest(unittest.TestCase):
         self.assertEqual(body["compiler_options"], "-O2 -std=c++17")
         self.assertEqual(body["memory_limit"], 262144)
 
+    def test_rejects_non_limit_fields(self):
+        # base64_encoded=true 요청에 인코딩하지 않은 텍스트가 섞이지 않게 한다
+        with self.assertRaises(TypeError):
+            jc.Judge0Client(authn_token="t").submission_body("print(42)", jc.PYTHON_ID, expected_output="42\n")
+
 
 class RequestTest(unittest.TestCase):
     def setUp(self):
@@ -133,6 +138,29 @@ class WaitTest(unittest.TestCase):
     def test_deadline_raises_poll_timeout_not_tle(self):
         client = self.make_client([2, 2, 2])
         ticks = iter([0.0, 0.5, 1.5, 2.5])
+        with self.assertRaises(jc.PollTimeout):
+            client.wait("tok", deadline_s=1.0, sleep=lambda _: None, clock=lambda: next(ticks))
+
+    def test_retries_lookup_on_connection_error_and_5xx(self):
+        client = jc.Judge0Client(authn_token="t")
+        client.get = mock.Mock(side_effect=[
+            urllib.error.URLError("refused"), jc.Judge0HTTPError(503, None), {"status": {"id": 3}},
+        ])
+        sleeps = []
+        self.assertEqual(client.wait("tok", sleep=sleeps.append, clock=lambda: 0.0)["status"]["id"], 3)
+        self.assertEqual(sleeps, [0.4, 0.8])  # 실패할 때마다 간격을 두 배로
+
+    def test_lookup_4xx_is_not_retried(self):
+        client = jc.Judge0Client(authn_token="t")
+        client.get = mock.Mock(side_effect=jc.Judge0HTTPError(401, None))
+        with self.assertRaises(jc.Judge0HTTPError):
+            client.wait("tok", sleep=lambda _: None, clock=lambda: 0.0)
+        self.assertEqual(client.get.call_count, 1)
+
+    def test_lookup_failures_past_deadline_raise_poll_timeout(self):
+        client = jc.Judge0Client(authn_token="t")
+        client.get = mock.Mock(side_effect=urllib.error.URLError("refused"))
+        ticks = iter([0.0, 0.5, 1.5])
         with self.assertRaises(jc.PollTimeout):
             client.wait("tok", deadline_s=1.0, sleep=lambda _: None, clock=lambda: next(ticks))
 
