@@ -38,6 +38,9 @@ function renderLogin(state?: unknown, seed?: (client: QueryClient) => void) {
       { path: '/login', Component: LoginPage },
       { path: '/problems', element: <h1>문제 목록 도착</h1> },
       { path: '/submissions', element: <h1>제출 기록 도착</h1> },
+      // 링크가 state를 싣고 가는지 보려면 도착지가 있어야 한다. 실제 화면은 다른 파일에서 본다.
+      { path: '/signup', element: <h1>회원가입 도착</h1> },
+      { path: '/password-reset', element: <h1>비밀번호 찾기 도착</h1> },
     ],
     { initialEntries: [{ pathname: '/login', state }] },
   )
@@ -390,12 +393,57 @@ describe('로그인 화면', () => {
     expect(screen.getByLabelText('비밀번호')).toHaveValue('')
   })
 
-  it('아직 없는 화면으로 가는 링크를 두지 않는다', async () => {
-    // 회원가입(COM-06)·비밀번호 찾기(COM-08) 화면은 아직 구현되지 않았다. 링크를 미리 두면
-    // 404로 떨어진다. 이 테스트는 헤더 없이 화면만 그리므로 링크가 있다면 모두 이 화면의 것이다.
+  it('회원가입 링크에 원래 가려던 화면을 싣는다', async () => {
+    // 가입·재설정은 끝나면 이 화면으로 되돌려 보낸다. 싣지 않으면 로그인에 성공해도
+    // 들어오려던 화면이 아니라 문제 목록으로 간다.
+    const user = userEvent.setup()
+    const { router } = renderLogin({ from: '/submissions' })
+
+    await waitForLoginForm()
+    await user.click(screen.getByRole('link', { name: '회원가입' }))
+
+    expect(router.state.location.pathname).toBe('/signup')
+    expect(router.state.location.state).toEqual({ from: '/submissions' })
+  })
+
+  it('사이트 밖 주소는 링크에 싣지 않는다', async () => {
+    // state는 사용자가 심을 수 있다. 검사를 통과한 값만 넘겨야 가입을 거쳐 돌아온
+    // 로그인이 사이트 밖으로 향하지 않는다 (safeRedirect).
+    const user = userEvent.setup()
+    const { router } = renderLogin({ from: '//evil.com' })
+
+    await waitForLoginForm()
+    await user.click(screen.getByRole('link', { name: '비밀번호 찾기' }))
+
+    expect(router.state.location.pathname).toBe('/password-reset')
+    expect(router.state.location.state).toEqual({ from: '/problems' })
+  })
+
+  it('회원가입·비밀번호 찾기 링크를 보여 준다', async () => {
     renderLogin()
 
     await waitForLoginForm()
-    expect(screen.queryAllByRole('link')).toHaveLength(0)
+    expect(screen.getByRole('link', { name: '회원가입' })).toHaveAttribute('href', '/signup')
+    expect(screen.getByRole('link', { name: '비밀번호 찾기' })).toHaveAttribute(
+      'href',
+      '/password-reset',
+    )
+    // 이 화면이 두는 링크는 이 둘뿐이다. 아직 없는 화면으로 가는 링크를 더하면 404가 된다.
+    expect(screen.queryAllByRole('link')).toHaveLength(2)
+  })
+
+  it('가입·재설정에서 넘어온 안내를 보여 준다', async () => {
+    // 가입은 로그인시키지 않는다(계약). 무엇을 해야 하는지 알려 주는 한 줄이다.
+    renderLogin({ notice: '가입이 완료됐어요. 로그인해 주세요' })
+
+    expect(await screen.findByText('가입이 완료됐어요. 로그인해 주세요')).toBeInTheDocument()
+  })
+
+  it('안내가 아닌 state는 무시한다', async () => {
+    // state는 사용자가 심을 수 있다. 문자열이 아닌 값을 그리면 렌더가 깨진다.
+    renderLogin({ notice: { evil: true } })
+
+    await waitForLoginForm()
+    expect(screen.getByRole('form', { name: '로그인' })).toBeInTheDocument()
   })
 })

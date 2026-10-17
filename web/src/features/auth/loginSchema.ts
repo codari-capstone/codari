@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { toUserMessage } from '@/constants/errors'
+import { EMAIL_PATTERN, INVALID_EMAIL_MESSAGE } from './accountRules'
 
 /**
  * 로그인 입력 검사. 형식만 본다.
@@ -15,23 +16,18 @@ import { toUserMessage } from '@/constants/errors'
  * 계정이 있다. 값을 조용히 바꾸면 그 사용자는 영원히 로그인할 수 없고, COM-07의
  * 단일 문구 때문에 이유를 알 방법도 없다. 그래서 공백만 있는지만 검사하고 값은 그대로 둔다.
  */
-/**
- * 가입이 받아 주는 이메일 모양. 서버 `AccountRules.java`의 정규식과 같은 것이다.
- *
- * zod의 `z.email()`을 쓰지 않는다. 그쪽이 더 엄격해서, 로컬 파트의 `!`·`%`를 막고 TLD를
- * 두 글자 이상으로 본다. 서버가 가입시켜 준 `user!x@example.com`이나 `a@b.c` 같은 주소가
- * 로그인 폼에서 막혀, 그 계정의 주인이 자기 주소를 넣을 수 없게 된다. COM-07의 단일 문구
- * 때문에 이유도 알 수 없다. 로그인 검사가 가입 검사보다 엄격해서는 안 된다 — 바로 위
- * 비밀번호 규칙을 여기 걸지 않는 것과 같은 이유다.
- */
-const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
-
 export const loginSchema = z.object({
   email: z
     .string()
     .trim()
     .min(1, '이메일을 입력해 주세요')
-    .regex(EMAIL_PATTERN, '이메일 형식이 아닙니다'),
+    // 명세는 로그인(COM-07)에서 형식을 "검사하지 않는다"고 정했다 — 서버가 실패 이유를
+    // 가르지 않기 때문이다. 이 검사는 서버에 보내 봐야 같은 문구만 돌아오는 왕복을 아끼는
+    // 화면 쪽 편의이고, 그래서 명세가 그은 상한을 지킨다: "로그인 화면이 보내기 전에 하는
+    // 검사는 가입이 받아 주는 주소를 모두 통과시켜야 한다" (#113). 엄격해지면 그 주소로
+    // 가입한 사람이 단일 문구 때문에 이유도 모른 채 막힌다. 문구는 가입·재설정과 한 곳에서
+    // 가져온다.
+    .regex(EMAIL_PATTERN, INVALID_EMAIL_MESSAGE),
   password: z.string().refine((v) => v.trim().length > 0, '비밀번호를 입력해 주세요'),
 })
 

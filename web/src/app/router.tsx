@@ -20,6 +20,8 @@ export const router = createBrowserRouter([
         children: [
           { index: true, loader: () => redirect('/problems') },
           { path: 'login', lazy: () => import('@/features/auth/LoginPage') },
+          { path: 'signup', lazy: () => import('@/features/auth/SignupPage') },
+          { path: 'password-reset', lazy: () => import('@/features/auth/PasswordResetPage') },
           { path: 'forbidden', lazy: () => import('@/app/ForbiddenPage') },
           {
             // 로그인이 필요한 화면들 (COM-05). 가드는 막거나 통과시킬 뿐 AppShell을 만들지 않으므로,

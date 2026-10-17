@@ -3,11 +3,12 @@
 > **실제 계약이 들어왔다.** `contracts/openapi.yaml`(PR #92·#93)이 인증 방식을 정했고, 그 결정은 이 문서의
 > 이전 판이 요청했던 것과 반대였다. 그래서 이 문서는 더 이상 백엔드에 보내는 요청서가 아니다.
 >
-> **그런데 이 화면을 계약에 바로 붙일 수는 없다.** 헤더의 사용자 메뉴와 관리자 메뉴는 닉네임과 역할이
-> 있어야 그려진다. 계약에는 그 둘을 주는 경로가 없고(`/api/me`가 없다), 로그인 응답은 `{ accessToken }`
-> 하나뿐이며(`contracts/openapi.yaml`의 `AccessTokenResponse`), access token의 클레임은 `sub`·`role`·토큰 버전이고
-> 닉네임은 없다(`api/src/main/java/com/codingmon/api/auth/AuthTokenService.java`의 `accessToken`). 그 길이
-> 정해지기 전에 연동하면 화면이 사용자를 이름으로 부를 수 없다. 3절이 그 열린 질문이다.
+> **그래도 이 화면을 계약에 바로 붙일 수는 없다.** 헤더의 사용자 메뉴와 관리자 메뉴는 닉네임과 역할이
+> 있어야 그려진다. 로그인 응답은 `{ accessToken }` 하나뿐이고(`contracts/openapi.yaml`의
+> `AccessTokenResponse`), access token의 클레임은 `sub`·`role`·토큰 버전이라 닉네임이 없다
+> (`api/src/main/java/com/codingmon/api/auth/AuthTokenService.java`의 `accessToken`). 그 둘을 주는 길은
+> PR #103이 `GET /api/users/me`로 정했다(`/api/me`가 아니다). 3절이 그 결정이다. 다만 프론트는 아직 옛
+> 경로와 쿠키 세션을 쓰므로 COM-04와 함께 옮겨야 한다.
 >
 > 지금 이 문서의 용도는 셋이다. 프론트가 무엇을 기준으로 만들어졌는지 남기고, 그것이 계약과 어디서
 > 다른지 적고, 연동할 때 무엇을 고쳐야 하는지 알려 준다. 프론트 동작에 대한 서술은 모두 파일을 짚어
@@ -22,9 +23,9 @@
 | 구분                  | 항목                                                                                                             |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | 프론트가 지금 하는 것 | 임시 엔드포인트 셋(`/api/me`, `/api/auth/login`, `/api/auth/logout`)과 서버가 심는 세션 쿠키                     |
-| 계약과 다른 것        | 세션 모델(쿠키 세션 대 메모리 access token), 로그인 응답 모양, 갱신(COM-04) 미구현, 오류 본문의 `code`·`instance` |
-| 아직 정해지지 않은 것 | 닉네임·역할이 프론트에 오는 길                                                                                   |
-| 백엔드에 요청         | 위의 그 길 하나. 로그인 실패 구분 없음과 미가입 이메일 제한은 #93이 이미 지켰다                                  |
+| 계약과 다른 것        | 세션 모델(쿠키 세션 대 메모리 access token), 로그인 응답 모양, 갱신(COM-04) 미구현, 오류 본문의 `instance` |
+| 정해진 것             | 닉네임·역할은 `GET /api/users/me`로 온다 (PR #103)                                                               |
+| 백엔드에 요청         | 남은 것 없음. `/api/users/me`(#103), 로그인 실패 구분 없음과 미가입 이메일 제한(#93)이 모두 지켜졌다            |
 | 만들지 않은 것        | COM-04 토큰 갱신, COM-02 GitHub 로그인                                                                           |
 
 ## 1. 프론트가 지금 하는 것
@@ -69,33 +70,37 @@
 | 항목               | 계약 (`contracts/openapi.yaml`)                                                                              | 프론트                                                                                                                           | 연동 때 바꿀 곳                                                                                                                                                                                                                                                                                                                                                                 |
 | ------------------ | ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 세션 모델          | access token을 응답 본문으로 받아 **메모리에만** 두고 `Authorization: Bearer`로 보낸다. refresh token은 쿠키 | 서버가 심은 세션 쿠키. 프론트는 토큰을 들지 않는다                                                                               | `web/src/api/client.ts`(헤더를 싣는 방법, 쿠키 옵션), `authQuery.ts`(로그인 응답에서 토큰을 받아 보관), `useLogout.ts`, `web/src/api/provisional.ts`(`ProvisionalPaths`와 `AuthUser`), `web/src/mocks/handlers.ts`·`web/src/mocks/fixtures/users.ts`(쿠키 세션을 구현하고 갱신 핸들러가 없다), 그리고 `['me']` 캐시를 직접 채우는 테스트(`web/src/features/auth/useLogout.test.tsx`) |
-| 로그인 응답        | `{ accessToken }`만 준다 (`AccessTokenResponse`). 사용자 객체가 없다                                                     | `AuthUser`를 받아 `['me']` 캐시에 넣는다                                                                                         | `authQuery.ts`의 `loginRequest` 반환 타입, `LoginPage.tsx`의 `onSuccess`. 3절이 정해지면 그 길에서 사용자를 받아 온다                                                                                                                                                                                                                                                   |
-| 로그인 상태 확인   | 계약에 `/api/me`가 없다                                                                                      | `/api/me`로 묻는다. `meQuery`의 `staleTime`이 60초라 전체 로드 때, 또는 데이터가 낡은 뒤 마운트될 때 나간다 (`authQuery.ts`의 `meQuery`) | `authQuery.ts`의 `meQuery`, `useAuth.ts`. 3절의 열린 질문이 정해져야 한다                                                                                                                                                                                                                                                                                                        |
+| 로그인 응답        | `{ accessToken }`만 준다 (`AccessTokenResponse`). 사용자 객체가 없다                                                     | `AuthUser`를 받아 `['me']` 캐시에 넣는다                                                                                         | `authQuery.ts`의 `loginRequest` 반환 타입, `LoginPage.tsx`의 `onSuccess`. 로그인 뒤 사용자는 3절의 `GET /api/users/me`에서 받아 온다                                                                                                                                                                                                                                                   |
+| 로그인 상태 확인   | `GET /api/users/me`다 (PR #103). `/api/me`가 아니다                                                                                   | `/api/me`로 묻는다. `meQuery`의 `staleTime`이 60초라 전체 로드 때, 또는 데이터가 낡은 뒤 마운트될 때 나간다 (`authQuery.ts`의 `meQuery`) | `authQuery.ts`의 `meQuery`, `useAuth.ts`. `meQuery`의 경로를 `/api/users/me`로 바꾸고 `AuthUser`에 `avatarUrl?: string \| null`을 더한다 (4절)                                                                                                                                                                                                                                                                                                        |
 | 로그아웃           | `POST /api/auth/logout`, 쿠키가 없거나 모르는 토큰이어도 204. 이 기기만 끝낸다                   | 같은 경로·같은 204를 가정한다                                                                                                    | 다르지 않다. 쿠키 `Path`가 `/api/auth`라 브라우저가 이 요청에 refresh token을 실어 준다                                                                                                                                                                                                                                                                                         |
 | 토큰 갱신 (COM-04) | `POST /api/auth/refresh`가 명세돼 있다. 5절에 요약                                                           | 구현하지 않았다                                                                                                                  | `client.ts`에 401을 받으면 갱신하고 한 번 다시 보내는 층을 더한다                                                                                                                                                                                                                                                                                                               |
-| 오류 본문          | RFC 9457이고 `ProblemDetail`에 `code`(화면이 경우를 나눌 코드)와 `instance`가 있다                           | `ProblemDetail`에 둘 다 없다 (`web/src/constants/errors.ts`). 401·429를 상태 코드로만 가른다                                | `errors.ts`에 `code?: string`과 `instance?: string`을 더하면 `LOGIN_FAILED`·`LOGIN_LOCKED`로 가를 수 있다. 지금도 화면 결과는 같다 — 서버의 `detail`이 COM-07 문구와 글자까지 같다 (`AccountService.java`의 `LOGIN_FAILED` 상수와 `login`)                                                                                                                                                              |
+| 오류 본문 | RFC 9457이고 `ProblemDetail`에 `code`(화면이 경우를 나눌 코드)와 `instance`가 있다 | `code`를 읽는다 (`web/src/constants/errors.ts`의 `code?: string`, `problemCode.ts`가 `code`가 있을 때만 `detail`을 보여 준다). `instance`는 받지 않는다. 로그인(COM-07)만 401·429를 상태 코드로 가른다 | `instance`를 쓸 자리가 생기면 `errors.ts`에 더한다. 로그인은 `LOGIN_FAILED`·`LOGIN_LOCKED`로 가를 수 있는데 지금도 화면 결과는 같다 — 서버의 `detail`이 COM-07 문구와 글자까지 같다 (`AccountService.java`의 `LOGIN_FAILED` 상수와 `login`) |
 | 보호된 화면의 접근 | 문제 목록·개념 태그만 비로그인 가능, 문제 상세는 로그인 필요                                                 | 라우터가 문제 상세를 `RequireAuth` 아래에 둔다 (`router.tsx`)                                                                    | 다르지 않다. 계약이 `/api/problems/{id}`를 명세하면 맞는지 확인한다                                                                                                                                                                                                                                                                                                              |
 
-## 3. 아직 정해지지 않은 것
+## 3. 정해진 것 — 닉네임과 역할이 프론트에 오는 길
 
-로그인·로그아웃 엔드포인트는 #93이 정했다. 그 모양과 프론트의 차이는 2절에 있다. 남은 질문은 하나다.
+로그인·로그아웃 엔드포인트는 #93이 정했다. 그 모양과 프론트의 차이는 2절에 있다.
 
-**닉네임과 역할이 프론트에 오는 길.** 헤더의 사용자 메뉴와 관리자 메뉴가 둘 다 필요하다.
-길은 크게 두 가지다 — access token이 JWT이므로 클레임에 담거나, 별도 엔드포인트(`/api/me` 등)를 둔다.
-로그인·갱신 응답에 사용자 객체를 함께 담는 길도 있다.
-지금 `AuthTokenService.java`가 발급하는 클레임은 `sub`(사용자 id), `role`, 토큰 버전이고
-닉네임은 없다 (`accessToken` 메서드). 클레임은 발급 시점에 고정되므로, 닉네임을
-담으면 사용자가 닉네임을 바꿔도 토큰이 만료될 때까지 옛 값이 남는다. 엔드포인트로 가면 요청이
-하나 더 든다. 어느 쪽이 나은지는 계약이 정하지 않았고 이 문서도 정하지 않는다.
+**닉네임과 역할은 `GET /api/users/me`로 온다 (PR #103).** 응답은 `id`, `nickname`, `role`과 null일 수
+있는 `avatarUrl`이고, 로그인하지 않았으면 401이다. 닉네임은 토큰 클레임이 아니라 DB에서 읽는다.
+클레임에 담는 길은 졌다 — 클레임은 발급 시점에 고정되어(`AuthTokenService.java`의 `accessToken`) 사용자가
+닉네임을 바꿔도 토큰이 만료될 때까지 옛 값이 남는다. 엔드포인트의 값은 요청 하나를 더 쓰는 것이다.
 
-엔드포인트로 간다면 `/api/auth/**` 아래에 두면 안 된다. 그 아래에서는 서버가 `Authorization` 헤더를
-읽지 않아 호출자를 확인해 주지 않는다 (`SecurityConfig.java`의 `bearerTokenResolver`).
+이 경로는 `/api/auth/**` 밖에 있다. 그 아래에서는 서버가 `Authorization` 헤더를 읽지 않아 호출자를
+확인해 주지 않기 때문이다 (`SecurityConfig.java`의 `bearerTokenResolver`).
 
-## 4. 백엔드에 요청 — 계약이 정하지 않았지만 프론트에 꼭 필요한 것
+## 4. 백엔드에 요청 — 모두 지켜졌다
 
-**3절의 그 길 하나다.** 닉네임과 역할을 받지 못하면 헤더와 관리자 가드를 계약에 붙일 수 없다.
+닉네임과 역할을 받는 길(3절)이 #103으로 생겨 남은 요청이 없다. COM-04가 들어올 때 프론트가 바꿀 것은 다음과 같다.
 
-이전 판이 요청했던 두 가지는 #93이 지켰다. 기록만 남긴다.
+- `authQuery.ts`의 `meQuery`가 `/api/me` 대신 `/api/users/me`를 부른다.
+- `AuthUser`(`provisional.ts`)에 `avatarUrl?: string | null`이 더해진다.
+- **처음 불러올 때 요청이 순서대로 두 번 든다.** 메모리에 access token이 없으니 `POST /api/auth/refresh`로
+  먼저 받고, 그 새 토큰으로 `GET /api/users/me`를 부른다. 두 번째는 첫째가 끝나야 나갈 수 있다.
+  `useAuth`의 로딩 상태(`useAuth.ts`)가 이 둘을 모두 덮어야 한다. 첫째만 덮으면 토큰은 있는데 사용자가
+  없는 순간에 비로그인 화면이 깜박이거나 `RequireAuth`가 로그인 화면으로 보낸다.
+
+이전 판이 요청했던 두 가지도 #93이 지켰다. 기록만 남긴다.
 
 - **로그인 실패는 이유를 구분하지 않는다.** 없는 이메일, GitHub로 가입한 계정, 비밀번호 불일치가 모두
   401 `LOGIN_FAILED`와 같은 문구다 (`AccountService.java`의 `login`). 가입할 수 없는 길이의
@@ -138,8 +143,17 @@
 
 ### COM-02 GitHub 로그인
 
-화면에 없다. 계약에도 아직 없다. 정해야 할 것은 GitHub OAuth 앱 등록(누가 어느 계정으로), 리다이렉트
-URI(개발·운영 각각), 서버 쪽 콜백 처리와 성공·신규 가입(닉네임 입력) 뒤 프론트로 돌려보내는 방식이다.
+화면에 없다. 계약에는 이제 흐름이 있다 (PR #99·#101, `contracts/openapi.yaml`의 `/api/auth/github`,
+`/api/auth/github/callback`, `/api/auth/github/signup`). 프론트는 `fetch`가 아니라 브라우저 이동으로
+`/api/auth/github`를 열고(원래 보던 페이지는 이동 전에 직접 기억해 둔다), 서버가 돌려보내는
+`/login/github?result=...`를 받는 경로를 만든다. `result`는 셋이다. `success`면
+`POST /api/auth/refresh`로 access token을 받고, `error`면 로그인 화면에 실패를 알린다. `signup`이면
+처음 온 사람이라 **닉네임 입력 화면이 필요하다** — 30분 안에 `POST /api/auth/github/signup`을 보내야 하고
+(`VERIFICATION_EXPIRED`·`NICKNAME_TAKEN` 등 오류 `code`가 명세돼 있다), 성공(204)해도 로그인되지 않으므로
+로그인 화면으로 보낸다.
+
+계약이 정하지 않은 것은 GitHub OAuth App을 누가 어느 계정으로 등록하느냐와, 개발·운영 각각의 콜백
+주소(호스트)다. 계약은 콜백이 `/api/auth/github/callback`이라는 경로만 정한다.
 
 ## 6. 목은 명세가 아니다
 
@@ -163,6 +177,6 @@ URI(개발·운영 각각), 서버 쪽 콜백 처리와 성공·신규 가입(�
 
 ## 7. 이 문서에 없는 것
 
-회원가입(COM-06), 비밀번호 재설정(COM-08), 이메일 인증번호 발송은 이 화면(#20)의 범위가 아니라 다루지
-않는다. #93이 가입 쪽 엔드포인트를 명세했으니 그 화면을 만들 때는 임시 계약 없이 `contracts/openapi.yaml`을
-바로 보면 된다. 계정·비밀번호·인증번호 규칙의 값은 `docs/feature-spec.md`의 '계정 규칙'을 본다.
+회원가입(COM-06)과 비밀번호 재설정(COM-08)은 더 이상 범위 밖이 아니다. 이 브랜치에서 임시 계약 없이
+`contracts/openapi.yaml`에서 생성한 `api`로 구현했다 (`web/src/features/auth/signupQuery.ts`와
+`SignupPage.tsx`, `PasswordResetPage.tsx`). 이 문서가 다루는 것은 여전히 로그인 쪽의 차이다. 계정·비밀번호·인증번호 규칙의 값은 `docs/feature-spec.md`의 '계정 규칙'을 본다.

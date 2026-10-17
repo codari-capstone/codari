@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import {
   provisionalApi,
@@ -7,8 +7,10 @@ import {
   type ProblemListQuery,
   type ProblemSummary,
 } from '@/api/provisional'
+import { api } from '@/api/client'
+import { MOCK_CODE, resetEmailCodes } from './fixtures/emailCodes'
 import { conceptTags, problems } from './fixtures/problems'
-import { SESSION_COOKIE } from './fixtures/users'
+import { mockAccounts, SESSION_COOKIE } from './fixtures/users'
 import { server } from './server'
 
 async function fetchProblems(query: ProblemListQuery): Promise<Page<ProblemSummary>> {
@@ -17,9 +19,21 @@ async function fetchProblems(query: ProblemListQuery): Promise<Page<ProblemSumma
   return data
 }
 
+/** 계약이 항상 페이지로 나누므로, 전체 순서를 보는 테스트는 페이지를 모아서 본다. */
+async function fetchAllProblems(query: ProblemListQuery = {}) {
+  const first = await fetchProblems({ ...query, page: 0 })
+  const content = [...first.content]
+  for (let page = 1; content.length < first.totalElements; page += 1) {
+    const next = await fetchProblems({ ...query, page })
+    if (next.content.length === 0) break
+    content.push(...next.content)
+  }
+  return { content, totalElements: first.totalElements }
+}
+
 describe('MSW 문제 목록 핸들러', () => {
   it('필터가 없으면 전체를 번호순으로 돌려준다', async () => {
-    const page = await fetchProblems({})
+    const page = await fetchAllProblems()
 
     const ids = page.content.map((p) => p.id)
     expect(ids).toEqual([...ids].sort((a, b) => a - b))
@@ -64,7 +78,7 @@ describe('MSW 문제 목록 핸들러', () => {
 
   // 이 테스트가 핵심이다. 문자열 비교로 정렬하면 EASY, HARD, MEDIUM이 된다.
   it('난이도 정렬은 알파벳순이 아니라 EASY → MEDIUM → HARD다', async () => {
-    const page = await fetchProblems({ sort: 'difficulty,asc' })
+    const page = await fetchAllProblems({ sort: 'difficulty,asc' })
 
     // 개수가 아니라 순서가 규칙이다. 문자열 정렬이면 EASY, HARD, MEDIUM이 된다.
     const seen = [...new Set(page.content.map((p) => p.difficulty))]
@@ -72,14 +86,14 @@ describe('MSW 문제 목록 핸들러', () => {
   })
 
   it('난이도 내림차순은 HARD부터다', async () => {
-    const page = await fetchProblems({ sort: 'difficulty,desc' })
+    const page = await fetchAllProblems({ sort: 'difficulty,desc' })
 
     expect(page.content[0].difficulty).toBe('HARD')
     expect(page.content.at(-1)?.difficulty).toBe('EASY')
   })
 
   it('번호 내림차순', async () => {
-    const page = await fetchProblems({ sort: 'id,desc' })
+    const page = await fetchAllProblems({ sort: 'id,desc' })
 
     const ids = page.content.map((p) => p.id)
     expect(ids).toEqual([...ids].sort((a, b) => b - a))
@@ -198,5 +212,277 @@ describe('MSW 인증 핸들러', () => {
     expect(me.data).toEqual({ id: 2, nickname: '관리자', role: 'ADMIN' })
 
     await provisionalApi.POST('/api/auth/logout')
+  })
+})
+
+describe('가입·재설정 목', () => {
+  afterEach(() => resetEmailCodes())
+
+  it('가입 인증번호를 보내고 고정 번호로 확인한다', async () => {
+    const sent = await api.POST('/api/auth/signup/email-code', {
+      body: { email: 'new@codari.test' },
+    })
+    expect(sent.response.status).toBe(204)
+
+    const verified = await api.POST('/api/auth/signup/email-code/verify', {
+      body: { email: 'new@codari.test', code: MOCK_CODE },
+    })
+    expect(verified.response.status).toBe(200)
+    expect(verified.data?.verificationToken).toMatch(/.+/)
+  })
+
+  it('이미 가입된 이메일에는 409 EMAIL_TAKEN을 준다', async () => {
+    // mockAccounts의 이메일이다. 목만으로 가입 실패 경로를 밟을 수 있어야 한다.
+    const res = await api.POST('/api/auth/signup/email-code', {
+      body: { email: mockAccounts[0]!.email },
+    })
+    expect(res.response.status).toBe(409)
+    expect((res.error as { code?: string }).code).toBe('EMAIL_TAKEN')
+  })
+
+  it('받지 않고 확인하면 CODE_EXPIRED를 준다', async () => {
+    const res = await api.POST('/api/auth/signup/email-code/verify', {
+      body: { email: 'nobody@codari.test', code: MOCK_CODE },
+    })
+    expect(res.response.status).toBe(400)
+    expect((res.error as { code?: string }).code).toBe('CODE_EXPIRED')
+  })
+
+  it('다섯 번 틀리면 CODE_ATTEMPTS_EXCEEDED가 된다', async () => {
+    await api.POST('/api/auth/signup/email-code', { body: { email: 'new@codari.test' } })
+
+    const wrong = () =>
+      api.POST('/api/auth/signup/email-code/verify', {
+        body: { email: 'new@codari.test', code: '000000' },
+      })
+
+    for (let i = 0; i < 4; i += 1) {
+      expect(((await wrong()).error as { code?: string }).code).toBe('CODE_MISMATCH')
+    }
+    expect(((await wrong()).error as { code?: string }).code).toBe('CODE_ATTEMPTS_EXCEEDED')
+  })
+
+  it('가입하지 않은 이메일로 재설정을 요청하면 404 EMAIL_NOT_FOUND다', async () => {
+    const res = await api.POST('/api/auth/password-reset/email-code', {
+      body: { email: 'nobody@codari.test' },
+    })
+    expect(res.response.status).toBe(404)
+    expect((res.error as { code?: string }).code).toBe('EMAIL_NOT_FOUND')
+  })
+
+  it('닉네임 중복 확인은 mockAccounts의 닉네임을 대소문자 무시로 막는다', async () => {
+    const taken = await api.GET('/api/auth/nickname-availability', {
+      params: { query: { nickname: mockAccounts[0]!.user.nickname } },
+    })
+    expect(taken.data?.available).toBe(false)
+
+    const upper = await api.GET('/api/auth/nickname-availability', {
+      params: { query: { nickname: mockAccounts[0]!.user.nickname.toUpperCase() } },
+    })
+    expect(upper.data?.available).toBe(false)
+
+    const free = await api.GET('/api/auth/nickname-availability', {
+      params: { query: { nickname: '빈닉네임' } },
+    })
+    expect(free.data?.available).toBe(true)
+  })
+
+  it('가입 완료는 토큰이 있으면 204, 없으면 VERIFICATION_EXPIRED다', async () => {
+    await api.POST('/api/auth/signup/email-code', { body: { email: 'new@codari.test' } })
+    const verified = await api.POST('/api/auth/signup/email-code/verify', {
+      body: { email: 'new@codari.test', code: MOCK_CODE },
+    })
+    const verificationToken = verified.data!.verificationToken
+
+    const form = {
+      nickname: '새사람',
+      password: 'Codari!test1',
+      passwordConfirm: 'Codari!test1',
+    }
+    const ok = await api.POST('/api/auth/signup', { body: { verificationToken, ...form } })
+    expect(ok.response.status).toBe(204)
+
+    const stale = await api.POST('/api/auth/signup', {
+      body: { verificationToken: 'not-a-token', ...form },
+    })
+    expect((stale.error as { code?: string }).code).toBe('VERIFICATION_EXPIRED')
+  })
+})
+
+const code = (r: { error?: unknown }) => (r.error as { code?: string }).code
+const GOOD = { nickname: '새사람', password: 'Codari!test1', passwordConfirm: 'Codari!test1' }
+
+async function signupToken(email = 'new@codari.test') {
+  await api.POST('/api/auth/signup/email-code', { body: { email } })
+  const v = await api.POST('/api/auth/signup/email-code/verify', {
+    body: { email, code: MOCK_CODE },
+  })
+  return v.data!.verificationToken
+}
+
+async function resetToken(email = mockAccounts[0]!.email) {
+  await api.POST('/api/auth/password-reset/email-code', { body: { email } })
+  const v = await api.POST('/api/auth/password-reset/email-code/verify', {
+    body: { email, code: MOCK_CODE },
+  })
+  return v.data!.resetToken
+}
+
+describe('가입 완료의 토큰·오류 규칙', () => {
+  afterEach(() => resetEmailCodes())
+
+  it('비밀번호가 규칙에 어긋나도 같은 토큰으로 다시 보내면 가입된다 (토큰이 오류에 닳으면 화면이 막힌다)', async () => {
+    const verificationToken = await signupToken()
+    const bad = await api.POST('/api/auth/signup', {
+      body: { verificationToken, ...GOOD, password: 'short', passwordConfirm: 'short' },
+    })
+    expect(code(bad)).toBe('INVALID_PASSWORD')
+    const ok = await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    expect(ok.response.status).toBe(204)
+  })
+
+  it('이미 쓰는 닉네임이면 NICKNAME_TAKEN이고 같은 토큰에 새 닉네임으로 가입된다', async () => {
+    const verificationToken = await signupToken()
+    const taken = await api.POST('/api/auth/signup', {
+      body: { verificationToken, ...GOOD, nickname: mockAccounts[0]!.user.nickname },
+    })
+    expect(taken.response.status).toBe(409)
+    expect(code(taken)).toBe('NICKNAME_TAKEN')
+    const ok = await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    expect(ok.response.status).toBe(204)
+  })
+
+  it('비밀번호 확인이 다르면 PASSWORD_MISMATCH다', async () => {
+    const verificationToken = await signupToken()
+    const res = await api.POST('/api/auth/signup', {
+      body: { verificationToken, ...GOOD, passwordConfirm: 'Codari!other1' },
+    })
+    expect(code(res)).toBe('PASSWORD_MISMATCH')
+  })
+
+  it('규칙에 어긋난 닉네임으로 가입하면 INVALID_NICKNAME이다', async () => {
+    const verificationToken = await signupToken()
+    const res = await api.POST('/api/auth/signup', {
+      body: { verificationToken, ...GOOD, nickname: 'a' },
+    })
+    expect(code(res)).toBe('INVALID_NICKNAME')
+  })
+
+  it('가입을 마친 뒤 같은 토큰으로 또 가입하면 409 EMAIL_TAKEN이다 (VERIFICATION_EXPIRED가 아니다)', async () => {
+    const verificationToken = await signupToken()
+    await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    const again = await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    expect(again.response.status).toBe(409)
+    expect(code(again)).toBe('EMAIL_TAKEN')
+  })
+
+  it('목에서 가입을 마친 이메일은 발송 단계에서 409 EMAIL_TAKEN이다', async () => {
+    // 계약은 발송에서 거른다. 여기서 204를 주면 목으로 밟는 흐름만 실제 서버와 달라져,
+    // 발송·인증·닉네임 확인을 다 통과한 뒤 마지막에야 막힌다.
+    const email = 'new@codari.test'
+    const verificationToken = await signupToken(email)
+    await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+
+    const res = await api.POST('/api/auth/signup/email-code', { body: { email } })
+    expect(res.response.status).toBe(409)
+    expect(code(res)).toBe('EMAIL_TAKEN')
+  })
+
+  it('가입은 mockAccounts를 늘리지 않는다', async () => {
+    const before = mockAccounts.length
+    const verificationToken = await signupToken()
+    await api.POST('/api/auth/signup', { body: { verificationToken, ...GOOD } })
+    expect(mockAccounts).toHaveLength(before)
+  })
+
+  it('앞뒤 공백이 있는 이메일도 같은 이메일로 본다', async () => {
+    const res = await api.POST('/api/auth/signup/email-code', {
+      body: { email: ` ${mockAccounts[0]!.email} ` },
+    })
+    expect(code(res)).toBe('EMAIL_TAKEN')
+  })
+
+  it('인증번호 확인에 형식이 틀린 이메일을 보내면 400 INVALID_EMAIL이다', async () => {
+    const res = await api.POST('/api/auth/signup/email-code/verify', {
+      body: { email: 'not-an-email', code: MOCK_CODE },
+    })
+    expect(res.response.status).toBe(400)
+    expect(code(res)).toBe('INVALID_EMAIL')
+  })
+
+  it('규칙에 어긋난 닉네임은 available:false가 아니라 400 INVALID_NICKNAME이다', async () => {
+    const res = await api.GET('/api/auth/nickname-availability', {
+      params: { query: { nickname: 'a' } },
+    })
+    expect(res.response.status).toBe(400)
+    expect(code(res)).toBe('INVALID_NICKNAME')
+  })
+})
+
+describe('비밀번호 재설정 목', () => {
+  afterEach(() => resetEmailCodes())
+
+  it('가입된 이메일로 번호를 받아 확인하고 재설정하면 204다 (RESET 키와 resetToken 필드를 묶는다)', async () => {
+    const token = await resetToken()
+    const res = await api.POST('/api/auth/password-reset', { body: { resetToken: token, ...GOOD } })
+    expect(res.response.status).toBe(204)
+  })
+
+  it('같은 토큰으로 두 번 재설정하면 두 번째는 RESET_EXPIRED다', async () => {
+    const token = await resetToken()
+    await api.POST('/api/auth/password-reset', { body: { resetToken: token, ...GOOD } })
+    const again = await api.POST('/api/auth/password-reset', {
+      body: { resetToken: token, ...GOOD },
+    })
+    expect(code(again)).toBe('RESET_EXPIRED')
+  })
+
+  it('비밀번호 오류 뒤에도 같은 토큰으로 다시 재설정된다 (오류에 토큰이 닳으면 화면이 막힌다)', async () => {
+    const token = await resetToken()
+    const bad = await api.POST('/api/auth/password-reset', {
+      body: { resetToken: token, ...GOOD, passwordConfirm: 'Codari!other1' },
+    })
+    expect(code(bad)).toBe('PASSWORD_MISMATCH')
+    const weak = await api.POST('/api/auth/password-reset', {
+      body: { resetToken: token, password: 'short', passwordConfirm: 'short' },
+    })
+    expect(code(weak)).toBe('INVALID_PASSWORD')
+    const ok = await api.POST('/api/auth/password-reset', { body: { resetToken: token, ...GOOD } })
+    expect(ok.response.status).toBe(204)
+  })
+
+  it('가입 토큰으로는 재설정할 수 없다 (목적이 섞이면 RESET_EXPIRED여야 한다)', async () => {
+    const verificationToken = await signupToken()
+    const res = await api.POST('/api/auth/password-reset', {
+      body: { resetToken: verificationToken, ...GOOD },
+    })
+    expect(code(res)).toBe('RESET_EXPIRED')
+  })
+
+  it('재설정 인증번호 확인에 형식이 틀린 이메일을 보내면 400 INVALID_EMAIL이다', async () => {
+    const res = await api.POST('/api/auth/password-reset/email-code/verify', {
+      body: { email: 'x', code: MOCK_CODE },
+    })
+    expect(code(res)).toBe('INVALID_EMAIL')
+  })
+})
+
+// 상태가 테스트 사이로 새지 않는지 본다. 앞 테스트는 일부러 번호를 받고 확인하지 않은 채 끝나고,
+// 뒤 테스트는 받지 않았으니 CODE_EXPIRED여야 한다. afterEach의 resetEmailCodes가 없으면 깨진다.
+describe('가입·재설정 목의 상태 격리', () => {
+  afterEach(() => resetEmailCodes())
+
+  it('번호를 받고 확인하지 않은 채 끝낸다', async () => {
+    const sent = await api.POST('/api/auth/signup/email-code', {
+      body: { email: 'leak@codari.test' },
+    })
+    expect(sent.response.status).toBe(204)
+  })
+
+  it('앞 테스트에서 받은 번호가 남아 있지 않다', async () => {
+    const res = await api.POST('/api/auth/signup/email-code/verify', {
+      body: { email: 'leak@codari.test', code: MOCK_CODE },
+    })
+    expect((res.error as { code?: string }).code).toBe('CODE_EXPIRED')
   })
 })
