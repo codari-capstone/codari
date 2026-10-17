@@ -104,8 +104,8 @@ describe('serializeParams', () => {
 
 describe('toQuery', () => {
   it('빈 값은 쿼리에 넣지 않는다', () => {
-    // sort·page·size는 늘 보낸다. size를 빼면 서버가 전체를 주고(계약) 페이지 나누기가
-    // 사라지므로 "빈 값"에 해당하지 않는다.
+    // sort·page·size는 늘 보낸다. 빼도 서버가 page=0·size=20으로 나눠 주지만(계약),
+    // 화면이 정한 값이므로 "빈 값"에 해당하지 않는다.
     expect(toQuery(DEFAULT_PARAMS)).toEqual({ sort: 'id,asc', page: 0, size: PAGE_SIZE })
   })
 

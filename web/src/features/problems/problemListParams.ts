@@ -153,7 +153,7 @@ export function pageItems(page: number, pageCount: number): (number | null)[] {
  * 서버로 보내는 쿼리. 빈 값은 보내지 않는다. sort는 항상 보낸다.
  *
  * `page`는 **0부터** 센다(계약). 주소와 화면은 1부터 세므로 여기서 1을 뺀다.
- * `size`는 항상 보낸다 — 빼면 서버가 전체를 주므로(계약) 페이지 나누기가 사라진다.
+ * `size`는 빼도 서버가 20으로 나눠 주지만(계약), 화면이 정한 값임을 드러내려고 보낸다.
  */
 export function toQuery(params: ProblemListParams) {
   return {
