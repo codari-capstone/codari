@@ -22,6 +22,12 @@ export function Markdown({ children, className }: { children: string; className?
     <div
       className={cn(
         'text-sm leading-relaxed',
+        // 지문에는 긴 식별자·URL·입력 예시가 인라인 코드로 들어온다. 끊을 자리가 없는
+        // 토큰 하나가 375px 화면에서 문서 전체를 가로로 밀어낸다(측정: 494 vs 375).
+        // pre는 overflow-x-auto로 자기 안에서 흐르지만 인라인 코드와 평문은 그렇지 않다.
+        // break-words(overflow-wrap: break-word)가 아니라 anywhere여야 한다 — break-word는
+        // 요소의 min-content 폭을 줄이지 못해 grid·flex 자식이 그대로 늘어난다.
+        '[overflow-wrap:anywhere]',
         '[&_p]:my-3 [&_strong]:font-semibold',
         '[&_h2]:mt-5 [&_h2]:mb-2 [&_h2]:text-base [&_h2]:font-semibold',
         '[&_h3]:mt-4 [&_h3]:mb-2 [&_h3]:text-sm [&_h3]:font-semibold',
@@ -38,7 +44,15 @@ export function Markdown({ children, className }: { children: string; className?
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+      {/*
+        지문의 `# 제목`은 h2로 내린다. 페이지의 h1은 문제 제목이고, 지문이 h1을 하나 더
+        만들면 위계가 겹쳐 스크린 리더에서 어느 것이 화면 제목인지 알 수 없다.
+      */}
+      <ReactMarkdown
+        remarkPlugins={[remarkMath]}
+        rehypePlugins={[rehypeKatex]}
+        components={{ h1: ({ node: _node, ...props }) => <h2 {...props} /> }}
+      >
         {children}
       </ReactMarkdown>
     </div>

@@ -122,7 +122,9 @@ export const handlers: RequestHandler[] = [
   http.get('*/api/problems/:id', ({ params }) => {
     const id = Number(params.id)
     // 정수가 아니면 서버의 `long id` 바인딩이 실패해 400이다. 없는 번호는 404다.
-    if (!Number.isInteger(id)) return badRequest('id는 정수여야 한다')
+    // `1e300`은 Number.isInteger를 통과하지만 서버는 바인딩하지 못한다 — 목이 더
+    // 관대하면 목에서만 통과하는 테스트가 생긴다.
+    if (!Number.isSafeInteger(id)) return badRequest('id는 정수여야 한다')
 
     const detail = problemDetails.find((item) => item.id === id)
     if (!detail) return problem(404, 'PROBLEM_NOT_FOUND', '문제를 찾을 수 없어요')

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createQueryClient } from '@/app/queryClient'
 import { problemDetails } from '@/mocks/fixtures/problemDetails'
+import { problems } from '@/mocks/fixtures/problems'
 import { parseProblemId, problemDetailQuery } from './solveQuery'
 
 function client(): QueryClient {
@@ -26,13 +27,12 @@ describe('problemDetailQuery', () => {
     })
   })
 
-  it('목록의 모든 문제에 상세가 있다', async () => {
-    // 목록에서 눌렀는데 404가 나는 문제가 목에 생기지 않게 한다.
-    const detail = await client().fetchQuery(
-      problemDetailQuery(problemDetails[problemDetails.length - 1].id),
+  it('목록의 모든 문제에 상세가 있다', () => {
+    // 목록에서 눌렀는데 404가 나는 문제가 목에 생기지 않게 한다. 지금은 상세를 목록에서
+    // 파생시키므로 저절로 지켜지지만, 누가 상세를 손으로 적은 목록으로 바꾸면 깨진다.
+    expect(problemDetails.map((item) => item.id).sort((a, b) => a - b)).toEqual(
+      problems.map((item) => item.id).sort((a, b) => a - b),
     )
-
-    expect(detail.id).toBe(problemDetails[problemDetails.length - 1].id)
   })
 })
 

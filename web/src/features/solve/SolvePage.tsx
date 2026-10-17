@@ -61,7 +61,16 @@ export function Component() {
   if (error) {
     return <ErrorState problem={error} headingLevel={1} onRetry={() => void refetch()} />
   }
-  if (isPending || !data) return <ListSkeleton rows={8} />
+  // 제목을 아직 모르지만 제목 없는 화면을 두지 않는다. 스크린 리더의 제목 탐색으로
+  // 잡을 것이 있어야 한다 (ProblemListPage는 h1을 늘 띄워 두고 그 아래를 갈아끼운다).
+  if (isPending || !data) {
+    return (
+      <section className="flex flex-col gap-4">
+        <h1 className="text-2xl font-semibold">문제 풀이</h1>
+        <ListSkeleton rows={8} />
+      </section>
+    )
+  }
 
   const statement = (
     <div className="flex flex-col gap-6">
@@ -82,9 +91,20 @@ export function Component() {
         </div>
       ) : (
         <Tabs defaultValue="statement">
-          <TabsList>
-            <TabsTrigger value="statement">지문</TabsTrigger>
-            <TabsTrigger value="editor">코드 작성</TabsTrigger>
+          {/*
+            받은 부품의 기본 높이는 리스트 32px·트리거 25px이다. 좁은 화면에서 지문↔코드
+            전환은 이 탭뿐이라 프로젝트 공통 터치 영역(44px)을 리스트와 트리거 양쪽에
+            건다 — 리스트에만 걸면 줄만 높아지고 누를 수 있는 영역은 그대로다
+            (ProblemFilters.tsx의 같은 주석).
+            aria-label은 SOLVE-07 안내·AI 힌트 탭이 같은 화면에 들어올 때를 대비한다.
+          */}
+          <TabsList aria-label="문제 풀이 영역" className="min-h-11">
+            <TabsTrigger value="statement" className="min-h-11">
+              지문
+            </TabsTrigger>
+            <TabsTrigger value="editor" className="min-h-11">
+              코드 작성
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="statement">{statement}</TabsContent>
           <TabsContent value="editor">

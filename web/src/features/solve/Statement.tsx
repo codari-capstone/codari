@@ -10,7 +10,12 @@ import { Markdown } from '@/components/Markdown'
  * `$1 \le N$`은 수식이 아니라 글자로 남는다. 줄바꿈만 살린다.
  */
 function PlainText({ children }: { children: string }) {
-  return <p className="text-sm leading-relaxed whitespace-pre-line">{children}</p>
+  // overflow-wrap은 Markdown과 같은 이유다 (Markdown.tsx 주석).
+  return (
+    <p className="text-sm leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]">
+      {children}
+    </p>
+  )
 }
 
 /** 지문 하단의 출처·라이선스·버전 (SOLVE-03). */

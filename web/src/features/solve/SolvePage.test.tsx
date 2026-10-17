@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
@@ -65,15 +65,17 @@ describe('SolvePage', () => {
     expect(screen.queryByText(/\$O\(n\)\$/)).not.toBeInTheDocument()
   })
 
+  // 계약에서 이 둘만 이름에 Markdown이 없다(Statement.tsx 주석). 그래서 `$...$`가 수식이
+  // 아니라 글자로 남는 것이 지금 정한 동작이다 — 관리자가 입력 형식에 수식을 쓰고 싶다면
+  // 계약을 고쳐야 한다. 이 단언이 그 결정을 붙들고 있다(PlainText를 Markdown으로 바꾸면 깨진다).
   it('입출력 형식은 평문으로 보여 준다', async () => {
-    renderSolve()
+    const container = renderSolve()
     await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
 
-    // 계약에서 이 둘만 이름에 Markdown이 없다(Statement.tsx 주석). 줄바꿈은 살린다.
-    expect(
-      screen.getByText(/첫 줄에 원소 개수 N과 목표값 T가 공백으로 주어진다\./),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/N의 범위는 \$2 \\le N \\le 10\^5\$이다/)).toBeInTheDocument()
     expect(screen.getByText(/두 위치를 오름차순으로 한 줄에 출력한다/)).toBeInTheDocument()
+    // 지문 쪽 수식은 그려지므로, 위 단언이 "KaTeX가 아예 안 돈다"로 통과하지 않는다.
+    expect(container.querySelector('.katex')).not.toBeNull()
   })
 
   it('예제를 클립보드로 복사한다', async () => {
@@ -86,6 +88,29 @@ describe('SolvePage', () => {
     expect(await navigator.clipboard.readText()).toBe('4 9\n2 7 11 15\n')
     // 눌렀는지 알 수 있어야 한다. 아이콘만 바꾸면 스크린 리더가 모른다.
     expect(screen.getByRole('button', { name: '예제 1 입력 복사됨' })).toBeInTheDocument()
+  })
+
+  it('복사됨 표시는 잠시 뒤 돌아온다', async () => {
+    // shouldAdvanceTime이 없으면 react-query의 알림(setTimeout 0)과 findBy의 폴링이 멈춘다
+    // (EmailCodeStep.test.tsx의 쿨다운 테스트와 같은 이유).
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('button', { name: '예제 1 입력 복사' }))
+      expect(screen.getByRole('button', { name: '예제 1 입력 복사됨' })).toBeInTheDocument()
+
+      // 안 돌아오면 두 번째 예제를 복사할 때 눌렸는지 알 수 없다.
+      await act(async () => {
+        vi.advanceTimersByTime(1500)
+      })
+
+      expect(screen.getByRole('button', { name: '예제 1 입력 복사' })).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('출처·라이선스·버전을 보여 준다', async () => {
@@ -117,6 +142,8 @@ describe('SolvePage', () => {
 
     expect(screen.getByText('출처: 직접 제작')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '직접 제작' })).not.toBeInTheDocument()
+    // 3번은 versionNo가 2다. v1만 단언하면 버전을 하드코딩해도 통과한다.
+    expect(screen.getByText('문제 버전: v2')).toBeInTheDocument()
   })
 
   it('제약이 비어 있으면 제약 절을 그리지 않는다', async () => {

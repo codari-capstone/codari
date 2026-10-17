@@ -50,11 +50,13 @@ const overrides: Record<number, Partial<ProblemDetailView>> = {
 - 같은 원소를 두 번 쓸 수 없다
 - 답이 없는 경우는 입력으로 주어지지 않는다
 
+한 번에 읽으려면 \`sys.stdin.buffer.read()\`를 쓴다.
+
 \`\`\`python
 # 해시로 한 번만 훑으면 된다
 seen = {}
 \`\`\``,
-    inputDescription: `첫 줄에 원소 개수 N과 목표값 T가 공백으로 주어진다.
+    inputDescription: `첫 줄에 원소 개수 N과 목표값 T가 공백으로 주어진다. N의 범위는 $2 \\le N \\le 10^5$이다.
 둘째 줄에 N개의 정수가 공백으로 주어진다.`,
     outputDescription: '두 위치를 오름차순으로 한 줄에 출력한다. 위치는 0부터 센다.',
     constraintsMarkdown: '- $2 \\le N \\le 10^5$\n- $-10^9 \\le$ 각 원소 $\\le 10^9$',
@@ -67,7 +69,9 @@ seen = {}
     ],
   },
   2: {
-    statementMarkdown: '문자열이 주어지면 뒤집어 출력하라.',
+    statementMarkdown: `문자열이 주어지면 뒤집어 출력하라.
+
+예를 들어 \`abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\`를 뒤집으면 z부터 시작하는 문자열이 된다.`,
     inputDescription: '첫 줄에 문자열 S가 주어진다.',
     outputDescription: 'S를 뒤집어 한 줄에 출력한다.',
     constraintsMarkdown: '',

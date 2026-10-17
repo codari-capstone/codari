@@ -62,13 +62,42 @@ test.describe('문제 풀이 화면', () => {
     await expect(page.getByText('코드 에디터는 준비 중입니다.')).toBeVisible()
     await expect(page.getByRole('heading', { name: '예제', exact: true })).toBeHidden()
 
-    // 예제와 코드 블록은 긴 줄을 가진다. pre 안에서만 가로로 흐르고 문서는 안 넘쳐야 한다.
     await page.getByRole('tab', { name: '지문' }).click()
     await expect(page.getByRole('heading', { name: '예제', exact: true })).toBeVisible()
-    const width = await page.evaluate(() => ({
-      document: document.documentElement.scrollWidth,
-      viewport: window.innerWidth,
-    }))
-    expect(width.document).toBeLessThanOrEqual(width.viewport)
+  })
+
+  /**
+   * 지문에는 글자만 이어진 긴 토큰이 들어온다 (문자열 문제의 예시가 그렇다).
+   *
+   * Chromium은 `sys.stdin.read()`처럼 괄호·점이 있는 토큰은 알아서 꺾지만, 글자만 이어진
+   * 토큰은 꺾지 않아 문단 밖으로 삐져나온다. 2번 문제(문자열 뒤집기) 지문에 그런 예시가 있다.
+   *
+   * 문서 폭이 아니라 **문단 폭**을 잰다. 토큰이 조금 길면 문단만 넘고 문서는 아직 안 넘는데
+   * (측정: 문단 327px, 코드 348px, 뷰포트 375px) 그때도 글자는 이미 여백으로 삐져나와 있다.
+   * 문서 폭으로만 재면 토큰 길이를 뷰포트에 맞춰 둬야 해서, 글꼴이나 여백이 조금 바뀌면
+   * 조용히 통과하는 테스트가 된다.
+   */
+  test('지문의 긴 예시 문자열이 문단 밖으로 삐져나오지 않는다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 })
+    await login(page)
+    await page.goto('/problems/2')
+    await expect(page.getByRole('heading', { level: 1, name: '문자열 뒤집기' })).toBeVisible()
+
+    const measured = await page.evaluate(() => {
+      const target = Array.from(document.querySelectorAll('p')).find((el) =>
+        el.querySelector('code'),
+      )
+      if (!target) return null
+      return {
+        paragraph: { scroll: target.scrollWidth, client: target.clientWidth },
+        document: document.documentElement.scrollWidth,
+        viewport: window.innerWidth,
+      }
+    })
+
+    expect(measured).not.toBeNull()
+    expect(measured!.paragraph.scroll).toBeLessThanOrEqual(measured!.paragraph.client)
+    // 문서까지 밀리는 더 심한 경우도 함께 막는다.
+    expect(measured!.document).toBeLessThanOrEqual(measured!.viewport)
   })
 })
