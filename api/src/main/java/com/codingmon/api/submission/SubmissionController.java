@@ -7,7 +7,6 @@ import java.util.Map;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,14 +29,11 @@ class SubmissionController {
     record SubmitRequest(Long problemId, String language, String sourceCode) {
     }
 
-    private record PublishedVersion(long id, boolean supportsLanguage) {
-    }
-
-    private final JdbcClient jdbc;
+    private final SubmissionRepository submissions;
     private final ApplicationEventPublisher events;
 
-    SubmissionController(JdbcClient jdbc, ApplicationEventPublisher events) {
-        this.jdbc = jdbc;
+    SubmissionController(SubmissionRepository submissions, ApplicationEventPublisher events) {
+        this.submissions = submissions;
         this.events = events;
     }
 
@@ -57,25 +53,13 @@ class SubmissionController {
         if (source.indexOf('\0') >= 0 || body.problemId() == null || body.language() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
         }
-        PublishedVersion version = jdbc.sql("select v.id, exists (select 1 from problem_language_configs c"
-                + " where c.problem_version_id = v.id and c.language = :language) as supports_language"
-                + " from problem_versions v where v.problem_id = :problemId and v.status = 'PUBLISHED'")
-                .param("problemId", body.problemId())
-                .param("language", body.language())
-                .query((rs, n) -> new PublishedVersion(rs.getLong("id"), rs.getBoolean("supports_language")))
-                .optional()
+        SubmissionRepository.PublishedVersion version = submissions.findPublishedVersion(body.problemId(), body.language())
                 .orElseThrow(() -> ApiErrors.error(HttpStatus.NOT_FOUND, "PROBLEM_NOT_FOUND", "문제를 찾을 수 없어요"));
         if (!version.supportsLanguage()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이 문제가 지원하지 않는 언어다");
         }
-        long id = jdbc.sql("insert into submissions (user_id, problem_version_id, submission_kind, language, source_code)"
-                + " values (:userId, :versionId, 'SUBMIT', :language, :source) returning id")
-                .param("userId", Long.valueOf(jwt.getSubject()))
-                .param("versionId", version.id())
-                .param("language", body.language())
-                .param("source", source)
-                .query(Long.class)
-                .single();
+        long id = submissions.insertQueued(Long.parseLong(jwt.getSubject()), version.id(),
+                SubmissionRepository.Kind.SUBMIT, body.language(), source);
         events.publishEvent(new SubmissionQueued(id));
         return ResponseEntity.accepted().location(URI.create("/api/submissions/" + id)).body(Map.of("id", id));
     }
