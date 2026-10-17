@@ -58,7 +58,7 @@ describe('problemListQuery', () => {
       ),
     )
 
-    // status만 단언하면 unwrap이 본문을 버리고 { status }만 다시 만들어도 통과한다.
+    // status만 단언하면 fail이 본문을 버리고 { status }만 다시 만들어도 통과한다.
     // toUserMessage는 type으로 가장 구체적인 문구를 고르므로, type이 사라지면
     // 사용자는 구체적 안내 대신 일반 문구를 보게 된다.
     await expect(client().fetchQuery(problemListQuery(DEFAULT_PARAMS))).rejects.toMatchObject({

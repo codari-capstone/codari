@@ -1,9 +1,9 @@
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { api } from '@/api/client'
 import { provisionalApi } from '@/api/provisional'
 import type { ProblemListQuery, ProblemPage } from '@/api/types'
-import { api } from '@/api/client'
 import { MOCK_CODE, resetEmailCodes } from './fixtures/emailCodes'
 import { conceptTags, problems } from './fixtures/problems'
 import { mockAccounts, SESSION_COOKIE } from './fixtures/users'

@@ -30,7 +30,8 @@ export const clientOptions: ClientOptions = {
  * OpenAPI 명세에서 생성한 타입으로 자동 검사된다.
  *
  * api는 contracts/openapi.yaml에서 생성한 실제 계약(schema.d.ts의 paths)으로 타입이
- * 잡힌다. 화면 코드는 모두 이 클라이언트를 쓴다. provisionalApi에는 /api/me·로그인·
- * 로그아웃만 남아 있고, 그 셋은 세션 모델이 계약과 달라 COM-04와 함께 옮긴다.
+ * 잡힌다. 문제 목록·개념 태그·가입·재설정이 이 클라이언트를 쓴다. provisionalApi에는
+ * /api/me·로그인·로그아웃만 남아 있고(authQuery.ts), 그 셋은 세션 모델이 계약과 달라
+ * COM-04와 함께 옮긴다.
  */
 export const api = createClient<paths>(clientOptions)

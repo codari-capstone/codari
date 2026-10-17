@@ -75,8 +75,8 @@ interface Page<T> {
 `solveStatus`는 프론트가 계산하지 않는다. 계산하려면 목록 조회 한 번에 사용자의 제출 기록
 전체를 받아야 하는데, 그건 목록 API의 책임 범위를 넘어선다.
 
-판정 규칙은 PR #61의 `LIST-01`을 따른다 (`web/src/api/provisional.ts`의 `SolveStatus` 타입
-주석에 적혀 있는 그대로):
+판정 규칙은 PR #61의 `LIST-01`을 따른다 (`contracts/openapi.yaml`의 `SolveStatus`
+description에 적혀 있는 그대로):
 
 - `SOLVED` — `submission_kind='SUBMIT'`인 제출 중 `verdict='ACCEPTED'`가 하나라도 있음
 - `WRONG` — `SUBMIT` 제출은 있으나 `ACCEPTED`가 없음
@@ -143,8 +143,8 @@ MSW 목(mock)에서도 그대로 쓰고 있다 (`web/src/mocks/handlers.ts`). �
 
 그래도 응답 설계로는 생략을 요청한다. 로그인(#18)이 붙으면 로그인한 사용자의 행은
 `UNSOLVED`(안 품)라는 실제 답을 가질 수 있는데, 비로그인 요청은 애초에 "풀었는지"를
-묻지 않은 상태다. `null`은 이 둘을 구분하지 않는다. `web/src/api/provisional.ts` 70번
-줄 주석("없는 것과 '안 품'은 다른 의미다")이 프론트가 처음부터 가졌던 의도이고, 생략
+묻지 않은 상태다. `null`은 이 둘을 구분하지 않는다. "없는 것과 '안 품'은 다른 의미다"가 프론트가 처음부터
+가졌던 의도이고(지금은 계약의 `ProblemSummary.solveStatus` description에 있다), 생략
 쪽으로 맞춰 두면 그 구분이 응답 모양에 그대로 남는다.
 
 ### ⑦ `sort`는 Spring Data 규약 `'<field>,<direction>'`을 쓴다

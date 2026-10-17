@@ -7,9 +7,9 @@ export const ME_QUERY_KEY = ['me'] as const
 /**
  * 오류를 ErrorState·toUserMessage가 읽을 수 있는 모양으로 올린다.
  *
- * features/problems/problemsQuery.ts의 unwrap이 오류를 올리는 방식과 같다.
- * 공통 모듈로 아직 빼지 않는다. 잠정 계약(provisionalApi)이 실제 API 명세가 나오면
- * 교체될 예정이라, 그때 두 곳을 함께 손보는 편이 지금 모듈을 만들어 맞추는 것보다 싸다.
+ * @/api/fail의 fail과 같은 코드다. 이 모듈만 아직 임시 계약(provisionalApi)을 쓰고 있어
+ * 남겨 둔다 — 세션 모델을 계약에 맞추는 COM-04에서 이 파일 자체가 바뀌므로, 그때
+ * 공용 fail로 합친다 (#20). 다른 호출부는 이미 @/api/fail을 쓴다.
  *
  * 오류 본문의 status는 선택 항목이라 빠져 올 수 있는데, 화면은 이 값으로 문구를 고른다.
  * 그래서 본문에 있든 없든 HTTP 상태를 덮어 싣는다. 둘이 다르면 실제 응답인 HTTP 상태가 맞다.
