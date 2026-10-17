@@ -9,6 +9,8 @@ import java.util.Map;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 
@@ -52,6 +54,8 @@ class ProblemRepository {
         this.jdbc = jdbc;
     }
 
+    // count·목록·태그 쿼리가 같은 시점을 보게 묶는다. READ COMMITTED면 쿼리마다 시점이 달라 totalElements와 content가 어긋날 수 있다.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     Page<ProblemSummary> findPublished(ListQuery query) {
         boolean signedIn = query.userId() != null;
         Map<String, Object> params = new HashMap<>();
