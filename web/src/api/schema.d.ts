@@ -313,6 +313,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 문제 목록·검색·필터 (LIST-01~05)
+         * @description 공개된 문제만 보여 준다. 제목·난이도·태그는 공개된 버전의 값이다.
+         *     비로그인도 쓸 수 있다. 로그인했으면(`Authorization` 헤더) 문제마다 `solveStatus`를 싣는다.
+         *     토큰을 보냈는데 만료됐거나 무효면 비로그인으로 처리하지 않고 401을 준다. 갱신(COM-04) 뒤 다시 보낸다.
+         *     같은 파라미터 안에서 값을 여러 개 주면 그중 하나라도 맞는 문제를 보여 주고(OR), 서로 다른 파라미터끼리는 모두 맞아야 한다(AND).
+         *     항상 페이지로 나눠 준다. 마지막 페이지보다 큰 `page`는 빈 `content`를 준다(`totalElements`는 그대로).
+         */
+        get: operations["listProblems"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/problems/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 문제 상세 (SOLVE-01~04, SOLVE-06)
+         * @description 문제 풀이 화면에 쓴다. 공개된 버전의 지문·공개 예제·언어별 제한과 시작 코드를 준다.
+         *     비공개 테스트 케이스와 정답 코드는 주지 않는다.
+         *     표준 입력 읽기 예시(SOLVE-07)는 문제마다 다르지 않아 이 응답에 없다. 화면이 언어별 고정 문구로 보여 준다.
+         *     오류 `code`: `PROBLEM_NOT_FOUND`(없는 문제 또는 공개된 버전이 없는 문제. 둘을 구분하지 않는다).
+         */
+        get: operations["getProblem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/concept-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 개념 태그 전체 (LIST-03 필터 선택지)
+         * @description 목록 필터와 상관없이 등록된 태그를 모두 준다. 문제 목록 결과에서 태그를 뽑으면 필터를 걸수록 선택지가 줄어들기 때문이다.
+         *     비로그인도 쓸 수 있다. 토큰을 보냈는데 만료됐거나 무효면 401이다(`GET /api/problems`와 같다).
+         */
+        get: operations["listConceptTags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -329,6 +397,72 @@ export interface components {
             role: "USER" | "ADMIN";
             /** @description GitHub 가입 계정의 프로필 이미지. 없으면 null */
             avatarUrl?: string | null;
+        };
+        /** @enum {string} */
+        Difficulty: "EASY" | "MEDIUM" | "HARD";
+        /**
+         * @description 내 풀이 상태 (LIST-01). 판정이 나온 채점 제출만 센다(예제 실행·채점 불가·채점 중인 제출은 세지 않는다).
+         *     `SOLVED` 한 번이라도 맞음, `WRONG` 제출했지만 맞은 적 없음, `UNSOLVED` 제출 기록 없음.
+         * @enum {string}
+         */
+        SolveStatus: "SOLVED" | "WRONG" | "UNSOLVED";
+        ConceptTag: {
+            slug: string;
+            name: string;
+        };
+        ProblemSummary: {
+            /**
+             * Format: int64
+             * @description 화면에 보여 주는 문제 번호
+             */
+            id: number;
+            slug: string;
+            title: string;
+            difficulty: components["schemas"]["Difficulty"];
+            tags: components["schemas"]["ConceptTag"][];
+            /** @description 로그인한 요청에만 있다. 비로그인이면 필드가 없다(`UNSOLVED`와 다르다). */
+            solveStatus?: components["schemas"]["SolveStatus"];
+        };
+        ProblemDetailView: {
+            /** Format: int64 */
+            id: number;
+            slug: string;
+            /** @description 공개된 버전의 번호 (SOLVE-03) */
+            versionNo: number;
+            title: string;
+            difficulty: components["schemas"]["Difficulty"];
+            tags: components["schemas"]["ConceptTag"][];
+            /** @description 지문. Markdown과 수식 */
+            statementMarkdown: string;
+            inputDescription: string;
+            outputDescription: string;
+            /** @description 제약 조건. 없으면 빈 문자열 */
+            constraintsMarkdown: string;
+            sourceName: string | null;
+            sourceUrl: string | null;
+            license: string | null;
+            /** @description 공개 예제. 순서대로 */
+            samples: {
+                input: string;
+                output: string;
+            }[];
+            /** @description 쓸 수 있는 언어. PYTHON, CPP 순서 */
+            languages: {
+                /** @enum {string} */
+                language: "PYTHON" | "CPP";
+                timeLimitMs: number;
+                memoryLimitMb: number;
+                /** @description 에디터의 시작 코드. 없으면 빈 문자열 */
+                starterCode: string;
+            }[];
+        };
+        ProblemPage: {
+            content: components["schemas"]["ProblemSummary"][];
+            /**
+             * Format: int64
+             * @description 페이지와 상관없이 조건에 맞는 문제 수
+             */
+            totalElements: number;
         };
         AccessTokenResponse: {
             accessToken: string;
@@ -726,6 +860,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CurrentUser"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    listProblems: {
+        parameters: {
+            query?: {
+                /** @description 제목 부분 일치, 대소문자 무시. `%`·`_`도 글자로 찾는다. */
+                keyword?: string;
+                /** @description 반복 키로 여러 개 (`?difficulty=EASY&difficulty=HARD`) */
+                difficulty?: components["schemas"]["Difficulty"][];
+                /** @description 개념 태그 `slug`. 반복 키로 여러 개 */
+                tag?: string[];
+                /** @description 풀이 상태. 반복 키로 여러 개. 비로그인 요청이면 무시하고 이 조건 없이 준다(오류를 주지 않는다). */
+                status?: components["schemas"]["SolveStatus"][];
+                /**
+                 * @description `<필드>,<방향>`. 필드는 `id`(번호) 또는 `difficulty`(EASY < MEDIUM < HARD), 방향은 `asc` 또는 `desc`.
+                 *     `difficulty`로 정렬하면 같은 난이도 안에서는 번호 오름차순이다.
+                 */
+                sort?: string;
+                /** @description 0부터 센다 */
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 문제 목록 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemPage"];
+                };
+            };
+            /** @description 모르는 `difficulty`·`status` 값, `sort` 형식 오류, `page`·`size` 범위 밖 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getProblem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 목록의 `id` */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 문제 상세 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetailView"];
+                };
+            };
+            /** @description `id`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    listConceptTags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 개념 태그 전체 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConceptTag"][];
                 };
             };
             401: components["responses"]["Unauthorized"];

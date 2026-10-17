@@ -11,6 +11,7 @@ import {
   parseParams,
   RESET_FILTERS_STATE,
   serializeParams,
+  withChanges,
   type ProblemListParams,
 } from './problemListParams'
 import { conceptTagsQuery } from './problemsQuery'
@@ -70,7 +71,9 @@ export function ProblemFilters() {
   const { data: tags = [], error: tagsError, refetch: refetchTags } = useQuery(conceptTagsQuery())
 
   function apply(next: Partial<ProblemListParams>) {
-    setSearchParams(serializeParams({ ...params, ...next }))
+    // withChanges를 거쳐야 필터를 바꿀 때 1페이지로 돌아간다. 3페이지에서 필터를 걸면
+    // 결과가 줄어 그 페이지가 빈 표가 된다.
+    setSearchParams(serializeParams(withChanges(params, next)))
   }
 
   return (

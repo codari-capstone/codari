@@ -6,7 +6,11 @@ import {
   nextSort,
   parseParams,
   serializeParams,
+  PAGE_SIZE,
+  pageCount,
+  pageItems,
   toQuery,
+  withChanges,
   type ProblemListParams,
 } from './problemListParams'
 
@@ -100,15 +104,95 @@ describe('serializeParams', () => {
 
 describe('toQuery', () => {
   it('빈 값은 쿼리에 넣지 않는다', () => {
-    expect(toQuery(DEFAULT_PARAMS)).toEqual({ sort: 'id,asc' })
+    // sort·page·size는 늘 보낸다. 빼도 서버가 page=0·size=20으로 나눠 주지만(계약),
+    // 화면이 정한 값이므로 "빈 값"에 해당하지 않는다.
+    expect(toQuery(DEFAULT_PARAMS)).toEqual({ sort: 'id,asc', page: 0, size: PAGE_SIZE })
   })
 
   it('고른 값만 넣는다', () => {
     expect(toQuery({ ...DEFAULT_PARAMS, keyword: '합', difficulty: ['EASY'] })).toEqual({
       sort: 'id,asc',
+      page: 0,
+      size: PAGE_SIZE,
       keyword: '합',
       difficulty: ['EASY'],
     })
+  })
+
+  // 주소와 화면은 1부터, 계약은 0부터 센다. 이 한 줄을 잘못 쓰면 2페이지를 눌렀는데
+  // 1페이지가 다시 오거나(빼기를 잊음) 첫 로드에서 2페이지가 온다.
+  it('page는 0부터로 바꿔 보낸다', () => {
+    expect(toQuery({ ...DEFAULT_PARAMS, page: 3 })).toMatchObject({ page: 2, size: PAGE_SIZE })
+  })
+})
+
+describe('page 읽기', () => {
+  it('주소의 page를 읽는다', () => {
+    expect(parse('page=3').page).toBe(3)
+  })
+
+  // 주소는 사용자가 손으로 고친다. 0이나 음수를 그대로 쓰면 toQuery가 음수 page를
+  // 보내고 서버가 400을 준다(#109: page는 0 이상). int 범위를 넘는 값도 같은 이유로
+  // 버린다 — 서버가 page를 int로 받으므로 바인딩 실패로 400이 되고, 자가 치유는
+  // 200 빈 응답에서만 돌아서 오류 화면만 남는다.
+  it.each(['page=0', 'page=-2', 'page=1.5', 'page=abc', 'page=', 'page=2147483648', 'page=1e300'])(
+    '모르는 page는 1로 본다: %s',
+    (search) => {
+      expect(parse(search).page).toBe(1)
+    },
+  )
+})
+
+describe('page 쓰기', () => {
+  it('1페이지는 주소에 쓰지 않는다', () => {
+    // 기본값을 쓰지 않는 규칙에 EmptyState의 '필터 초기화'(to="/problems")가 기댄다.
+    expect(serializeParams(DEFAULT_PARAMS).toString()).toBe('')
+  })
+
+  it('2페이지부터 주소에 쓴다', () => {
+    expect(serializeParams({ ...DEFAULT_PARAMS, page: 2 }).get('page')).toBe('2')
+  })
+
+  it('주소로 쓰고 다시 읽으면 같다', () => {
+    const params: ProblemListParams = { ...DEFAULT_PARAMS, keyword: '합', page: 4 }
+    expect(parseParams(serializeParams(params))).toEqual(params)
+  })
+})
+
+describe('withChanges', () => {
+  // 3페이지를 보다가 필터를 걸면 결과가 줄어 3페이지가 빈 표가 된다.
+  it('필터를 바꾸면 1페이지로 돌아간다', () => {
+    const from: ProblemListParams = { ...DEFAULT_PARAMS, page: 3 }
+    expect(withChanges(from, { difficulty: ['HARD'] })).toMatchObject({
+      page: 1,
+      difficulty: ['HARD'],
+    })
+  })
+
+  it('검색어를 바꿔도 1페이지로 돌아간다', () => {
+    expect(withChanges({ ...DEFAULT_PARAMS, page: 3 }, { keyword: '합' }).page).toBe(1)
+  })
+
+  it('정렬을 바꿔도 1페이지로 돌아간다', () => {
+    expect(withChanges({ ...DEFAULT_PARAMS, page: 3 }, { sortField: 'difficulty' }).page).toBe(1)
+  })
+
+  it('페이지만 바꾸면 그 페이지로 간다', () => {
+    const from: ProblemListParams = { ...DEFAULT_PARAMS, keyword: '합', page: 2 }
+    expect(withChanges(from, { page: 5 })).toEqual({ ...from, page: 5 })
+  })
+})
+
+describe('pageCount', () => {
+  it.each([
+    [0, 1],
+    [1, 1],
+    [PAGE_SIZE, 1],
+    [PAGE_SIZE + 1, 2],
+    [PAGE_SIZE * 2, 2],
+    [PAGE_SIZE * 2 + 1, 3],
+  ])('%i개면 %i페이지', (total, expected) => {
+    expect(pageCount(total)).toBe(expected)
   })
 })
 
@@ -154,5 +238,26 @@ describe('nextSort', () => {
       sortField: 'id',
       sortDirection: 'asc',
     })
+  })
+})
+
+describe('pageItems', () => {
+  it('페이지가 적으면 모두 보여 준다', () => {
+    expect(pageItems(1, 3)).toEqual([1, 2, 3])
+  })
+
+  // 문제가 늘면 페이지도 늘어난다. 전부 그리면 좁은 화면에서 줄이 넘친다.
+  it('멀리 떨어진 번호는 접는다', () => {
+    expect(pageItems(10, 20)).toEqual([1, null, 9, 10, 11, null, 20])
+  })
+
+  it('양 끝은 늘 남긴다', () => {
+    expect(pageItems(1, 20)).toEqual([1, 2, null, 20])
+    expect(pageItems(20, 20)).toEqual([1, null, 19, 20])
+  })
+
+  // 끝에서 둘째라 1 하나만 끊긴다. 번호 하나를 '…'로 바꾸면 누를 것이 줄어든다.
+  it('한 칸만 끊기면 접지 않는다', () => {
+    expect(pageItems(2, 4)).toEqual([1, 2, 3, 4])
   })
 })

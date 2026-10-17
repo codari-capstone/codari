@@ -11,6 +11,7 @@ import { ThemeProvider } from '@/app/ThemeProvider'
 import * as useAuthModule from '@/features/auth/useAuth'
 import { problems } from '@/mocks/fixtures/problems'
 import { server } from '@/mocks/server'
+import { PAGE_SIZE } from './problemListParams'
 import { Component as ProblemListPage } from './ProblemListPage'
 
 // AppShell -> AppHeader -> ThemeToggle이 useTheme을 쓴다. ThemeProvider 없이
@@ -65,19 +66,187 @@ describe('ProblemListPage', () => {
     renderPage()
 
     expect(await screen.findByRole('link', { name: '두 수의 합' })).toBeInTheDocument()
-    expect(screen.getAllByRole('row')).toHaveLength(9) // 머리 1 + 본문 8
+    expect(screen.getAllByRole('row')).toHaveLength(PAGE_SIZE + 1) // 머리 1 + 한 페이지 20
   })
 
   it('결과 개수를 보여 준다', async () => {
     renderPage()
 
-    expect(await screen.findByText(/문제 8개/)).toBeInTheDocument()
+    // 보고 있는 페이지(20)가 아니라 전체(25)다.
+    expect(await screen.findByText(`문제 ${problems.length}개`)).toBeInTheDocument()
   })
 
   it('필터가 걸리면 개수 문구가 바뀐다', async () => {
     renderPage('/problems?difficulty=HARD')
 
     expect(await screen.findByText(/조건에 맞는 문제 2개/)).toBeInTheDocument()
+  })
+
+  describe('페이지 나누기 (LIST-05)', () => {
+    it('한 페이지에 20개까지만 보여 준다', async () => {
+      renderPage()
+
+      expect(await screen.findByRole('link', { name: '두 수의 합' })).toBeInTheDocument()
+      expect(screen.getAllByRole('row')).toHaveLength(PAGE_SIZE + 1)
+      // 21번째 문제는 2페이지에 있다.
+      expect(
+        screen.queryByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).not.toBeInTheDocument()
+    })
+
+    it('다음 페이지로 가면 나머지를 보여 주고 주소에 남는다', async () => {
+      const user = userEvent.setup()
+      const router = renderPage()
+      await screen.findByRole('link', { name: '두 수의 합' })
+
+      await user.click(screen.getByRole('button', { name: '다음' }))
+
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+      expect(router.state.location.search).toBe('?page=2')
+      // 나머지 5개. 머리 1줄을 더한다.
+      expect(screen.getAllByRole('row')).toHaveLength(problems.length - PAGE_SIZE + 1)
+      // 개수는 보고 있는 페이지가 아니라 전체다.
+      expect(screen.getByText(`문제 ${problems.length}개`)).toBeInTheDocument()
+    })
+
+    it('주소의 page를 그대로 읽는다', async () => {
+      renderPage('/problems?page=2')
+
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: '두 수의 합' })).not.toBeInTheDocument()
+    })
+
+    // 2페이지를 보다가 필터를 걸면 결과가 2개로 줄어 2페이지는 빈 표가 된다.
+    it('필터를 바꾸면 1페이지로 돌아간다', async () => {
+      const user = userEvent.setup()
+      const router = renderPage('/problems?page=2')
+      await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` })
+
+      await user.click(screen.getByRole('checkbox', { name: '어려움' }))
+
+      await waitFor(() => expect(router.state.location.search).not.toContain('page=2'))
+      expect(router.state.location.search).toContain('difficulty=HARD')
+      expect(await screen.findByText(/조건에 맞는 문제 2개/)).toBeInTheDocument()
+    })
+
+    // 아래 '필터를 바꾸면' 테스트는 결과가 1페이지인 필터('어려움', 2건)를 써서,
+    // 페이지가 리셋되지 않아도 범위 밖 자가 치유가 1페이지로 끌어다 준다 — 즉 리셋이
+    // 빠져도 통과한다. 결과가 2페이지인 필터를 써서 그 구멍을 막는다.
+    it('결과가 여러 페이지인 필터를 걸어도 1페이지로 돌아간다', async () => {
+      // 풀이 상태 필터는 로그인한 사람에게만 보인다 (COM-05).
+      vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
+        user: { id: 1, nickname: '코다리', role: 'USER' },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      const router = renderPage('/problems?page=2')
+      await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` })
+
+      // 채움 문제가 모두 '안 품'이라 결과가 21건(2페이지)이다. 2페이지에 머물면
+      // 자가 치유가 돌지 않아 한 줄만 보인다.
+      await user.click(screen.getByRole('checkbox', { name: '안 품' }))
+
+      await waitFor(() => expect(router.state.location.search).toContain('status=UNSOLVED'))
+      expect(router.state.location.search).not.toContain('page=')
+      expect(await screen.findByRole('link', { name: '문자열 뒤집기' })).toBeInTheDocument()
+    })
+
+    // 묵은 응답(keepPreviousData)으로 페이지 수를 판단하면, 결과가 2건이던 필터에서
+    // 유효한 page=2로 옮겨올 때 범위 밖이라 보고 1페이지로 끌어가며 히스토리까지 지운다.
+    it('결과가 적던 필터에서 유효한 페이지로 옮겨도 끌려가지 않는다', async () => {
+      const router = renderPage('/problems?difficulty=HARD')
+      await screen.findByText(/조건에 맞는 문제 2개/)
+
+      await act(async () => {
+        await router.navigate('/problems?page=2')
+      })
+
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+      expect(router.state.location.search).toBe('?page=2')
+    })
+
+    // 응답을 기다리는 동안 페이지 수를 1로 떨어뜨리면 이동 nav가 언마운트된다.
+    // 그러면 '다음'에 있던 키보드 포커스가 body로 떨어지고, 표는 그대로 남은 채
+    // 그 아래 버튼 줄만 사라졌다 나타나 화면이 뛴다.
+    it('다음 페이지를 기다리는 동안에도 페이지 이동이 사라지지 않는다', async () => {
+      let release = () => {}
+      server.use(
+        http.get('*/api/problems', async ({ request }) => {
+          const page = Number(new URL(request.url).searchParams.get('page') ?? 0)
+          // 2페이지 응답만 붙잡아 placeholder 구간을 길게 만든다.
+          if (page > 0) await new Promise<void>((resolve) => (release = resolve))
+          return HttpResponse.json({
+            content: problems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+            totalElements: problems.length,
+          })
+        }),
+      )
+      const user = userEvent.setup()
+      renderPage()
+      await screen.findByRole('link', { name: '두 수의 합' })
+
+      await user.click(screen.getByRole('button', { name: '다음' }))
+
+      expect(screen.getByRole('navigation', { name: '페이지' })).toBeInTheDocument()
+
+      await act(async () => release())
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+    })
+
+    it('지금 보고 있는 페이지 번호를 다시 눌러도 맨 위로 올리지 않는다', async () => {
+      const scrollTo = vi.spyOn(window, 'scrollTo')
+      const user = userEvent.setup()
+      renderPage('/problems?page=2')
+      await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` })
+
+      await user.click(screen.getByRole('button', { name: '2페이지' }))
+
+      expect(scrollTo).not.toHaveBeenCalled()
+
+      // 다른 페이지로 갈 때는 올려야 한다 — 위 기대가 '늘 안 올린다'로 통과하지 않게 둔다.
+      await user.click(screen.getByRole('button', { name: '1페이지' }))
+
+      expect(scrollTo).toHaveBeenCalled()
+    })
+
+    it('정렬을 바꾸면 1페이지로 돌아간다', async () => {
+      const user = userEvent.setup()
+      const router = renderPage('/problems?page=2')
+      await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` })
+
+      await user.click(screen.getByRole('button', { name: /난이도/ }))
+
+      await waitFor(() => expect(router.state.location.search).not.toContain('page=2'))
+    })
+
+    // 손으로 고친 주소나, 문제가 지워진 뒤의 옛 링크다. 서버는 오류가 아니라 빈 표를
+    // 주므로(#109) 화면이 마지막 페이지로 되돌린다.
+    it('없는 페이지면 마지막 페이지로 돌린다', async () => {
+      const router = renderPage('/problems?page=99')
+
+      expect(
+        await screen.findByRole('link', { name: `연습 문제 ${PAGE_SIZE + 1}` }),
+      ).toBeInTheDocument()
+      expect(router.state.location.search).toBe('?page=2')
+      // 되돌리는 동안 "문제가 없다"고 하지 않는다.
+      expect(screen.queryByText('아직 등록된 문제가 없습니다')).not.toBeInTheDocument()
+    })
+
+    it('한 페이지로 끝나면 페이지 이동을 띄우지 않는다', async () => {
+      renderPage('/problems?difficulty=HARD')
+
+      await screen.findByText(/조건에 맞는 문제 2개/)
+      expect(screen.queryByRole('navigation', { name: '페이지' })).not.toBeInTheDocument()
+    })
   })
 
   // 개수는 응답의 totalElements에서 읽어야 한다. MSW 핸들러는 totalElements를

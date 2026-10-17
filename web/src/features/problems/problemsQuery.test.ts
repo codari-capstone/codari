@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { createQueryClient } from '@/app/queryClient'
 import { toUserMessage } from '@/constants/errors'
 import { server } from '@/mocks/server'
-import { conceptTags } from '@/mocks/fixtures/problems'
-import { DEFAULT_PARAMS } from './problemListParams'
+import { conceptTags, problems } from '@/mocks/fixtures/problems'
+import { DEFAULT_PARAMS, PAGE_SIZE } from './problemListParams'
 import { conceptTagsQuery, problemListQuery } from './problemsQuery'
 
 function client(): QueryClient {
@@ -17,7 +17,9 @@ describe('problemListQuery', () => {
   it('목록을 가져온다', async () => {
     const page = await client().fetchQuery(problemListQuery(DEFAULT_PARAMS))
 
-    expect(page.totalElements).toBe(8)
+    // totalElements는 한 페이지가 아니라 전체 개수다. 목이 20개까지만 담아 준다.
+    expect(page.totalElements).toBe(problems.length)
+    expect(page.content).toHaveLength(PAGE_SIZE)
   })
 
   it('필터를 쿼리 파라미터로 보낸다', async () => {

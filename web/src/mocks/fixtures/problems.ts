@@ -14,7 +14,7 @@ export const conceptTags: ConceptTag[] = [
  * 문자열 정렬(EASY, HARD, MEDIUM)과 순위 정렬(EASY, MEDIUM, HARD)이
  * 다른 결과를 내야 그 테스트가 실패할 수 있다.
  */
-export const problems: ProblemSummary[] = [
+const handWritten: ProblemSummary[] = [
   {
     id: 1,
     slug: 'two-sum',
@@ -86,3 +86,27 @@ export const problems: ProblemSummary[] = [
     solveStatus: 'UNSOLVED',
   },
 ]
+
+/**
+ * 2페이지를 만들기 위한 채움 문제 (LIST-05, 한 페이지 20개).
+ *
+ * 손으로 쓴 여덟 개는 필터·정렬·검색 테스트가 값을 하나하나 읽으므로 건드리지 않고,
+ * 전체가 25개가 되도록 기계적으로 덧붙인다 — 1페이지 20개, 2페이지 5개가 되어
+ * 두 페이지 모두 비어 있지 않다.
+ *
+ * 값을 일부러 한 가지로 고정했다 — 손으로 쓴 여덟 개에 걸어 둔 필터 테스트가
+ * 정확한 번호 목록을 단언하기 때문이다. 난이도 MEDIUM, 태그 '배열', 상태 '안 품'이면
+ * 태그(`dp`)·상태(`SOLVED`)·조합(`MEDIUM`+`hash`) 테스트의 답이 그대로 남는다.
+ * 난이도만은 피할 수 없다(어느 값이든 하나는 늘어난다). 제목에 '두'·'합'을 넣지
+ * 않는다 — 그 두 글자로 검색하는 테스트가 있다.
+ */
+const filler: ProblemSummary[] = Array.from({ length: 17 }, (_, index) => ({
+  id: handWritten.length + index + 1,
+  slug: `practice-${handWritten.length + index + 1}`,
+  title: `연습 문제 ${handWritten.length + index + 1}`,
+  difficulty: 'MEDIUM' as const,
+  tags: [conceptTags[0]!],
+  solveStatus: 'UNSOLVED' as const,
+}))
+
+export const problems: ProblemSummary[] = [...handWritten, ...filler]

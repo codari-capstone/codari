@@ -12,18 +12,22 @@ import {
   hasActiveFilter,
   isResetFiltersNavigation,
   nextSort,
+  PAGE_SIZE,
+  pageCount,
   parseParams,
   RESET_FILTERS_STATE,
   serializeParams,
+  withChanges,
   type SortField,
 } from './problemListParams'
 import { problemListQuery } from './problemsQuery'
+import { ProblemPagination } from './ProblemPagination'
 import { ProblemTable } from './ProblemTable'
 
 /** 검색어를 URL에 반영하기까지 기다리는 시간. */
 const SEARCH_DEBOUNCE_MS = 300
 
-/** 문제 목록 (LIST-01~04). */
+/** 문제 목록 (LIST-01~05). */
 export function Component() {
   const [searchParams, setSearchParams] = useSearchParams()
   // parseParams는 렌더마다 새 객체를 만든다. 아래 디바운스 effect의 의존성에 draft도
@@ -38,7 +42,7 @@ export function Component() {
   // 그려진 뒤 열이 하나 늘며 표가 움직인다.
   const { isAuthenticated, isLoading: isSessionLoading } = useAuth()
 
-  const { data, isPending, isFetching, error, refetch } = useQuery({
+  const { data, isPending, isFetching, isPlaceholderData, error, refetch } = useQuery({
     ...problemListQuery(params),
     // 필터를 바꾸는 동안 이전 표를 유지한다. 스켈레톤으로 갈아끼우면 표가
     // 사라졌다 나타나며 화면이 뛴다. v5에서는 keepPreviousData를 placeholderData에 넘긴다.
@@ -83,17 +87,53 @@ export function Component() {
 
     const timer = setTimeout(() => {
       lastWritten.current = draft.trim()
-      setSearchParams(serializeParams({ ...params, keyword: draft.trim() }), { replace: true })
+      setSearchParams(serializeParams(withChanges(params, { keyword: draft.trim() })), {
+        replace: true,
+      })
     }, SEARCH_DEBOUNCE_MS)
 
     return () => clearTimeout(timer)
   }, [draft, params, setSearchParams])
 
   function handleSort(field: SortField) {
-    setSearchParams(serializeParams({ ...params, ...nextSort(params, field) }))
+    setSearchParams(serializeParams(withChanges(params, nextSort(params, field))))
+  }
+
+  function handlePageChange(page: number) {
+    // 지금 페이지의 번호 버튼을 누른 경우다. 그대로 올리면 내용은 그대로인데 scrollTo만 돌아
+    // 화면이 맨 위로 튄다. 이전·다음은 disabled가 막으므로 막을 곳은 번호 버튼뿐이다.
+    if (page === params.page) return
+    setSearchParams(serializeParams(withChanges(params, { page })))
+    // 페이지를 넘기면 표의 처음부터 읽는다. 아래쪽 버튼을 눌렀으므로 그대로 두면
+    // 새 페이지의 첫 줄이 화면 위로 지나가 있다.
+    window.scrollTo({ top: 0 })
   }
 
   const filtered = hasActiveFilter(params)
+  // 범위 밖 판정은 지금 조건의 응답으로만 한다. keepPreviousData가 넘겨 주는
+  // 묵은 응답으로 판단하면, 예를 들어 결과가 2건이던 필터에서 뒤로가기로 page=2(유효한
+  // 페이지)에 들어올 때 옛 totalElements로 범위 밖이라 보고 1페이지로 끌어가며
+  // 히스토리 항목까지 지운다.
+  const fresh = isPlaceholderData ? undefined : data
+  // 그리는 쪽은 반대로 묵은 응답의 페이지 수라도 쓴다. 응답을 기다리는 동안 1로 떨어뜨리면
+  // 아래 `pages > 1`이 꺼져 이동 nav가 언마운트된다 — '다음'에 있던 키보드 포커스가 body로
+  // 떨어지고, 표는 opacity-60으로 남은 채 그 아래 버튼 줄만 사라졌다 나타나 화면이 뛴다.
+  // fresh가 있을 때는 data와 같은 객체라 위 판정과 어긋나지 않는다.
+  const pages = data ? pageCount(data.totalElements) : 1
+  // 주소에 적힌 페이지가 결과보다 뒤인 경우다 (손으로 고친 주소, 또는 문제가 지워진
+  // 옛 링크). 서버는 오류가 아니라 빈 표를 준다(#109: offset이 행을 지나친다).
+  // 결과가 있다는 것은 아는 상태이므로 마지막 페이지로 되돌린다.
+  const outOfRange = fresh !== undefined && fresh.totalElements > 0 && params.page > pages
+  // 묵은 응답이 빈 표인 구간(치유 직후가 그렇다)은 로딩으로 본다. 그대로 그리면
+  // "아직 등록된 문제가 없습니다"가 깜빡인다.
+  const waiting =
+    isPending || isSessionLoading || outOfRange || (isPlaceholderData && data?.content.length === 0)
+
+  useEffect(() => {
+    if (!outOfRange) return
+    // replace로 바꾼다. push하면 뒤로가기가 없는 페이지로 되돌아가 무한 왕복이 된다.
+    setSearchParams(serializeParams(withChanges(params, { page: pages })), { replace: true })
+  }, [outOfRange, pages, params, setSearchParams])
 
   return (
     <section className="flex flex-col gap-4">
@@ -137,11 +177,11 @@ export function Component() {
         세션 확인이 조건에 들어오면서 "목록은 오류로 끝났는데 /api/me는 아직"인 구간이
         생겨 스켈레톤과 오류가 나란히 그려진다.
       */}
-      {(isPending || isSessionLoading) && !error ? <ListSkeleton rows={8} /> : null}
+      {waiting && !error ? <ListSkeleton rows={PAGE_SIZE} /> : null}
 
       {error ? <ErrorState problem={error} onRetry={() => void refetch()} /> : null}
 
-      {data && !error && !isSessionLoading ? (
+      {data && !error && !waiting ? (
         data.content.length === 0 ? (
           filtered ? (
             <EmptyState
@@ -169,6 +209,14 @@ export function Component() {
                 onSort={handleSort}
               />
             </div>
+            {/* 한 페이지로 끝나면 이동할 곳이 없다. 꺼진 버튼만 둘 띄우지 않는다. */}
+            {pages > 1 ? (
+              <ProblemPagination
+                page={params.page}
+                pageCount={pages}
+                onPageChange={handlePageChange}
+              />
+            ) : null}
           </>
         )
       ) : null}
