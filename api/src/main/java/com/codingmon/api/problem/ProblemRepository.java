@@ -128,30 +128,25 @@ class ProblemRepository {
         return new Page<>(content, total);
     }
 
+    // 행을 읽는 중에 태그·예제·언어를 조회하므로 한 연결에서 돌게 묶는다.
+    @Transactional(readOnly = true)
     Optional<PublishedProblem> findPublished(long problemId) {
         return jdbc.sql("select p.id, p.slug, v.id as version_id, v.version_no, v.title, v.difficulty, v.statement_markdown,"
                 + " v.input_description, v.output_description, v.constraints_markdown, v.source_name, v.source_url, v.license"
                 + " from problems p join problem_versions v on v.problem_id = p.id and v.status = 'PUBLISHED'"
                 + " where p.id = :id")
                 .param("id", problemId)
-                .query((rs, n) -> new VersionRow(rs.getLong("version_id"), new PublishedProblem(rs.getLong("id"),
-                        rs.getString("slug"), rs.getInt("version_no"), rs.getString("title"),
-                        Difficulty.valueOf(rs.getString("difficulty")), List.of(), rs.getString("statement_markdown"),
-                        rs.getString("input_description"), rs.getString("output_description"),
-                        rs.getString("constraints_markdown"), rs.getString("source_name"), rs.getString("source_url"),
-                        rs.getString("license"), List.of(), List.of())))
-                .optional()
-                .map(row -> {
-                    PublishedProblem p = row.problem();
-                    long versionId = row.versionId();
-                    return new PublishedProblem(p.id(), p.slug(), p.versionNo(), p.title(), p.difficulty(),
-                            tagsOf(List.of(versionId)).getOrDefault(versionId, List.of()), p.statementMarkdown(),
-                            p.inputDescription(), p.outputDescription(), p.constraintsMarkdown(), p.sourceName(),
-                            p.sourceUrl(), p.license(), samplesOf(versionId), languagesOf(versionId));
-                });
-    }
-
-    private record VersionRow(long versionId, PublishedProblem problem) {
+                .query((rs, n) -> {
+                    long versionId = rs.getLong("version_id");
+                    return new PublishedProblem(rs.getLong("id"), rs.getString("slug"), rs.getInt("version_no"),
+                            rs.getString("title"), Difficulty.valueOf(rs.getString("difficulty")),
+                            tagsOf(List.of(versionId)).getOrDefault(versionId, List.of()),
+                            rs.getString("statement_markdown"), rs.getString("input_description"),
+                            rs.getString("output_description"), rs.getString("constraints_markdown"),
+                            rs.getString("source_name"), rs.getString("source_url"), rs.getString("license"),
+                            samplesOf(versionId), languagesOf(versionId));
+                })
+                .optional();
     }
 
     private List<Sample> samplesOf(long versionId) {
