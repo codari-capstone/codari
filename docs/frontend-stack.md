@@ -119,6 +119,8 @@ shadcn에 같은 이름의 부품이 있어도 받지 않는 경우가 있다. �
 
 직접 만들 때도 색·간격·포커스 모양은 `components/ui/`의 부품을 거쳐 쓴다. 받은 부품을 고친 뒤에는 `npm run format`을 돌린다 — 생성 코드가 쌍따옴표를 쓴다.
 
+받은 부품은 ESLint의 `react-refresh/only-export-components` 규칙에서 빼 둔다(`eslint.config.js`). 생성 코드가 컴포넌트와 함께 cva variants(`buttonVariants`·`tabsListVariants`)를 내보내 규칙이 늘 걸리는데, 지워도 다음 `shadcn add`에 되돌아온다. 이 규칙은 우리가 직접 만든 컴포넌트를 대상으로 둔다.
+
 ### React Hook Form + Zod
 
 React Hook Form은 입력칸이 많은 폼을 적은 코드로 관리한다. Zod는 ‘제목은 필수, 태그는 1\~3개, 시간 제한은 양수’ 같은 규칙을 스키마로 적어 두면 입력값을 검사하고 에러 문구를 보여 준다.
