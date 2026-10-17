@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -34,6 +35,21 @@ class ProblemRepository {
     }
 
     record Page<T>(List<T> content, long totalElements) {
+    }
+
+    enum Language { PYTHON, CPP }
+
+    record Sample(String input, String output) {
+    }
+
+    record LanguageConfig(Language language, int timeLimitMs, int memoryLimitMb, String starterCode) {
+    }
+
+    // 비공개 케이스와 정답 코드는 담지 않는다(database-tables.md의 test_cases·reference_solutions).
+    record PublishedProblem(Long id, String slug, int versionNo, String title, Difficulty difficulty,
+            List<ConceptTag> tags, String statementMarkdown, String inputDescription, String outputDescription,
+            String constraintsMarkdown, String sourceName, String sourceUrl, String license,
+            List<Sample> samples, List<LanguageConfig> languages) {
     }
 
     record ListQuery(Long userId, String keyword, List<Difficulty> difficulties, List<String> tags,
@@ -110,6 +126,45 @@ class ProblemRepository {
                 .map(e -> e.getValue().toSummary(tags.getOrDefault(e.getKey(), List.of())))
                 .toList();
         return new Page<>(content, total);
+    }
+
+    // 행을 읽는 중에 태그·예제·언어를 조회하므로 한 연결에서 돌게 묶는다.
+    @Transactional(readOnly = true)
+    Optional<PublishedProblem> findPublished(long problemId) {
+        return jdbc.sql("select p.id, p.slug, v.id as version_id, v.version_no, v.title, v.difficulty, v.statement_markdown,"
+                + " v.input_description, v.output_description, v.constraints_markdown, v.source_name, v.source_url, v.license"
+                + " from problems p join problem_versions v on v.problem_id = p.id and v.status = 'PUBLISHED'"
+                + " where p.id = :id")
+                .param("id", problemId)
+                .query((rs, n) -> {
+                    long versionId = rs.getLong("version_id");
+                    return new PublishedProblem(rs.getLong("id"), rs.getString("slug"), rs.getInt("version_no"),
+                            rs.getString("title"), Difficulty.valueOf(rs.getString("difficulty")),
+                            tagsOf(List.of(versionId)).getOrDefault(versionId, List.of()),
+                            rs.getString("statement_markdown"), rs.getString("input_description"),
+                            rs.getString("output_description"), rs.getString("constraints_markdown"),
+                            rs.getString("source_name"), rs.getString("source_url"), rs.getString("license"),
+                            samplesOf(versionId), languagesOf(versionId));
+                })
+                .optional();
+    }
+
+    private List<Sample> samplesOf(long versionId) {
+        return jdbc.sql("select input_data, expected_output from test_cases"
+                + " where problem_version_id = :id and case_type = 'SAMPLE' order by ordinal")
+                .param("id", versionId)
+                .query((rs, n) -> new Sample(rs.getString("input_data"), rs.getString("expected_output")))
+                .list();
+    }
+
+    // 화면의 언어 선택 순서(Python → C++)대로 준다.
+    private List<LanguageConfig> languagesOf(long versionId) {
+        return jdbc.sql("select language, time_limit_ms, memory_limit_mb, starter_code from problem_language_configs"
+                + " where problem_version_id = :id order by case language when 'PYTHON' then 0 else 1 end")
+                .param("id", versionId)
+                .query((rs, n) -> new LanguageConfig(Language.valueOf(rs.getString("language")),
+                        rs.getInt("time_limit_ms"), rs.getInt("memory_limit_mb"), rs.getString("starter_code")))
+                .list();
     }
 
     List<ConceptTag> findAllTags() {

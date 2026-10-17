@@ -6,16 +6,19 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import com.codingmon.api.ApiErrors;
 import com.codingmon.api.problem.ProblemRepository.ConceptTag;
 import com.codingmon.api.problem.ProblemRepository.Difficulty;
 import com.codingmon.api.problem.ProblemRepository.ListQuery;
 import com.codingmon.api.problem.ProblemRepository.Page;
 import com.codingmon.api.problem.ProblemRepository.ProblemSummary;
+import com.codingmon.api.problem.ProblemRepository.PublishedProblem;
 import com.codingmon.api.problem.ProblemRepository.SolveStatus;
 import com.codingmon.api.problem.ProblemRepository.SortField;
 
@@ -63,6 +66,14 @@ class ProblemController {
         Long userId = jwt == null ? null : Long.valueOf(jwt.getSubject());
         return problems.findPublished(new ListQuery(userId, trimmed, orEmpty(difficulty), orEmpty(tag), orEmpty(status),
                 sortField, ascending, page, size));
+    }
+
+    // 문제 풀이 화면(SOLVE-01~04, 06). 로그인해야 본다(COM-05, SecurityConfig).
+    // 없는 문제와 공개 버전이 없는 문제를 같은 404로 답해 공개 전 문제가 있는지 드러내지 않는다.
+    @GetMapping("/problems/{id}")
+    PublishedProblem detail(@PathVariable long id) {
+        return problems.findPublished(id)
+                .orElseThrow(() -> ApiErrors.error(HttpStatus.NOT_FOUND, "PROBLEM_NOT_FOUND", "문제를 찾을 수 없어요"));
     }
 
     // 필터 선택지용 전체 태그. 목록 결과에서 뽑으면 필터를 걸수록 선택지가 줄어든다.
