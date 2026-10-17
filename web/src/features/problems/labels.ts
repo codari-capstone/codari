@@ -1,4 +1,4 @@
-import type { Difficulty, SolveStatus } from '@/api/provisional'
+import type { Difficulty, SolveStatus } from '@/api/types'
 
 export const DIFFICULTY_LABEL: Record<Difficulty, string> = {
   EASY: '쉬움',

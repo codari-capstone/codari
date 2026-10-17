@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router'
 import { useMemo } from 'react'
 
-import { DIFFICULTIES, SOLVE_STATUSES } from '@/api/provisional'
+import { DIFFICULTIES, SOLVE_STATUSES } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/features/auth/useAuth'
 import { DIFFICULTY_LABEL, SOLVE_STATUS_LABEL } from './labels'

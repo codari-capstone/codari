@@ -1,7 +1,8 @@
 import { http, HttpResponse } from 'msw'
 import { describe, expect, expectTypeOf, it } from 'vitest'
 
-import { type Page, type ProblemSummary, provisionalApi } from '@/api/provisional'
+import { api } from '@/api/client'
+import type { ProblemPage } from '@/api/types'
 import { server } from '@/mocks/server'
 
 /**
@@ -17,13 +18,13 @@ describe('api 클라이언트', () => {
       ),
     )
 
-    const { data, error } = await provisionalApi.GET('/api/problems')
+    const { data, error } = await api.GET('/api/problems')
 
     expect(error).toBeUndefined()
     expect(data).toEqual({ content: [], totalElements: 0 })
   })
 
-  // 임시 계약을 둔 이유가 타입이다. any로 새어 나가면 둘 이유가 없다.
+  // 계약에서 타입을 만드는 이유가 이것이다. any로 새어 나가면 생성할 이유가 없다.
   it('응답에 타입이 붙는다', async () => {
     server.use(
       http.get(`${window.location.origin}/api/problems`, () =>
@@ -31,8 +32,8 @@ describe('api 클라이언트', () => {
       ),
     )
 
-    const { data } = await provisionalApi.GET('/api/problems')
+    const { data } = await api.GET('/api/problems')
 
-    expectTypeOf(data).toEqualTypeOf<Page<ProblemSummary> | undefined>()
+    expectTypeOf(data).toEqualTypeOf<ProblemPage | undefined>()
   })
 })

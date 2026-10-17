@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { describe, expect, it, vi } from 'vitest'
 
-import type { ProblemSummary } from '@/api/provisional'
+import type { ProblemSummary } from '@/api/types'
 import { DEFAULT_PARAMS } from './problemListParams'
 import { ProblemTable } from './ProblemTable'
 

@@ -1,20 +1,16 @@
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import {
-  provisionalApi,
-  type Page,
-  type ProblemListQuery,
-  type ProblemSummary,
-} from '@/api/provisional'
+import { provisionalApi } from '@/api/provisional'
+import type { ProblemListQuery, ProblemPage } from '@/api/types'
 import { api } from '@/api/client'
 import { MOCK_CODE, resetEmailCodes } from './fixtures/emailCodes'
 import { conceptTags, problems } from './fixtures/problems'
 import { mockAccounts, SESSION_COOKIE } from './fixtures/users'
 import { server } from './server'
 
-async function fetchProblems(query: ProblemListQuery): Promise<Page<ProblemSummary>> {
-  const { data, error } = await provisionalApi.GET('/api/problems', { params: { query } })
+async function fetchProblems(query: ProblemListQuery): Promise<ProblemPage> {
+  const { data, error } = await api.GET('/api/problems', { params: { query } })
   if (error || !data) throw new Error('핸들러가 응답하지 않았다')
   return data
 }
@@ -117,7 +113,7 @@ describe('MSW 문제 목록 핸들러', () => {
   // 서버는 size가 1~20이 아니면 400이다(ProblemController.MAX_PAGE_SIZE). 목이 받아 주면
   // size=100으로 한 번에 전체를 받는 테스트가 목에서만 통과한다.
   it.each([100, 0, Number.NaN])('size가 1~20이 아니면 400이다: %s', async (size) => {
-    const { response } = await provisionalApi.GET('/api/problems', { params: { query: { size } } })
+    const { response } = await api.GET('/api/problems', { params: { query: { size } } })
 
     expect(response.status).toBe(400)
   })
@@ -139,7 +135,7 @@ describe('MSW 문제 목록 핸들러', () => {
   })
 
   it('개념 태그 목록을 돌려준다', async () => {
-    const { data } = await provisionalApi.GET('/api/concept-tags')
+    const { data } = await api.GET('/api/concept-tags')
 
     expect(data).toEqual(conceptTags)
   })
@@ -155,7 +151,7 @@ describe('MSW 문제 목록 핸들러', () => {
       }),
     )
 
-    await provisionalApi.GET('/api/problems', {
+    await api.GET('/api/problems', {
       params: { query: { difficulty: ['EASY', 'HARD'] } },
     })
 
