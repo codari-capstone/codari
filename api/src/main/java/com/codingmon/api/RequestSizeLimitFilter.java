@@ -1,0 +1,35 @@
+package com.codingmon.api;
+
+import java.io.IOException;
+
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+
+// 본문을 읽기 전에 큰 요청을 거절한다. API 요청은 ALB에서 바로 오고 Spring은 JSON 본문 크기를 제한하지 않는다.
+// 512KB는 64KB 코드가 JSON 이스케이프로 최대 6배(약 384KB)가 돼도 통과하는 값이다.
+// ponytail: Content-Length만 본다. 길이를 밝히지 않는 chunked 요청은 통과하므로 #14 보안 테스트 때 다시 본다.
+// 로그인 확인(토큰 검증 DB 조회)보다 먼저 거절하도록 맨 앞에 둔다.
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE)
+class RequestSizeLimitFilter extends OncePerRequestFilter {
+
+    static final long MAX_BODY_BYTES = 512 * 1024;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+        if (request.getContentLengthLong() > MAX_BODY_BYTES) {
+            ApiErrors.write(response, HttpStatus.CONTENT_TOO_LARGE);
+            return;
+        }
+        chain.doFilter(request, response);
+    }
+}

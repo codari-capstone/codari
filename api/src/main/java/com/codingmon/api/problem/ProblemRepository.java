@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.codingmon.api.Language;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 // 사용자 화면용 문제 조회. 공개(PUBLISHED) 버전만 보고, 제목·난이도·태그는 그 버전에서 읽는다.
@@ -36,8 +37,6 @@ class ProblemRepository {
 
     record Page<T>(List<T> content, long totalElements) {
     }
-
-    enum Language { PYTHON, CPP }
 
     record Sample(String input, String output) {
     }
