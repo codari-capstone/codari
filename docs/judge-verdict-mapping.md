@@ -21,7 +21,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 묶음 제출 | 테스트케이스는 `POST /submissions/batch`로 최대 20개씩 보낸다. 응답은 항목별 목록이고 항목마다 `token`이나 오류가 온다(6절) |
 | 삭제 | 결과를 읽은 뒤 `DELETE /submissions/{token}`(`X-Auth-User` 필요)으로 지울 수 있다. 사용 여부는 #29에서 정한다 |
 
-제한값은 `problem_language_configs`의 언어별 값으로 만든다. Python 보정은 문제 등록 때 이미 적용돼 있으므로 다시 곱하지 않는다.
+제한값은 `problem_language_configs`의 언어별 값으로 만든다. Python 보정(계획서 초기값: 시간 ×3 + 2초, 메모리 ×2. #65 실측으로 확정)은 문제를 등록할 때 Python 행의 `time_limit_ms`·`memory_limit_mb`에 반영해 저장하므로, 요청을 만들 때 다시 곱하지 않는다.
 
 | 필드 | 값 | 이유 |
 |---|---|---|
@@ -31,7 +31,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | `stack_limit` | `memory_limit`과 같은 값 | 끝없는 재귀를 메모리 초과로 판정하는 근거다(3절). 보내지 않으면 `STACK_LIMIT`(256 MB)이 적용돼, 메모리 제한이 그보다 큰 문제에서는 재귀가 SIGSEGV로 끝난다 |
 | `max_file_size` | 1024 (KB) | 출력 제한이자 3절 `limit_bytes`의 기준이다. 서버 기본값과 같아도 명시한다 |
 
-문제를 등록할 때 API는 `time_limit_ms` / 1000 ≤ `MAX_CPU_TIME_LIMIT`, `memory_limit_mb` × 1024 ≤ `MAX_MEMORY_LIMIT`인지 검사하고, 넘으면 등록을 거절한다. 넘는 값을 보내면 Judge0가 422로 거절해(6절) 그 문제의 모든 제출이 채점 불가가 된다. `stack_limit`은 `MAX_STACK_LIMIT`이 `MAX_MEMORY_LIMIT`과 같아서(`judge/README.md`) 따로 검사하지 않는다.
+문제를 등록할 때 API는 제한값이 Judge0가 받는 범위인지 검사하고, 벗어나면 등록을 거절한다. 범위는 `time_limit_ms` / 1000 ≤ `MAX_CPU_TIME_LIMIT`, 그리고 2 ≤ `memory_limit_mb`, `memory_limit_mb` × 1024 ≤ `MAX_MEMORY_LIMIT`이다(Judge0 1.13.1은 `memory_limit`이 2048 KB보다 작으면 거절한다). 범위 밖의 값을 보내면 Judge0가 422로 거절해(6절) 그 문제의 모든 제출이 채점 불가가 된다. `stack_limit`은 `MAX_STACK_LIMIT`이 `MAX_MEMORY_LIMIT`과 같아서(`judge/README.md`), `wall_time_limit`은 식이 항상 1초 이상·상한 이하라서 따로 검사하지 않는다. 등록 검사는 다시 돌지 않으므로, `judge0.conf`의 `MAX_*`를 내릴 때는 먼저 게시된 문제의 `problem_language_configs`가 새 상한 안에 드는지 확인한다.
 
 ## 2. 먼저 알아 둘 Judge0 동작
 
@@ -59,10 +59,10 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 2 | status 1·2 | 진행 중. 계속 폴링 |
 | 3 | status 13 (Internal Error) | 같은 케이스를 1회 다시 제출한다. 또 13이면 채점 불가 |
 | 4 | status 14 (Exec Format Error) | 채점 불가 |
-| 5 | status 6 (Compilation Error) | `COMPILE_ERROR`. `compile_output` → `compiler_message` |
+| 5 | status 6 (Compilation Error) | SAMPLE 케이스면 `COMPILE_ERROR`. `compile_output` → `compiler_message`. HIDDEN 케이스면 판정을 미루고 SAMPLE 케이스 결과를 따른다([제출 판정 합치기](#제출-판정-합치기) 1번) |
 | 6 | Python, **SAMPLE 케이스**, status 11, stderr에 `Traceback (most recent call last):`가 없고 마지막 줄이 `SyntaxError`·`IndentationError`·`TabError`로 시작 | `COMPILE_ERROR`. stderr(7절대로 정리) → `compiler_message` |
 | 7 | status 5 | `TIME_LIMIT_EXCEEDED` |
-| 8 | `len(stdout 바이트) ≥ limit_bytes` 또는 `len(stderr 바이트) ≥ limit_bytes`, 또는 status 8, 또는 신호 25 | `OUTPUT_LIMIT_EXCEEDED` |
+| 8 | status 3이 아니면서 stdout·stderr 중 하나의 바이트 길이가 `limit_bytes` 이상, 또는 status 8, 또는 신호 25 | `OUTPUT_LIMIT_EXCEEDED` |
 | 9 | 신호 9이고 `memory ≥ memory_limit` | `MEMORY_LIMIT_EXCEEDED` |
 | 10 | status 7·9·10·11·12이고, Python 예외 이름(5절)이 `MemoryError` 또는 C++ stderr에 `std::bad_alloc` | `MEMORY_LIMIT_EXCEEDED` |
 | 11 | status 7·9·10·11·12 (위에 해당하지 않음) | `RUNTIME_ERROR`. 종류는 4절 |
@@ -70,7 +70,8 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 13 | status 4 | 12와 같이 판정하고 경고를 남긴다. `expected_output`을 보냈다는 뜻이라 연동 버그다 |
 | 14 | 그 밖의 status | 채점 불가, 오류 로그 |
 
-- 6번은 SAMPLE 케이스에만 적용한다. 진짜 문법 오류는 코드를 읽는 단계에서 나므로 입력과 상관없이 모든 케이스에서 똑같이 나오고, 예제 케이스에서 반드시 잡힌다. 비공개(HIDDEN) 케이스에서 같은 모양이 나오면 학생 코드가 stderr를 꾸민 것이다. 이때는 11번(런타임 에러 `OTHER`)으로 두고, stderr는 7절대로 공개하지 않는다. stderr만 보고 컴파일 에러로 분류하면 `SyntaxError:` 줄에 비공개 입력을 붙여 `compiler_message`로 빼낼 수 있다. 그래서 문제마다 SAMPLE 케이스가 하나 이상 있어야 한다(없으면 문법 오류가 런타임 에러로 남는다).
+- 6번은 SAMPLE 케이스에만 적용한다. 진짜 문법 오류는 코드를 읽는 단계에서 나므로 입력과 상관없이 모든 케이스에서 똑같이 나오고, 예제 케이스에서 반드시 잡힌다. 비공개(HIDDEN) 케이스에서 같은 모양이 나오면 학생 코드가 stderr를 꾸민 것이다. 이때는 11번(런타임 에러 `OTHER`)으로 두고, stderr는 7절대로 공개하지 않는다. stderr만 보고 컴파일 에러로 분류하면 `SyntaxError:` 줄에 비공개 입력을 붙여 `compiler_message`로 빼낼 수 있다. 5번(C++)도 같은 이유로 컴파일 에러를 SAMPLE 케이스에서 확정한다. 그래서 문제마다 SAMPLE 케이스가 하나 이상 있어야 하고, 문제를 등록할 때 검사한다.
+- 8번의 길이 조건은 정상 종료(status 3)에는 쓰지 않는다. 파일 크기 제한은 한도를 넘겨 쓰려 할 때 걸리므로 정확히 `limit_bytes`만큼 쓰고 정상 종료하는 출력이 있을 수 있다. 실제로 넘친 출력은 비정상 종료한다(C++ 신호 25, Python `exit_code` 1·120). 정상 종료한 출력은 12번 비교로 넘긴다.
 - 백준은 Python 코드를 실행 전에 `py_compile`로 검사해 문법 오류를 컴파일 에러로 낸다. 우리는 따로 검사하는 단계가 없어 예제 케이스의 실행 결과로 같은 판정을 낸다. `exec()` 안에서 난 SyntaxError는 머리줄이 있어 런타임 에러로 분류된다.
 - 9번은 `memory` 값과 함께 본다. 신호 9인데 `memory`가 제한보다 작으면 메모리 초과가 아니므로 런타임 에러(기타)로 두고 로그를 남긴다.
 - 끝없는 재귀는 스택 제한이 메모리 제한과 같아서(1절 `stack_limit`) 9번의 메모리 초과로 판정된다. C++에서 스택 넘침과 메모리 초과는 응답만으로 구분할 수 없다.
@@ -80,12 +81,12 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 케이스 판정을 제출 하나(`submissions`)의 값으로 합치는 규칙이다. 케이스 순서는 SAMPLE 먼저, 같은 종류 안에서는 `ordinal` 순이다(AI_FEATURES 10절 "공개 예제부터").
 
-1. `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다.
+1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다. HIDDEN 케이스의 status 6은 SAMPLE 케이스 중 하나라도 컴파일에 성공했으면(status 6이 아니면) 채점 불가로 보고 2번으로 끝낸다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
 2. 채점 불가인 케이스가 나오면 그 자리에서 제출을 `job_status = 'JUDGE_ERROR'`, `verdict = NULL`로 끝낸다.
 3. 그 밖에는 실행 대상 케이스의 판정이 모두 모인 뒤(`database-schema.md`) 정한다. 모두 `ACCEPTED`면 `ACCEPTED`, 아니면 케이스 순서상 처음으로 `ACCEPTED`가 아닌 케이스의 판정이다.
-4. `runtime_error_type`은 3에서 고른 케이스가 `RUNTIME_ERROR`일 때 그 케이스의 종류(4절)다. 그 밖에는 `NULL`이다.
+4. `runtime_error_type`은 3에서 고른 케이스가 `RUNTIME_ERROR`일 때 그 케이스의 종류(4절)다. 그 밖에는 `NULL`이다. 종류는 케이스 결과를 받을 때 정해 케이스 행에 저장한다. 비공개 케이스는 stderr를 저장하지 않아 나중에 다시 구할 수 없고, 재시작 복구도 판정이 빈 행만 다시 조회하기 때문이다(`database-schema.md`). V1의 `submission_test_results`에는 이 컬럼이 없으므로 #29에서 마이그레이션으로 `runtime_error_type`을 더한다.
 5. `execution_time_ms`·`memory_used_kb`는 판정이 난 케이스 값의 최댓값이다(`time`(초) × 1000 반올림, `memory`(KB)). 1·2로 끝난 제출은 `NULL`이다.
-6. `progress`는 판정이 채워진 케이스 수 ÷ 실행 대상 케이스 수 × 100(내림)이다.
+6. `progress`는 판정이 채워진 케이스 수 ÷ 실행 대상 케이스 수 × 100(내림)이다. 1·2번으로 끝난 제출은 판정이 빈 케이스가 남아도 100으로 둔다.
 
 ## 4. 런타임 에러 종류
 
@@ -126,12 +127,12 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 상황 | 처리 |
 |---|---|
 | 401·403 | 설정 오류(토큰). 재시도하지 않고 `JUDGE_ERROR`, 운영 알림 |
-| 422 | 요청 값 오류. 재시도하지 않고 `JUDGE_ERROR`, 오류 로그. 제한값이 서버 상한을 넘어도 422가 나므로 문제 등록 때 막는다(1절) |
+| 422 | 요청 값 오류. 재시도하지 않고 `JUDGE_ERROR`, 운영 알림. 제한값이 서버가 받는 범위를 벗어나도 422가 나므로 문제 등록 때 막는다(1절) |
 | 묶음 제출의 항목 오류 | 일부 항목만 잘못되면 201, 모두 잘못되면 422로 오고 둘 다 항목별 목록이다. `token`이 없는 항목이 하나라도 있으면 422와 같이 재시도하지 않고 제출을 `JUDGE_ERROR`로 끝낸다. 토큰을 받은 다른 항목의 결과는 쓰지 않는다 |
 | 503 (`queue is full`) | 지수 백오프로 재시도. 한도를 넘기면 `JUDGE_ERROR` |
 | 연결 오류·타임아웃·5xx (결과 조회) | 같은 GET을 백오프로 재시도 |
 | 404 (결과 조회) | 토큰이 채점 서버에 없다(Judge0 DB를 새로 만든 경우 등). 다시 물어도 같으므로 재시도하지 않고 `JUDGE_ERROR`, 오류 로그 |
-| 연결 오류·타임아웃·5xx (제출 POST) | 응답(토큰)을 받지 못하면 같은 요청을 자동으로 다시 보내지 않고 `JUDGE_ERROR`로 끝낸다. 제출이 이미 들어갔을 수 있어, 다시 보내면 같은 코드가 두 번 실행된다 |
+| 연결 오류·타임아웃·5xx (제출 POST) | 응답(토큰)을 받지 못하면 같은 요청을 자동으로 다시 보내지 않고 `JUDGE_ERROR`로 끝낸다. 제출이 이미 들어갔을 수 있어, 다시 보내면 같은 코드가 두 번 실행된다. 재시작 복구에서 행은 있는데 토큰이 빈 케이스도 같은 이유로 다시 보내지 않는다(`database-schema.md`) |
 | 폴링 기한 초과 | `cpu_time_limit`가 아니라 큐 대기까지 고려한 기한이다. 넘기면 `JUDGE_ERROR` |
 | status 13·14, 14번 행 | 3절 |
 
@@ -141,7 +142,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 - stderr에서 `^run: line \d+:` 로 시작하는 줄을 지운다. Judge0 내부 경로(`/usr/local/python-3.8.1/bin/python3`, `LD_LIBRARY_PATH=…`)가 들어 있다.
 - 예외 원문과 줄 번호는 공개 예제(SAMPLE)에서만 보여 준다. 비공개 테스트에서는 종류(4절)만 보여 준다(AI_FEATURES 10절).
-- 컴파일 에러 메시지(`compile_output`, Python 문법 오류의 stderr)는 결과 화면에서 보여 준다(AI_FEATURES 10절 컴파일 에러 행). Python 문법 오류 메시지는 SAMPLE 케이스의 stderr에서만 나온다(3절 6번).
+- 컴파일 에러 메시지(`compile_output`, Python 문법 오류의 stderr)는 결과 화면에서 보여 준다(AI_FEATURES 10절 컴파일 에러 행). 컴파일 에러는 SAMPLE 케이스에서만 확정하므로(3절 5·6번) 메시지도 SAMPLE 케이스의 것을 쓴다.
 
 ## 8. 관찰 근거
 
