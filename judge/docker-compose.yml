@@ -3,7 +3,10 @@
 #
 # 공식 파일과 다른 점 (이유는 judge/README.md "설정 요약")
 # - 이미지를 태그+digest로 고정한다. 공식 파일은 judge0 이미지를 latest로 적어 둔다.
-# - 비밀값은 judge0.conf가 아니라 .env에서 주입한다(.env.example 참고). 네 서비스 모두 같은 보간으로 받는다.
+# - 비밀값은 judge0.conf가 아니라 .env에서 주입한다(.env.example 참고). 네 서비스 모두 같은 보간으로 받고,
+#   API 토큰 두 개는 HTTP를 받는 server에만 넣는다.
+# - privileged는 샌드박스(isolate)를 실행하는 workers에만 준다. ENABLE_WAIT_RESULT=false라
+#   server는 제출을 큐에 넣기만 한다(submissions_controller.rb: perform_now는 wait=true일 때만).
 # - 시작 스크립트(scripts/server·workers)를 judge0-scripts/의 수정본으로 바꿔 환경 변수가 로그에 찍히지 않게 한다.
 # - 2358은 JUDGE0_BIND_ADDR(기본 127.0.0.1)에만 게시하고, DB·Redis 포트는 게시하지 않는다.
 # - db·redis healthcheck가 통과한 뒤 server·workers를 띄운다.
@@ -27,13 +30,6 @@ x-judge0: &judge0
     - ./judge0.conf:/judge0.conf:ro
     - ./judge0-scripts/server:/api/scripts/server:ro
     - ./judge0-scripts/workers:/api/scripts/workers:ro
-  # 값은 같은 폴더의 .env에서 보간된다(셸에 같은 이름이 export돼 있으면 그 값이 우선). 없으면 기동 전에 실패한다
-  environment:
-    AUTHN_TOKEN: ${AUTHN_TOKEN:?judge/.env에 AUTHN_TOKEN이 필요하다}
-    AUTHZ_TOKEN: ${AUTHZ_TOKEN:?judge/.env에 AUTHZ_TOKEN이 필요하다}
-    REDIS_PASSWORD: ${REDIS_PASSWORD:?judge/.env에 REDIS_PASSWORD가 필요하다}
-    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?judge/.env에 POSTGRES_PASSWORD가 필요하다}
-  privileged: true # isolate 샌드박스가 cgroup을 다루려면 필요하다(공식 구성과 동일)
   depends_on:
     db:
       condition: service_healthy
@@ -47,10 +43,21 @@ services:
     <<: *judge0
     ports:
       - "${JUDGE0_BIND_ADDR:-127.0.0.1}:2358:2358"
+    # 값은 같은 폴더의 .env에서 보간된다(셸에 같은 이름이 export돼 있으면 그 값이 우선). 없으면 기동 전에 실패한다
+    environment:
+      AUTHN_TOKEN: ${AUTHN_TOKEN:?judge/.env에 AUTHN_TOKEN이 필요하다}
+      AUTHZ_TOKEN: ${AUTHZ_TOKEN:?judge/.env에 AUTHZ_TOKEN이 필요하다}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?judge/.env에 REDIS_PASSWORD가 필요하다}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?judge/.env에 POSTGRES_PASSWORD가 필요하다}
 
   workers:
     <<: *judge0
     command: ["./scripts/workers"]
+    # HTTP를 받지 않고 콜백도 꺼져 있어 API 토큰이 필요 없다
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?judge/.env에 REDIS_PASSWORD가 필요하다}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?judge/.env에 POSTGRES_PASSWORD가 필요하다}
+    privileged: true # isolate 샌드박스가 cgroup을 다루려면 필요하다
 
   db:
     image: postgres:16.2@sha256:4aea012537edfad80f98d870a36e6b90b4c09b27be7f4b4759d72db863baeebb

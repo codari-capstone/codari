@@ -45,6 +45,21 @@ class DefaultUrlTest(unittest.TestCase):
             self.assertEqual(smoke.default_url({"JUDGE0_BIND_ADDR": "10.0.1.5"}), "http://127.0.0.1:12358")
 
 
+class WaitUntilReadyTest(unittest.TestCase):
+    def test_waits_through_connection_refused(self):
+        client = mock.Mock()
+        client.request.side_effect = [urllib.error.URLError("refused"), urllib.error.URLError("refused"), (401, None)]
+        sleeps = []
+        self.assertTrue(smoke.wait_until_ready(client, sleep=sleeps.append, clock=lambda: 0.0))
+        self.assertEqual(len(sleeps), 2)
+
+    def test_gives_up_after_timeout(self):
+        client = mock.Mock()
+        client.request.side_effect = urllib.error.URLError("refused")
+        ticks = iter([0.0, 1.0, 2.5])
+        self.assertFalse(smoke.wait_until_ready(client, timeout_s=2.0, sleep=lambda _: None, clock=lambda: next(ticks)))
+
+
 class RunSectionsTest(unittest.TestCase):
     def run_quietly(self, sections):
         checker, ran = smoke.Checker(), []

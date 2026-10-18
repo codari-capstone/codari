@@ -12,18 +12,18 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 
 | 경로 | 내용 |
 |---|---|
-| `docker-compose.yml` | server·workers·내부 PostgreSQL·Redis. 이미지 digest 고정, 2358은 `JUDGE0_BIND_ADDR`에만 게시 |
+| `docker-compose.yml` | server·workers·내부 PostgreSQL·Redis. 이미지 digest 고정, 2358은 `JUDGE0_BIND_ADDR`에만 게시. privileged는 샌드박스를 돌리는 workers에만, API 토큰은 HTTP를 받는 server에만 준다 |
 | `judge0.conf` | 공식 `judge0.conf` 원문에 아래 "설정 요약"의 값을 넣은 파일. 비밀값 키는 없다 |
 | `judge0-scripts/` | 1.13.1 이미지의 `scripts/server`·`scripts/workers` 사본. 환경 변수를 로그로 출력하는 한 줄만 막았다 |
 | `.env.example` | 비밀값 견본. VM에서 `.env`로 복사해 채운다(저장소에 올리지 않는다) |
 | `scripts/preflight.sh` | 기동 전 확인: x86_64, cgroup v1, Docker·Compose, `.env`, conf에 비밀값 키가 없는지 |
-| `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), AUTHZ(403·삭제 200), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 2개, 금지 요청 거절 |
+| `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), AUTHZ(403·삭제 200), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 `COUNT`개, 금지 요청 거절 |
 | `scripts/judge0_client.py` | 표준 라이브러리 클라이언트. smoke·실측·검증이 함께 쓴다 |
 | `tests/` | 클라이언트·smoke 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
 
 ## 설치·기동
 
-채점 VM(amd64 Ubuntu 22.04, cgroup v1, Docker)을 준비하는 절차는 #63에서 이 문서에 추가한다. 준비된 VM에서:
+채점 VM(amd64 Ubuntu 22.04, cgroup v1, Docker)을 준비하는 절차는 #63에서 이 문서에 추가한다. 보안 그룹과 함께 `judge0.conf`의 `ALLOW_IP`로 2358 호출을 API 서버 주소로만 제한할지도 그때 정한다(지금은 비어 있어 토큰만 있으면 어느 주소에서든 호출된다). 준비된 VM에서:
 
 ```bash
 git clone https://github.com/codari-capstone/codingmon.git ~/codingmon
@@ -33,7 +33,7 @@ cp .env.example .env && chmod 600 .env
 bash scripts/preflight.sh
 docker compose pull
 docker compose up -d          # db·redis healthcheck가 통과한 뒤 server·workers가 뜬다
-python3 scripts/smoke.py      # 종료 코드 0이면 통과
+python3 scripts/smoke.py      # server가 응답할 때까지 최대 3분 기다린 뒤 검사한다. 종료 코드 0이면 통과
 ```
 
 compose는 네 비밀값을 `.env`에서 보간하는데, 셸에 같은 이름이 export돼 있으면 그 값을 먼저 쓴다. 이 네 이름은 셸에 export하지 않는다.

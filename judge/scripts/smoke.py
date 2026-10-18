@@ -12,6 +12,7 @@ Python·C++17 hello world, 권한(AUTHZ 없이 403, AUTHZ로 삭제 200), 동시
 
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from judge0_client import (  # noqa: E402
@@ -19,6 +20,9 @@ from judge0_client import (  # noqa: E402
 )
 
 JUDGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONF_PATH = os.path.join(JUDGE_DIR, "judge0.conf")
+# server는 rails db:create db:migrate db:seed를 마친 뒤에야 2358을 연다. up -d 직후에 실행해도 되게 기다린다
+READY_TIMEOUT_S = 180
 # judge0.conf 키와 /config_info 키의 이름이 다른 경우
 CONFIG_KEY_ALIASES = {"allowed_languages_for_compiler_options": "allowed_languages_for_compile_options"}
 REQUIRED_CONFIG_KEYS = (
@@ -34,10 +38,8 @@ CPP_HELLO = (
     "int main(){ auto [a, b] = std::pair<int,int>(1, 2);\n"
     "  if constexpr (__cplusplus >= 201703L) std::printf(\"hello %ld %d\\n\", __cplusplus, a + b);\n}\n"
 )
-# 2초씩 자며 샌드박스 안 시각으로 실행 구간을 찍는다. 3개를 함께 넣으면 슬롯 2개에서는 2개까지만 겹친다
+# 2초씩 자며 샌드박스 안 시각으로 실행 구간을 찍는다. 슬롯 수(COUNT)보다 하나 더 넣으면 COUNT개까지만 겹친다
 SLOT_PROBE = "import time\nstart = time.time()\ntime.sleep(2)\nprint(start, time.time())\n"
-SLOT_PROBE_JOBS = 3
-EXPECTED_SLOTS = 2
 
 
 def read_kv(path):
@@ -51,9 +53,27 @@ def read_kv(path):
     return values
 
 
+def conf_values():
+    """judge0.conf에서 값이 있는 키만, 소문자 키로."""
+    return {k.lower(): v for k, v in read_kv(CONF_PATH).items() if v}
+
+
 def default_url(env):
     """JUDGE0_URL이 없으면 compose가 2358을 게시한 주소(.env의 JUDGE0_BIND_ADDR)로 접속한다."""
     return os.environ.get("JUDGE0_URL") or f"http://{env.get('JUDGE0_BIND_ADDR') or '127.0.0.1'}:2358"
+
+
+def wait_until_ready(client, timeout_s=READY_TIMEOUT_S, interval_s=2.0, sleep=time.sleep, clock=time.monotonic):
+    """server가 HTTP로 응답할 때까지 기다린다(상태 코드는 따지지 않는다). 기한 안에 응답하면 True."""
+    end = clock() + timeout_s
+    while True:
+        try:
+            client.request("GET", "/about", authn=False)
+            return True
+        except OSError:
+            if clock() >= end:
+                return False
+            sleep(interval_s)
 
 
 def max_overlap(intervals):
@@ -106,7 +126,7 @@ def check_system(client, c):
 def check_config(client, c):
     _, info = client.request("GET", "/config_info")
     info = info if isinstance(info, dict) else {}
-    conf = {k.lower(): v for k, v in read_kv(os.path.join(JUDGE_DIR, "judge0.conf")).items() if v}
+    conf = conf_values()
     for key, expected in sorted(conf.items()):
         api_key = CONFIG_KEY_ALIASES.get(key, key)
         if api_key in info:
@@ -139,14 +159,19 @@ def check_slots(client, c):
     # /workers는 쓰지 않는다. 호출할 때마다 서버 컨테이너가 Resque prune_dead_workers를 돌리는데,
     # 워커 PID를 자기 컨테이너에서 찾다 못 찾아 등록을 지운다. 워커 기동 60초 뒤부터 available이 0으로 온다
     # (작업은 정상 처리된다). 그래서 실제로 함께 돈 개수를 잰다.
-    tokens = [client.submit(SLOT_PROBE, PYTHON_ID) for _ in range(SLOT_PROBE_JOBS)]
+    count = conf_values().get("count", "")
+    if not count.isdigit():
+        c.check(False, "judge0.conf에 COUNT 숫자가 없어 실행 슬롯을 확인하지 못함", f"COUNT={count!r}")
+        return
+    slots = int(count)
+    tokens = [client.submit(SLOT_PROBE, PYTHON_ID) for _ in range(slots + 1)]
     runs = [client.wait(token) for token in tokens]
     try:
         intervals = [tuple(float(v) for v in run["stdout"].split()) for run in runs]
         overlap = max_overlap(intervals)
     except (AttributeError, TypeError, ValueError):
         overlap = None
-    c.check(overlap == EXPECTED_SLOTS, f"{SLOT_PROBE_JOBS}개 제출 → 동시 실행 {EXPECTED_SLOTS}개, 나머지는 대기",
+    c.check(overlap == slots, f"{slots + 1}개 제출 → 동시 실행 {slots}개(COUNT), 나머지는 대기",
             f"실제 {overlap} / {[(r['status']['id'], r['stdout']) for r in runs]!r}")
 
 
@@ -201,7 +226,9 @@ def main():
         authz_token=os.environ.get("JUDGE0_AUTHZ_TOKEN") or env.get("AUTHZ_TOKEN"),
     )
     c = Checker()
-    print(f"접속 주소 {client.base_url}")
+    print(f"접속 주소 {client.base_url} — 응답을 최대 {READY_TIMEOUT_S}초 기다린다")
+    if not wait_until_ready(client):
+        print(f"  {READY_TIMEOUT_S}초 안에 응답이 없다. docker compose ps·logs server로 기동 상태를 본다")
     run_sections(SECTIONS, client, c)
 
     print()
