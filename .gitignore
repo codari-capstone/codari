@@ -26,6 +26,9 @@ dist-e2e/
 test-results/
 playwright-report/
 
+# Python (judge/ 스크립트)
+__pycache__/
+
 # Java / Gradle
 .gradle/
 build/
