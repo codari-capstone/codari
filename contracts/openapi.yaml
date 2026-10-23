@@ -721,8 +721,10 @@ components:
           description: 지문. Markdown과 수식
         inputDescription:
           type: string
+          description: 입력 형식. Markdown과 수식
         outputDescription:
           type: string
+          description: 출력 형식. Markdown과 수식
         constraintsMarkdown:
           type: string
           description: 제약 조건. 없으면 빈 문자열
