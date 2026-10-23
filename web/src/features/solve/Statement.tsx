@@ -1,23 +1,6 @@
 import type { ProblemDetailView } from '@/api/types'
 import { Markdown } from '@/components/Markdown'
 
-/**
- * 입출력 형식은 마크다운이 아니다 (SOLVE-01).
- *
- * 계약에서 `statementMarkdown`·`constraintsMarkdown`만 이름에 Markdown이 붙고
- * `inputDescription`·`outputDescription`은 안 붙는다 (DB 컬럼도 `input_description`이다).
- * 그래서 마크다운으로 그리지 않는다 — 평문을 마크다운으로 넘기면 `*`가 기울임이 되고
- * `$1 \le N$`은 수식이 아니라 글자로 남는다. 줄바꿈만 살린다.
- */
-function PlainText({ children }: { children: string }) {
-  // overflow-wrap은 Markdown과 같은 이유다 (Markdown.tsx 주석).
-  return (
-    <p className="text-sm leading-relaxed whitespace-pre-line [overflow-wrap:anywhere]">
-      {children}
-    </p>
-  )
-}
-
 /** 지문 하단의 출처·라이선스·버전 (SOLVE-03). */
 function Source({ problem }: { problem: ProblemDetailView }) {
   const { sourceName, sourceUrl, license, versionNo } = problem
@@ -45,7 +28,13 @@ function Source({ problem }: { problem: ProblemDetailView }) {
   )
 }
 
-/** 지문·입출력 형식·제약·출처 (SOLVE-01·03). */
+/**
+ * 지문·입출력 형식·제약·출처 (SOLVE-01·03).
+ *
+ * 네 본문 모두 같은 렌더러를 쓴다. 계약에서 `inputDescription`·`outputDescription`만
+ * 이름에 Markdown이 없어 처음에는 평문으로 그렸는데, #121이 "입력 형식. Markdown과 수식"
+ * 으로 계약을 고쳤다 — 입력 범위를 `$2 \le N \le 10^5$`처럼 쓸 수 있어야 해서다.
+ */
 export function Statement({ problem }: { problem: ProblemDetailView }) {
   return (
     <div className="flex flex-col gap-6">
@@ -53,12 +42,12 @@ export function Statement({ problem }: { problem: ProblemDetailView }) {
 
       <section>
         <h2 className="mb-2 text-base font-semibold">입력</h2>
-        <PlainText>{problem.inputDescription}</PlainText>
+        <Markdown>{problem.inputDescription}</Markdown>
       </section>
 
       <section>
         <h2 className="mb-2 text-base font-semibold">출력</h2>
-        <PlainText>{problem.outputDescription}</PlainText>
+        <Markdown>{problem.outputDescription}</Markdown>
       </section>
 
       {/* 제약은 없으면 빈 문자열로 온다(계약). 빈 제목만 남기지 않는다. */}

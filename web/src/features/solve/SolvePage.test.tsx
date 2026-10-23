@@ -65,17 +65,20 @@ describe('SolvePage', () => {
     expect(screen.queryByText(/\$O\(n\)\$/)).not.toBeInTheDocument()
   })
 
-  // 계약에서 이 둘만 이름에 Markdown이 없다(Statement.tsx 주석). 그래서 `$...$`가 수식이
-  // 아니라 글자로 남는 것이 지금 정한 동작이다 — 관리자가 입력 형식에 수식을 쓰고 싶다면
-  // 계약을 고쳐야 한다. 이 단언이 그 결정을 붙들고 있다(PlainText를 Markdown으로 바꾸면 깨진다).
-  it('입출력 형식은 평문으로 보여 준다', async () => {
-    const container = renderSolve()
+  // 입출력 형식도 Markdown과 수식이다 (#121). 입력 범위를 `$2 \\le N \\le 10^5$`처럼
+  // 쓸 수 있어야 한다. 절 안에서 보는 이유는 지문에도 수식이 있어서다 — 화면 전체로 보면
+  // 입력 형식을 평문으로 되돌려도 지문의 수식 때문에 통과한다.
+  it('입출력 형식도 수식으로 그린다', async () => {
+    renderSolve()
     await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
 
-    expect(screen.getByText(/N의 범위는 \$2 \\le N \\le 10\^5\$이다/)).toBeInTheDocument()
+    const input = screen.getByRole('heading', { level: 2, name: '입력' }).closest('section')
+    expect(input).not.toBeNull()
+    expect(input?.querySelector('.katex')).not.toBeNull()
+    // KaTeX는 MathML annotation에 원본 TeX를 함께 넣어 textContent에 \le가 남는다.
+    // 평문으로 되돌아갔는지는 $ 구분자로 가른다 — 수식으로 그려지면 $가 사라진다.
+    expect(input?.textContent).not.toContain('$')
     expect(screen.getByText(/두 위치를 오름차순으로 한 줄에 출력한다/)).toBeInTheDocument()
-    // 지문 쪽 수식은 그려지므로, 위 단언이 "KaTeX가 아예 안 돈다"로 통과하지 않는다.
-    expect(container.querySelector('.katex')).not.toBeNull()
   })
 
   it('예제를 클립보드로 복사한다', async () => {
