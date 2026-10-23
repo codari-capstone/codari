@@ -360,6 +360,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/submissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 코드 제출 (SOLVE-09)
+         * @description 제출을 채점 대기(`QUEUED`)로 저장하고 바로 답한다. 채점 상태와 판정은 결과 조회(#30)로 확인한다.
+         *     문제의 지금 공개된 버전으로 채점한다. 제출할 때마다 새 제출로 저장해 시도 횟수를 센다.
+         *     오류 `code`: `SOURCE_EMPTY`(빈 코드 또는 공백뿐), `SOURCE_TOO_LONG`(UTF-8 기준 64KB 초과), `PROBLEM_NOT_FOUND`(없는 문제 또는 공개된 버전이 없는 문제),
+         *     `LANGUAGE_NOT_SUPPORTED`(지금 공개된 버전이 그 언어를 지원하지 않음. 열어 둔 화면 사이에 새 버전이 공개된 경우).
+         *     모르는 언어, NUL 문자가 든 코드는 `code` 없는 400이다.
+         *     요청 본문이 512KB를 넘으면 본문을 읽지 않고 413을 준다(모든 API 공통). 64KB 이내 코드는 JSON 이스케이프로 늘어나도 걸리지 않는다.
+         *     `Content-Length`를 밝히지 않는 요청(chunked)은 이 검사를 거치지 않는다(#14에서 다룬다).
+         */
+        post: operations["submitCode"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/concept-tags": {
         parameters: {
             query?: never;
@@ -400,6 +426,8 @@ export interface components {
         };
         /** @enum {string} */
         Difficulty: "EASY" | "MEDIUM" | "HARD";
+        /** @enum {string} */
+        Language: "PYTHON" | "CPP";
         /**
          * @description 내 풀이 상태 (LIST-01). 판정이 나온 채점 제출만 센다(예제 실행·채점 불가·채점 중인 제출은 세지 않는다).
          *     `SOLVED` 한 번이라도 맞음, `WRONG` 제출했지만 맞은 적 없음, `UNSOLVED` 제출 기록 없음.
@@ -434,7 +462,9 @@ export interface components {
             tags: components["schemas"]["ConceptTag"][];
             /** @description 지문. Markdown과 수식 */
             statementMarkdown: string;
+            /** @description 입력 형식. Markdown과 수식 */
             inputDescription: string;
+            /** @description 출력 형식. Markdown과 수식 */
             outputDescription: string;
             /** @description 제약 조건. 없으면 빈 문자열 */
             constraintsMarkdown: string;
@@ -448,8 +478,7 @@ export interface components {
             }[];
             /** @description 쓸 수 있는 언어. PYTHON, CPP 순서 */
             languages: {
-                /** @enum {string} */
-                language: "PYTHON" | "CPP";
+                language: components["schemas"]["Language"];
                 timeLimitMs: number;
                 memoryLimitMb: number;
                 /** @description 에디터의 시작 코드. 없으면 빈 문자열 */
@@ -944,6 +973,58 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["Problem"];
+        };
+    };
+    submitCode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: int64
+                     * @description 문제 목록·상세의 `id`
+                     */
+                    problemId: number;
+                    language: components["schemas"]["Language"];
+                    sourceCode: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 접수됨 */
+            202: {
+                headers: {
+                    /** @description 이 제출의 결과 조회 경로 */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * Format: int64
+                         * @description 제출 번호
+                         */
+                        id: number;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["Problem"];
+            /** @description 요청 본문이 512KB를 넘음 */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
         };
     };
     listConceptTags: {

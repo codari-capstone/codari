@@ -64,8 +64,8 @@
 - `title`: 문제 제목.
 - `difficulty`: 난이도. `EASY`, `MEDIUM`, `HARD` 중 하나다.
 - `statement_markdown`: 문제 지문. Markdown 형식으로 저장한다.
-- `input_description`: 입력 형식 설명.
-- `output_description`: 출력 형식 설명.
+- `input_description`: 입력 형식 설명. 지문과 같은 Markdown 형식(수식 포함)으로 저장한다.
+- `output_description`: 출력 형식 설명. 지문과 같은 Markdown 형식(수식 포함)으로 저장한다.
 - `constraints_markdown`: 입력 범위 등 제약 조건 설명. 비어 있으면 빈 문자열을 저장한다.
 - `source_name` (비어도 됨): 문제 출처 이름.
 - `source_url` (비어도 됨): 원문 또는 출처 링크.
