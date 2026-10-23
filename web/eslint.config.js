@@ -38,6 +38,19 @@ export default tseslint.config(
     },
   },
 
+  // shadcn add로 받은 부품 (frontend-stack.md §4: 이 폴더에는 받은 부품만 둔다)
+  {
+    files: ['src/components/ui/**/*.{ts,tsx}'],
+    rules: {
+      // 생성 코드가 컴포넌트와 cva variants를 함께 내보내서 이 규칙이 늘 걸린다
+      // (button의 buttonVariants, tabs의 tabsListVariants — 둘 다 우리는 쓰지 않는다).
+      // 고쳐도 다음 `shadcn add`에 되돌아오므로, 우리가 지킬 수 없는 경고를 띄우지 않는다.
+      // 규칙의 대상은 우리가 직접 만든 컴포넌트다. 이 폴더 파일을 직접 고칠 일이 생기면
+      // 그 파일의 HMR 문제도 함께 가려지는 것이 비용이다.
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+
   // Hook 규칙. react-hooks 7은 configs['recommended-latest']가 구형(eslintrc) 형식이고,
   // flat config는 configs.flat 아래에 들어 있다.
   {

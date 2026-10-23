@@ -161,6 +161,37 @@ describe('MSW 문제 목록 핸들러', () => {
   })
 })
 
+describe('MSW 문제 상세 핸들러', () => {
+  it('목록과 같은 제목·난이도·태그를 준다', async () => {
+    const { data } = await api.GET('/api/problems/{id}', { params: { path: { id: 1 } } })
+
+    const summary = problems.find((item) => item.id === 1)
+    expect(data).toMatchObject({
+      id: 1,
+      title: summary?.title,
+      difficulty: summary?.difficulty,
+      tags: summary?.tags,
+    })
+  })
+
+  it('없는 번호는 404 PROBLEM_NOT_FOUND다', async () => {
+    const { response, error } = await api.GET('/api/problems/{id}', {
+      params: { path: { id: 9999 } },
+    })
+
+    expect(response.status).toBe(404)
+    expect(error).toMatchObject({ code: 'PROBLEM_NOT_FOUND' })
+  })
+
+  // 서버는 `long id`가 바인딩에 실패해 400을 준다. 타입이 붙은 클라이언트로는 보낼 수
+  // 없는 요청이라 주소를 직접 만든다 — 주소는 사용자가 손으로 고칠 수 있다.
+  it('정수가 아닌 id는 400이다', async () => {
+    const response = await fetch(`${window.location.origin}/api/problems/abc`)
+
+    expect(response.status).toBe(400)
+  })
+})
+
 describe('MSW 인증 핸들러', () => {
   it('세션 쿠키가 비어 있으면 /api/me가 401이다', async () => {
     // MSW에 쿠키 항아리를 비우는 공개 API가 없어 헤더 쿠키가 결정적인 수단이다. 헤더로 보낸 쿠키가

@@ -110,7 +110,7 @@ Tailwind는 `p-4 text-sm bg-red-50`처럼 미리 정해진 클래스를 조합�
 
 #### 부품을 받을지, 직접 만들지
 
-`src/components/ui/`에는 `shadcn add`로 받은 부품만 둔다(지금 `button`·`input`·`table`·`dropdown-menu`·`skeleton`). 그 부품을 조합해 만드는 화면 조각은 `src/components/`나 기능 폴더에 직접 만든다(`EmptyState`, `ErrorState`, `ListSkeleton`, `ThemeToggle`, `features/problems/ProblemPagination`).
+`src/components/ui/`에는 `shadcn add`로 받은 부품만 둔다(지금 `button`·`input`·`table`·`dropdown-menu`·`skeleton`·`tabs`). 그 부품을 조합해 만드는 화면 조각은 `src/components/`나 기능 폴더에 직접 만든다(`EmptyState`, `ErrorState`, `ListSkeleton`, `ThemeToggle`, `features/problems/ProblemPagination`).
 
 shadcn에 같은 이름의 부품이 있어도 받지 않는 경우가 있다. 기준은 둘이다.
 
@@ -118,6 +118,8 @@ shadcn에 같은 이름의 부품이 있어도 받지 않는 경우가 있다. �
 2. **주소나 상태를 만드는 규칙이 화면에 있어야 하면 직접 만든다.** 예로 shadcn의 `pagination`은 `<a href>`로 페이지를 옮기는데, 문제 목록의 주소는 페이지만이 아니라 검색어·난이도·태그·풀이 상태·정렬을 함께 담고, 필터가 바뀌면 1페이지로 돌아가야 한다(`features/problems/problemListParams.ts`). 부품이 href를 만들면 그 규칙이 두 곳으로 나뉘어, 한쪽만 고쳐도 조용히 어긋난다. 그래서 `ProblemPagination`은 `Button`으로 만들고 어느 페이지로 가는지는 콜백으로 화면에 올린다.
 
 직접 만들 때도 색·간격·포커스 모양은 `components/ui/`의 부품을 거쳐 쓴다. 받은 부품을 고친 뒤에는 `npm run format`을 돌린다 — 생성 코드가 쌍따옴표를 쓴다.
+
+받은 부품은 ESLint의 `react-refresh/only-export-components` 규칙에서 빼 둔다(`eslint.config.js`). 생성 코드가 컴포넌트와 함께 cva variants(`buttonVariants`·`tabsListVariants`)를 내보내 규칙이 늘 걸리는데, 지워도 다음 `shadcn add`에 되돌아온다. 이 규칙은 우리가 직접 만든 컴포넌트를 대상으로 둔다.
 
 ### React Hook Form + Zod
 

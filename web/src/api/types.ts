@@ -19,6 +19,14 @@ export type ConceptTag = components['schemas']['ConceptTag']
 export type ProblemSummary = components['schemas']['ProblemSummary']
 export type ProblemPage = components['schemas']['ProblemPage']
 
+/**
+ * 문제 상세 (SOLVE-01~04·06).
+ *
+ * 계약에서 이 이름은 `ProblemDetailView`다. `ProblemDetail`은 RFC 9457 오류 본문 쪽
+ * 이름이고(constants/errors.ts의 같은 이름이 그쪽이다), 둘은 아무 관계가 없다.
+ */
+export type ProblemDetailView = components['schemas']['ProblemDetailView']
+
 /** 목록 조회 쿼리. toQuery와 목 테스트가 이 타입에 맞춘다. */
 export type ProblemListQuery = NonNullable<operations['listProblems']['parameters']['query']>
 
