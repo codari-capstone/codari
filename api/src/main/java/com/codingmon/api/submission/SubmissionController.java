@@ -10,6 +10,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -66,5 +68,12 @@ class SubmissionController {
                 SubmissionRepository.Kind.SUBMIT, body.language(), source);
         events.publishEvent(new SubmissionQueued(id));
         return ResponseEntity.accepted().location(URI.create("/api/submissions/" + id)).body(Map.of("id", id));
+    }
+
+    // 채점 상태·결과(RES-01~06). 화면이 채점이 끝날 때까지 주기적으로 부른다.
+    @GetMapping("/{id}")
+    SubmissionRepository.SubmissionResult result(@PathVariable long id, @AuthenticationPrincipal Jwt jwt) {
+        return submissions.findResult(Long.parseLong(jwt.getSubject()), id)
+                .orElseThrow(() -> ApiErrors.error(HttpStatus.NOT_FOUND, "SUBMISSION_NOT_FOUND", "제출을 찾을 수 없어요"));
     }
 }
