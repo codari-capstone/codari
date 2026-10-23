@@ -37,11 +37,14 @@ describe('ProblemFilters', () => {
     vi.restoreAllMocks()
   })
 
-  it('난이도 선택지를 보여 준다', () => {
+  // 순서까지 본다. DIFFICULTIES를 DIFFICULTY_RANK에서 뽑으므로(api/types.ts) 이 줄이
+  // 쉬움→보통→어려움을 고정하는 유일한 자리다. 어긋나면 사용자가 보는 순서가 뒤집힌다.
+  it('난이도 선택지를 쉬움부터 보여 준다', () => {
     renderFilters()
 
-    expect(screen.getByRole('checkbox', { name: '쉬움' })).toBeInTheDocument()
-    expect(screen.getByRole('checkbox', { name: '어려움' })).toBeInTheDocument()
+    // 태그가 아직 안 와서 이 시점의 체크박스는 난이도 셋뿐이다. 이름은 label 안의 글이다.
+    const names = screen.getAllByRole('checkbox').map((box) => box.closest('label')?.textContent)
+    expect(names).toEqual(['쉬움', '보통', '어려움'])
   })
 
   it('개념 태그를 서버에서 받아 보여 준다', async () => {

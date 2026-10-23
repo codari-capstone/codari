@@ -1,4 +1,4 @@
-import type { ConceptTag, ProblemSummary } from '@/api/provisional'
+import type { ConceptTag, ProblemSummary } from '@/api/types'
 
 export const conceptTags: ConceptTag[] = [
   { slug: 'array', name: '배열' },

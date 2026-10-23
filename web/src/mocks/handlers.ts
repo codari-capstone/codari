@@ -1,11 +1,7 @@
 import { http, HttpResponse, type RequestHandler } from 'msw'
 
-import {
-  DIFFICULTY_RANK,
-  type Difficulty,
-  type LoginRequest,
-  type SolveStatus,
-} from '@/api/provisional'
+import type { LoginRequest } from '@/api/provisional'
+import { DIFFICULTY_RANK, type Difficulty, type SolveStatus } from '@/api/types'
 import { EMAIL_PATTERN, isValidNickname, isValidPassword } from '@/features/auth/accountRules'
 import {
   invalidateToken,

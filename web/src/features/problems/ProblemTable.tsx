@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react'
 import { Link } from 'react-router'
 
-import type { ProblemSummary } from '@/api/provisional'
+import type { ProblemSummary } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import {
   Table,
