@@ -386,6 +386,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/submissions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 채점 상태·결과 (RES-01~06)
+         * @description 화면은 `status`가 `COMPLETED`나 `JUDGE_ERROR`가 될 때까지 주기적으로 부른다(폴링).
+         *     로그인한 본인의 채점 제출만 볼 수 있다. 남의 제출·없는 제출·예제 실행은 모두 404 `SUBMISSION_NOT_FOUND`다. 번호를 바꿔 물어도 그 번호의 제출이 있는지 드러나지 않는다.
+         *     비공개 테스트의 입력·출력과 몇 번째 테스트에서 틀렸는지는 주지 않는다. 진행률만 준다.
+         *     판정과 런타임 에러 종류의 쉬운 설명은 화면이 가진다(`docs/AI_FEATURES.md` 10절).
+         */
+        get: operations["getSubmissionResult"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/concept-tags": {
         parameters: {
             query?: never;
@@ -492,6 +515,50 @@ export interface components {
              * @description 페이지와 상관없이 조건에 맞는 문제 수
              */
             totalElements: number;
+        };
+        SubmissionResult: {
+            /**
+             * Format: int64
+             * @description 제출 번호
+             */
+            id: number;
+            /** Format: int64 */
+            problemId: number;
+            /** @description 제출한 때 공개돼 있던 버전의 제목 */
+            problemTitle: string;
+            language: components["schemas"]["Language"];
+            /**
+             * @description `QUEUED` 기다리는 중, `COMPILING` 채점 준비 중, `RUNNING` 채점 중(`progress` %), `COMPLETED` 판정이 남, `JUDGE_ERROR` 채점 불가.
+             *     채점 불가는 서버 문제라 `verdict`가 null이고 시도 횟수에 넣지 않는다(RES-06).
+             * @enum {string}
+             */
+            status: "QUEUED" | "COMPILING" | "RUNNING" | "COMPLETED" | "JUDGE_ERROR";
+            progress: number;
+            /**
+             * @description `COMPLETED`일 때만 있다
+             * @enum {string|null}
+             */
+            verdict: "ACCEPTED" | "PRESENTATION_ERROR" | "WRONG_ANSWER" | "TIME_LIMIT_EXCEEDED" | "MEMORY_LIMIT_EXCEEDED" | "OUTPUT_LIMIT_EXCEEDED" | "RUNTIME_ERROR" | "COMPILE_ERROR" | null;
+            /**
+             * @description `verdict`가 `RUNTIME_ERROR`일 때만 있다. 값은 `docs/judge-verdict-mapping.md` 4절
+             * @enum {string|null}
+             */
+            runtimeErrorType: "INDEX_ERROR" | "ZERO_DIVISION" | "VALUE_ERROR" | "NAME_ERROR" | "TYPE_ERROR" | "RECURSION_ERROR" | "EOF_ERROR" | "OTHER" | null;
+            /**
+             * @description 런타임 에러를 낸 테스트가 공개 예제일 때만 있는 에러 원문(줄 번호 포함, RES-04). 비공개 테스트에서 났으면 null이고 종류만 보여 준다.
+             *     C++ Segfault처럼 원문이 없으면 null이다. 학생 코드가 만든 문자열이라 글자 그대로 보여 준다(HTML로 렌더링하지 않는다).
+             */
+            runtimeErrorMessage: string | null;
+            /** @description `verdict`가 `COMPILE_ERROR`일 때 줄 번호가 든 메시지(RES-05). 글자 그대로 보여 준다 */
+            compilerMessage: string | null;
+            /** @description 판정이 난 테스트 중 가장 긴 실행 시간. 컴파일 에러·채점 불가면 null */
+            executionTimeMs: number | null;
+            /** @description 판정이 난 테스트 중 가장 큰 메모리. 컴파일 에러·채점 불가면 null */
+            memoryUsedKb: number | null;
+            /** Format: date-time */
+            submittedAt: string;
+            /** Format: date-time */
+            judgedAt: string | null;
         };
         AccessTokenResponse: {
             accessToken: string;
@@ -1025,6 +1092,32 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+        };
+    };
+    getSubmissionResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 제출 응답의 `id` */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 지금 상태. 채점이 끝나지 않았으면 판정·시간·메모리는 null이다 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmissionResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["Problem"];
         };
     };
     listConceptTags: {
