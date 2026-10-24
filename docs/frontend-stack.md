@@ -110,7 +110,7 @@ Tailwind는 `p-4 text-sm bg-red-50`처럼 미리 정해진 클래스를 조합�
 
 #### 부품을 받을지, 직접 만들지
 
-`src/components/ui/`에는 `shadcn add`로 받은 부품만 둔다(지금 `button`·`input`·`table`·`dropdown-menu`·`skeleton`·`tabs`). 그 부품을 조합해 만드는 화면 조각은 `src/components/`나 기능 폴더에 직접 만든다(`EmptyState`, `ErrorState`, `ListSkeleton`, `ThemeToggle`, `features/problems/ProblemPagination`).
+`src/components/ui/`에는 `shadcn add`로 받은 부품만 둔다(지금 `button`·`input`·`table`·`dropdown-menu`·`skeleton`·`tabs`·`alert-dialog`). 그 부품을 조합해 만드는 화면 조각은 `src/components/`나 기능 폴더에 직접 만든다(`EmptyState`, `ErrorState`, `ListSkeleton`, `ThemeToggle`, `features/problems/ProblemPagination`).
 
 shadcn에 같은 이름의 부품이 있어도 받지 않는 경우가 있다. 기준은 둘이다.
 

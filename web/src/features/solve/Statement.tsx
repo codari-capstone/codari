@@ -5,19 +5,35 @@ import { Markdown } from '@/components/Markdown'
 function Source({ problem }: { problem: ProblemDetailView }) {
   const { sourceName, sourceUrl, license, versionNo } = problem
 
+  // 지문 안 링크는 react-markdown이 scheme을 걸러 주지만(기본 urlTransform) 이 링크는
+  // 우리가 직접 만든다. rehype-raw를 거절한 것과 같은 이유로 scheme을 본다
+  // (Markdown.tsx 주석) — `javascript:` 출처 하나로 그 지문을 여는 모두가 당한다.
+  // 계약의 `sourceName`은 길이 제한이 없는 문자열이다. 빈 문자열이면 없는 것으로 본다 —
+  // `??`로 흘려보내면 '출처: ' 뒤에 글자 없는 링크만 남아, 눈으로도 스크린 리더로도
+  // 가리킬 것이 없다.
+  const name = sourceName?.trim() ? sourceName : null
+  const href =
+    sourceUrl && (sourceUrl.startsWith('https://') || sourceUrl.startsWith('http://'))
+      ? sourceUrl
+      : null
+
   return (
-    <footer className="text-muted-foreground border-border/60 flex flex-col gap-1 border-t pt-4 text-xs">
-      {/* 세 값 모두 null일 수 있다(계약). 없는 줄은 라벨만 남지 않게 아예 뺀다. */}
-      {sourceName ? (
+    <footer className="text-muted-foreground border-border/60 flex flex-col gap-1 border-t pt-4 text-xs [overflow-wrap:anywhere]">
+      {/*
+        세 값 모두 **따로** null일 수 있다(계약). 없는 줄은 라벨만 남지 않게 아예 뺀다.
+        이름이 없고 주소만 있으면 주소를 글자로 쓴다 — 출처를 아예 숨기면 라이선스 표기
+        의무를 지킬 수 없다.
+      */}
+      {name || sourceUrl ? (
         <p>
           출처:{' '}
-          {sourceUrl ? (
+          {href ? (
             // 출처는 외부 사이트다. 새 탭으로 열고 referrer를 보내지 않는다.
-            <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">
-              {sourceName}
+            <a href={href} target="_blank" rel="noreferrer" className="text-primary underline">
+              {name ?? href}
             </a>
           ) : (
-            sourceName
+            (name ?? sourceUrl)
           )}
         </p>
       ) : null}

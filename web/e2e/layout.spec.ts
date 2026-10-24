@@ -4,7 +4,7 @@ test('상단 내비게이션이 보이고 공개 메뉴로 이동한다', async 
   // 문제 목록이 아닌 곳에서 출발해야 클릭이 아무 일도 안 해도 통과하는 일이 없다.
   await page.goto('/login')
   await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
-  await expect(page.getByRole('link', { name: 'Codari' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Codingmon' })).toBeVisible()
 
   await page
     .getByRole('navigation', { name: '주요 메뉴' })
@@ -114,7 +114,7 @@ for (const width of [320, 390, 430, 768]) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/problems')
 
-    await expect(page.getByRole('link', { name: 'Codari' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Codingmon' })).toBeVisible()
 
     const measured = await page.evaluate(() => {
       const nav = document.querySelector('header nav')

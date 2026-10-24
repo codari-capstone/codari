@@ -3,9 +3,10 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
 import { server } from '@/mocks/server'
+import { readSavedCode, storeSavedCode } from '@/features/solve/savedCode'
 import { ME_QUERY_KEY } from './authQuery'
 import { useAuth } from './useAuth'
 import { useLogout } from './useLogout'
@@ -73,6 +74,10 @@ function renderLogoutWithSessionLabel() {
 }
 
 describe('useLogout', () => {
+  afterEach(() => {
+    localStorage.clear()
+  })
+
   it('문제 목록으로 이동한다 (COM-03)', async () => {
     const user = userEvent.setup()
     renderLogout()
@@ -92,6 +97,24 @@ describe('useLogout', () => {
     // ['me']만 지우면 목록의 풀이 상태·제출 기록이 이전 사용자 것으로 남는다.
     expect(client.getQueryData(ME_QUERY_KEY)).toBeUndefined()
     expect(client.getQueryData(['problems', {}])).toBeUndefined()
+  })
+
+  /**
+   * 캐시만 비우면 공용 컴퓨터에서 로그아웃한 사람의 풀이 코드가 디스크에 남는다.
+   * 로그아웃은 "이 사람의 데이터를 전부 잊는다"는 뜻이다 (useLogout 주석).
+   */
+  it('브라우저에 저장한 풀이 코드까지 지운다 (SOLVE-11)', async () => {
+    const user = userEvent.setup()
+    storeSavedCode(1, 1, 'PYTHON', 'print(1)')
+    localStorage.setItem('codari-theme', 'dark')
+    renderLogout()
+
+    await user.click(screen.getByRole('button', { name: '로그아웃' }))
+    await screen.findByRole('heading', { name: '문제 목록 도착' })
+
+    expect(readSavedCode(1, 1, 'PYTHON')).toBeNull()
+    // 테마는 사람이 아니라 이 기기의 보기 설정이라 남긴다.
+    expect(localStorage.getItem('codari-theme')).toBe('dark')
   })
 
   it('로그아웃 요청이 실패해도 로컬 세션을 버리고 이동한다', async () => {

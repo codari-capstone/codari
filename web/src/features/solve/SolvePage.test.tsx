@@ -1,23 +1,42 @@
-import { QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen } from '@testing-library/react'
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/app/queryClient'
+import { ThemeProvider } from '@/app/ThemeProvider'
+import { ME_QUERY_KEY } from '@/features/auth/authQuery'
+import { problemDetails } from '@/mocks/fixtures/problemDetails'
 import { server } from '@/mocks/server'
 import { Component as SolvePage } from './SolvePage'
+
+/**
+ * 이 화면은 RequireAuth 뒤에 있다. 임시 저장 키에 사용자가 들어가므로(savedCode)
+ * 세션을 심지 않으면 저장이 통째로 건너뛰어지고, SOLVE-11 테스트가 공짜로 통과한다.
+ */
+const USER = { id: 1, nickname: '코다리', role: 'USER' } as const
+
+/** 마지막으로 렌더한 트리의 쿼리 클라이언트. 재조회를 일으키는 테스트가 쓴다. */
+let lastClient: QueryClient
+let lastRouter: ReturnType<typeof createMemoryRouter>
 
 function renderSolve(url = '/problems/1') {
   const router = createMemoryRouter([{ path: '/problems/:id', Component: SolvePage }], {
     initialEntries: [url],
   })
+  const client = createQueryClient()
+  client.setQueryData(ME_QUERY_KEY, USER)
+  lastClient = client
+  lastRouter = router
 
   const { container } = render(
-    <QueryClientProvider client={createQueryClient()}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <ThemeProvider>
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>,
   )
 
   return container
@@ -45,6 +64,8 @@ function asWide() {
 describe('SolvePage', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    // SOLVE-11이 localStorage에 쓴다. 테스트 사이에 남으면 다음 테스트가 그 코드로 열린다.
+    localStorage.clear()
   })
 
   it('제목·난이도·제한을 보여 준다', async () => {
@@ -52,8 +73,317 @@ describe('SolvePage', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: '두 수의 합' })).toBeInTheDocument()
     expect(screen.getByText('쉬움')).toBeInTheDocument()
-    // 제한은 첫 언어(계약이 보장하는 PYTHON)의 값이다. 언어 선택은 SOLVE-04(2차)다.
+    // 고른 것이 없으면 첫 언어(계약이 보장하는 PYTHON)의 제한이다.
     expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument()
+  })
+
+  describe('코드 임시 저장 (SOLVE-11)', () => {
+    const editorHas = (text: string) =>
+      waitFor(() =>
+        expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(text),
+      )
+
+    it('새로고침해도 저장된 코드로 열린다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 쓰다 만 코드')
+      await editorHas('# 쓰다 만 코드')
+
+      // 새로고침은 재마운트와 같다. state는 사라지고 저장소만 남는다.
+      cleanup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await editorHas('# 쓰다 만 코드')
+    })
+
+    it('언어별로 따로 저장한다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 파이썬으로 쓴 것')
+      await editorHas('# 파이썬으로 쓴 것')
+
+      cleanup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+
+      // Python 저장이 C++ 자리에 열리면 컴파일조차 안 되는 코드를 받는다.
+      await editorHas('ios::sync_with_stdio(false);')
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).not.toHaveTextContent(
+        '# 파이썬으로 쓴 것',
+      )
+    })
+
+    it('시작 코드를 불러오면 저장도 함께 바뀐다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 버릴 코드')
+      await editorHas('# 버릴 코드')
+
+      await user.click(screen.getByRole('button', { name: '시작 코드 불러오기' }))
+      await user.click(screen.getByRole('button', { name: '불러오기' }))
+      await editorHas('sys.stdin.read()')
+
+      cleanup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      // 저장을 같이 갈지 않으면 새로고침에 방금 버린 코드가 돌아온다.
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).not.toHaveTextContent(
+        '# 버릴 코드',
+      )
+    })
+
+    it('저장소가 막혀 있어도 시작 코드로 열린다', async () => {
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('denied')
+      })
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('denied')
+      })
+      renderSolve()
+
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      await editorHas('sys.stdin.read()')
+    })
+  })
+
+  /**
+   * 리뷰에서 나온 두 건이다. 둘 다 다시 받은 데이터·캐시에 달려 있어 화면 전체로만 보인다.
+   */
+  describe('데이터가 바뀌는 경우', () => {
+    it('문제를 바꾸면 이전 문제의 코드가 남지 않는다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 1번 문제 코드')
+      await waitFor(() =>
+        expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(
+          '# 1번 문제 코드',
+        ),
+      )
+
+      // 라우터 안에서 이동해야 고친 경로를 지난다. 캐시가 있어 isPending을 거치지
+      // 않으면 같은 route Component가 재사용돼 Workspace가 다시 마운트되지 않는다.
+      // cleanup 뒤 새로 렌더하면 어차피 새 인스턴스라 이 결함을 비켜 간다.
+      lastClient.setQueryData(['problem', 2], problemDetails[1])
+      await act(() => lastRouter.navigate('/problems/2'))
+      await screen.findByRole('heading', { level: 1, name: '문자열 뒤집기' })
+
+      // 남아 있으면 다음 입력에서 2번의 저장소를 1번 코드로 덮어쓴다.
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).not.toHaveTextContent(
+        '# 1번 문제 코드',
+      )
+    })
+
+    it('고른 언어가 지원 목록에서 빠지면 첫 언어로 돌아간다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+      expect(screen.getByText('C++ · 1초 · 256MB')).toBeInTheDocument()
+
+      // 같은 Workspace가 붙어 있는 채로 데이터만 바뀌어야 고친 경로를 지난다.
+      // 다시 렌더하면 chosen도 초기화돼 이 결함을 비켜 간다.
+      server.use(
+        http.get('*/api/problems/1', () =>
+          HttpResponse.json({
+            ...problemDetails[0],
+            languages: [problemDetails[0].languages[0]],
+          }),
+        ),
+      )
+      await act(() => lastClient.invalidateQueries({ queryKey: ['problem', 1] }))
+
+      // 에디터와 언어 선택이 함께 사라지면 사용자는 새로고침 없이 지원되는 언어로
+      // 돌아갈 길이 없다.
+      await waitFor(() => expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument())
+      expect(screen.getByRole('radio', { name: 'Python' })).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).toBeInTheDocument()
+      expect(screen.queryByRole('radio', { name: 'C++' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('입문자 안내 (SOLVE-07)', () => {
+    const summary = (label: string) =>
+      screen.getByText(`처음이신가요? ${label}로 표준 입력 읽는 법`)
+
+    it('처음에는 접혀 있고 펼치면 그 언어의 예시가 보인다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      // 아는 사람에게는 화면을 가리는 덩어리다. 제목만 두고 접어 둔다.
+      expect(screen.getByText(/sys\.stdin\.readline/)).not.toBeVisible()
+
+      await user.click(summary('Python'))
+
+      expect(screen.getByText(/sys\.stdin\.readline/)).toBeVisible()
+      expect(screen.getByText(/채점은 여기 찍힌 글자만 봅니다/)).toBeVisible()
+    })
+
+    it('언어를 바꾸면 안내도 그 언어의 것으로 바뀐다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+
+      // Python 예시가 남아 있으면 C++로 푸는 사람에게 틀린 안내를 준다.
+      expect(summary('C++')).toBeInTheDocument()
+      // 에디터에 열린 C++ 시작 코드에도 sync_with_stdio가 있다. 안내 쪽 문구로 가른다.
+      expect(screen.getByText(/C 입출력과의 동기화를 끊어/)).toBeInTheDocument()
+      expect(screen.queryByText(/sys\.stdin\.readline/)).not.toBeInTheDocument()
+    })
+  })
+
+  describe('시작 코드 불러오기 (SOLVE-06)', () => {
+    /** @uiw는 타이핑 직후 들어온 외부 value를 200ms 미뤄 둔다(CodeEditor 쪽 주석). */
+    const hasCode = (text: string) =>
+      waitFor(() =>
+        expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(text),
+      )
+
+    it('작성 중인 코드가 없으면 묻지 않고 바로 넣는다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      // 시작 코드로 열려 있으니 잃을 것이 없다. 아무것도 안 지우는 확인창을 띄우면
+      // 사용자가 확인을 읽지 않게 길들인다.
+      await user.click(screen.getByRole('button', { name: '시작 코드 불러오기' }))
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      await hasCode('sys.stdin.read()')
+    })
+
+    it('작성 중인 코드가 있으면 확인을 받고 덮어쓴다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 내가 쓴 코드')
+      await hasCode('# 내가 쓴 코드')
+
+      await user.click(screen.getByRole('button', { name: '시작 코드 불러오기' }))
+      expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: '불러오기' }))
+
+      await waitFor(() =>
+        expect(screen.getByRole('textbox', { name: '코드 편집기' })).not.toHaveTextContent(
+          '# 내가 쓴 코드',
+        ),
+      )
+      await hasCode('sys.stdin.read()')
+    })
+
+    /**
+     * 확인을 확정하면 `drafted`가 false로 바뀐다. 버튼을 경우마다 따로 그리면 Radix가
+     * 초점을 돌려줄 트리거가 DOM에서 사라져 초점이 body로 떨어지고, 키보드 사용자는
+     * 처음부터 다시 Tab해야 한다.
+     */
+    it('덮어쓰기를 확정한 뒤에도 초점이 버튼으로 돌아온다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 버릴 코드')
+      await hasCode('# 버릴 코드')
+
+      const trigger = screen.getByRole('button', { name: '시작 코드 불러오기' })
+      await user.click(trigger)
+      await user.click(screen.getByRole('button', { name: '불러오기' }))
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '시작 코드 불러오기' })).toHaveFocus(),
+      )
+    })
+
+    it('확인창에서 취소하면 코드가 그대로다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 지우면 안 되는 코드')
+      await hasCode('# 지우면 안 되는 코드')
+
+      await user.click(screen.getByRole('button', { name: '시작 코드 불러오기' }))
+      await user.click(screen.getByRole('button', { name: '취소' }))
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      await hasCode('# 지우면 안 되는 코드')
+    })
+  })
+
+  describe('언어 선택 (SOLVE-04)', () => {
+    it('언어를 바꾸면 제한 표시도 함께 바뀐다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+
+      // Python이 느려서 제한이 두 배다. 바뀌지 않으면 제출 전에 잘못된 제한을 보고 푼다.
+      expect(screen.getByText('C++ · 1초 · 256MB')).toBeInTheDocument()
+      expect(screen.queryByText('Python · 2초 · 256MB')).not.toBeInTheDocument()
+    })
+
+    it('문제가 주는 언어만 띄운다', async () => {
+      server.use(
+        http.get('*/api/problems/1', () =>
+          HttpResponse.json({
+            ...problemDetails[0],
+            languages: [problemDetails[0].languages[0]],
+          }),
+        ),
+      )
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      expect(screen.getByRole('radio', { name: 'Python' })).toBeInTheDocument()
+      // 계약의 `languages`는 그 버전이 지원하는 목록이다. 없는 언어로 제출하면 서버가
+      // LANGUAGE_NOT_SUPPORTED로 거절한다 — 고를 수 있게 두면 안 된다.
+      expect(screen.queryByRole('radio', { name: 'C++' })).not.toBeInTheDocument()
+    })
+
+    it('언어를 바꿨다 돌아오면 그 언어에 쓴 코드가 남아 있다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      const editor = screen.getByRole('textbox', { name: '코드 편집기' })
+      await user.click(editor)
+      await user.keyboard('# 내가 쓴 Python')
+      expect(editor).toHaveTextContent('# 내가 쓴 Python')
+
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+      // 손대지 않은 언어는 그 언어의 시작 코드로 연다 (SOLVE-06).
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(
+        'ios::sync_with_stdio(false);',
+      )
+
+      await user.click(screen.getByRole('radio', { name: 'Python' }))
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(
+        '# 내가 쓴 Python',
+      )
+    })
   })
 
   it('지문의 수식을 KaTeX로 그린다', async () => {
@@ -149,6 +479,61 @@ describe('SolvePage', () => {
     expect(screen.getByText('문제 버전: v2')).toBeInTheDocument()
   })
 
+  /**
+   * 계약은 `sourceName`과 `sourceUrl`을 따로 null 허용한다.
+   *
+   * 조건이 이름만 보고 있어서 이 조합에서 출처 줄이 통째로 사라졌다. 출처를 숨기면
+   * 라이선스 표기 의무를 지킬 수 없다 — 주소라도 보여야 한다.
+   */
+  it('출처 이름이 없고 주소만 있으면 주소를 링크로 보여 준다', async () => {
+    renderSolve('/problems/4')
+    await screen.findByRole('heading', { level: 1, name: '애너그램 묶기' })
+
+    const source = screen.getByRole('link', {
+      name: 'https://leetcode.com/problems/group-anagrams/',
+    })
+    expect(source).toHaveAttribute('href', 'https://leetcode.com/problems/group-anagrams/')
+  })
+
+  /**
+   * 출처 주소는 관리자가 넣는 값이고, 이 링크만은 우리가 직접 만든다
+   * (지문 안 링크는 react-markdown이 scheme을 걸러 준다).
+   */
+  it('http가 아닌 출처 주소는 링크로 만들지 않는다', async () => {
+    server.use(
+      http.get('*/api/problems/1', () =>
+        HttpResponse.json({
+          ...problemDetails[0],
+          sourceName: '수상한 출처',
+          sourceUrl: 'javascript:alert(1)',
+        }),
+      ),
+    )
+    renderSolve()
+    await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+    expect(screen.getByText('출처: 수상한 출처')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '수상한 출처' })).not.toBeInTheDocument()
+  })
+
+  /** 계약의 `sourceName`은 길이 제한이 없다. 빈 문자열이면 없는 것으로 봐야 한다. */
+  it('출처 이름이 빈 문자열이면 주소를 글자로 쓴다', async () => {
+    server.use(
+      http.get('*/api/problems/1', () =>
+        HttpResponse.json({
+          ...problemDetails[0],
+          sourceName: '   ',
+          sourceUrl: 'https://example.com/p/1',
+        }),
+      ),
+    )
+    renderSolve()
+    await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+    // 이름을 그대로 쓰면 '출처: ' 뒤에 글자 없는 링크만 남아 가리킬 것이 없다.
+    expect(screen.getByRole('link', { name: 'https://example.com/p/1' })).toBeInTheDocument()
+  })
+
   it('제약이 비어 있으면 제약 절을 그리지 않는다', async () => {
     renderSolve('/problems/2')
     await screen.findByRole('heading', { level: 1, name: '문자열 뒤집기' })
@@ -203,11 +588,16 @@ describe('SolvePage', () => {
       await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
 
       expect(screen.getByRole('tab', { name: '지문' })).toHaveAttribute('data-state', 'active')
-      expect(screen.queryByText('코드 에디터는 준비 중입니다.')).not.toBeInTheDocument()
+      // 에디터는 지문 탭에서도 DOM에 남아 있다 (forceMount). 그게 undo 이력을 살리는
+      // 방법이다 — SolvePage.tsx의 주석. jsdom에는 CSS가 없어 "안 보인다"까지는 못 보니,
+      // 실제로 가려지는지는 e2e가 잰다.
+      const editor = screen.getByRole('textbox', { name: '코드 편집기' })
+      expect(editor).toBeInTheDocument()
+      // 가리는 클래스가 물 자리. 이 속성이 없으면 지문 탭에서 에디터가 함께 보인다.
+      expect(editor.closest('[role="tabpanel"]')).toHaveAttribute('data-state', 'inactive')
 
       await user.click(screen.getByRole('tab', { name: '코드 작성' }))
 
-      expect(screen.getByText('코드 에디터는 준비 중입니다.')).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: '예제' })).not.toBeInTheDocument()
     })
 
@@ -218,7 +608,7 @@ describe('SolvePage', () => {
 
       expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
       expect(screen.getByRole('heading', { name: '예제' })).toBeInTheDocument()
-      expect(screen.getByText('코드 에디터는 준비 중입니다.')).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).toBeInTheDocument()
     })
   })
 })

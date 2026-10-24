@@ -58,7 +58,7 @@ describe('AppHeader', () => {
   it('로고와 메뉴 3개를 보여 준다', () => {
     renderHeader()
 
-    expect(screen.getByRole('link', { name: 'Codari' })).toHaveAttribute('href', '/problems')
+    expect(screen.getByRole('link', { name: 'Codingmon' })).toHaveAttribute('href', '/problems')
     expect(screen.getByRole('link', { name: '문제' })).toHaveAttribute('href', '/problems')
     expect(screen.getByRole('link', { name: '제출 기록' })).toHaveAttribute('href', '/submissions')
     expect(screen.getByRole('link', { name: '내 학습' })).toHaveAttribute('href', '/me/report')
