@@ -60,6 +60,39 @@ describe('SolvePage', () => {
     expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument()
   })
 
+  describe('입문자 안내 (SOLVE-07)', () => {
+    const summary = (label: string) =>
+      screen.getByText(`처음이신가요? ${label}로 표준 입력 읽는 법`)
+
+    it('처음에는 접혀 있고 펼치면 그 언어의 예시가 보인다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      // 아는 사람에게는 화면을 가리는 덩어리다. 제목만 두고 접어 둔다.
+      expect(screen.getByText(/sys\.stdin\.readline/)).not.toBeVisible()
+
+      await user.click(summary('Python'))
+
+      expect(screen.getByText(/sys\.stdin\.readline/)).toBeVisible()
+      expect(screen.getByText(/채점은 여기 찍힌 글자만 봅니다/)).toBeVisible()
+    })
+
+    it('언어를 바꾸면 안내도 그 언어의 것으로 바뀐다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+
+      // Python 예시가 남아 있으면 C++로 푸는 사람에게 틀린 안내를 준다.
+      expect(summary('C++')).toBeInTheDocument()
+      // 에디터에 열린 C++ 시작 코드에도 sync_with_stdio가 있다. 안내 쪽 문구로 가른다.
+      expect(screen.getByText(/C 입출력과의 동기화를 끊어/)).toBeInTheDocument()
+      expect(screen.queryByText(/sys\.stdin\.readline/)).not.toBeInTheDocument()
+    })
+  })
+
   describe('시작 코드 불러오기 (SOLVE-06)', () => {
     /** @uiw는 타이핑 직후 들어온 외부 value를 200ms 미뤄 둔다(CodeEditor 쪽 주석). */
     const hasCode = (text: string) =>

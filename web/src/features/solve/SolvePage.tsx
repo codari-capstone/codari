@@ -7,6 +7,7 @@ import { ErrorState } from '@/components/ErrorState'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DIFFICULTY_LABEL } from '@/features/problems/labels'
+import { BeginnerGuide } from './BeginnerGuide'
 import { CodeEditor } from './CodeEditor'
 import { LanguagePicker } from './LanguagePicker'
 import { formatTimeLimit, LANGUAGE_LABEL } from './labels'
@@ -122,6 +123,7 @@ export function Component() {
           value={codeByLanguage[language] ?? current.starterCode}
           onChange={(next) => setCodeByLanguage((prev) => ({ ...prev, [language]: next }))}
         />
+        <BeginnerGuide language={language} />
       </div>
     ) : null
 
