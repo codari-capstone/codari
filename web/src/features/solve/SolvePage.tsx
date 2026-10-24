@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 
 import type { Language, ProblemDetailView } from '@/api/types'
@@ -12,6 +12,7 @@ import { CodeEditor } from './CodeEditor'
 import { LanguagePicker } from './LanguagePicker'
 import { formatTimeLimit, LANGUAGE_LABEL } from './labels'
 import { Samples } from './Samples'
+import { readSavedCode, storeSavedCode } from './savedCode'
 import { parseProblemId, problemDetailQuery } from './solveQuery'
 import { StarterCodeButton } from './StarterCodeButton'
 import { Statement } from './Statement'
@@ -48,57 +49,52 @@ function Header({
   )
 }
 
-/** 문제 풀이 (SOLVE-01~03·10). */
-export function Component() {
-  const params = useParams()
-  const problemId = parseProblemId(params.id)
-  const { data, isPending, error, refetch } = useQuery({
-    ...problemDetailQuery(problemId ?? 0),
-    enabled: problemId !== null,
-  })
+/**
+ * 문제를 받은 뒤의 화면 (SOLVE-01~07·10·11).
+ *
+ * 상태를 들고 있는 쪽을 조기 반환 아래로 내렸다. 훅은 조기 반환보다 위에 있어야 하므로
+ * 한 컴포넌트에 두면 `language`가 정해진 뒤에는 메모를 걸 수 없다 — 저장된 코드를
+ * 언어가 바뀔 때만 읽으려면 이 자리가 필요하다.
+ */
+function Workspace({ problem }: { problem: ProblemDetailView }) {
   const wide = useWideLayout()
-  // 데이터가 오기 전에는 어느 언어가 있는지 모른다. 고르기 전까지 null로 두고 아래에서
-  // 첫 언어로 떨어뜨린다 — 훅은 조기 반환보다 위에 있어야 하기 때문이다.
+  // 계약은 PYTHON, CPP 순서를 보장한다. 고른 것이 없으면 첫 언어다.
   const [chosen, setChosen] = useState<Language | null>(null)
   // 언어별로 따로 들고 있는다. C++로 갔다 돌아왔을 때 Python 코드가 그대로 있어야 한다.
   const [codeByLanguage, setCodeByLanguage] = useState<Partial<Record<Language, string>>>({})
   // 밖에서 코드를 갈아끼운 횟수. 에디터 key에 들어간다 — 아래 CodeEditor 주석.
   const [generation, setGeneration] = useState(0)
 
-  // 주소를 손으로 고친 경우다. 요청을 보내지 않고 없는 문제와 같은 문구로 끝낸다
-  // (parseProblemId 주석). 화면 전체가 오류이므로 그 제목이 h1이다.
-  if (problemId === null) return <ErrorState problem={{ status: 404 }} headingLevel={1} />
-  if (error) {
-    return <ErrorState problem={error} headingLevel={1} onRetry={() => void refetch()} />
-  }
-  // 제목을 아직 모르지만 제목 없는 화면을 두지 않는다. 스크린 리더의 제목 탐색으로
-  // 잡을 것이 있어야 한다 (ProblemListPage는 h1을 늘 띄워 두고 그 아래를 갈아끼운다).
-  if (isPending || !data) {
-    return (
-      <section className="flex flex-col gap-4">
-        <h1 className="text-2xl font-semibold">문제 풀이</h1>
-        <ListSkeleton rows={8} />
-      </section>
-    )
-  }
+  const language = chosen ?? problem.languages[0]?.language
+  const current = problem.languages.find((it) => it.language === language)
 
-  // 계약은 PYTHON, CPP 순서를 보장한다. 고른 것이 없으면 첫 언어다.
-  const language = chosen ?? data.languages[0]?.language
-  const current = data.languages.find((it) => it.language === language)
+  /**
+   * 이 언어를 처음 열 때 들어갈 코드 (SOLVE-11 → SOLVE-06).
+   *
+   * 저장된 것이 있으면 그것, 없으면 시작 코드다. 렌더마다 읽지 않도록 언어로 묶는다 —
+   * 읽기가 싼 작업이어도 렌더 안에서 저장소를 건드리는 모양을 남기지 않는다.
+   */
+  const opening = useMemo(
+    () => (language && current ? (readSavedCode(problem.id, language) ?? current.starterCode) : ''),
+    [problem.id, language, current],
+  )
+
   const editor =
     language && current ? (
       <div className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-x-4">
           <LanguagePicker
-            languages={data.languages}
+            languages={problem.languages}
             value={language}
             onChange={(next) => setChosen(next)}
           />
           <StarterCodeButton
             starterCode={current.starterCode}
-            code={codeByLanguage[language] ?? current.starterCode}
+            code={codeByLanguage[language] ?? opening}
             onLoad={() => {
               setCodeByLanguage((prev) => ({ ...prev, [language]: current.starterCode }))
+              // 저장도 함께 지운다. 안 하면 새로고침에 방금 버린 코드가 돌아온다.
+              storeSavedCode(problem.id, language, current.starterCode)
               setGeneration((it) => it + 1)
             }}
           />
@@ -120,8 +116,13 @@ export function Component() {
         <CodeEditor
           key={`${language}:${generation}`}
           language={language}
-          value={codeByLanguage[language] ?? current.starterCode}
-          onChange={(next) => setCodeByLanguage((prev) => ({ ...prev, [language]: next }))}
+          value={codeByLanguage[language] ?? opening}
+          onChange={(next) => {
+            setCodeByLanguage((prev) => ({ ...prev, [language]: next }))
+            // shortcut: 입력마다 저장한다. 코드가 수십 KB로 커져 입력이 버벅이면
+            // 저장을 늦출 자리는 여기다. 지금은 잃는 글자가 없는 쪽을 택한다.
+            storeSavedCode(problem.id, language, next)
+          }}
         />
         <BeginnerGuide language={language} />
       </div>
@@ -129,14 +130,14 @@ export function Component() {
 
   const statement = (
     <div className="flex flex-col gap-6">
-      <Statement problem={data} />
-      <Samples samples={data.samples} />
+      <Statement problem={problem} />
+      <Samples samples={problem.samples} />
     </div>
   )
 
   return (
     <section className="flex flex-col gap-4">
-      <Header problem={data} current={current} />
+      <Header problem={problem} current={current} />
 
       {/* 넓은 화면은 좌우 분할, 좁은 화면은 탭 전환 (SOLVE-10). 가르는 이유는 useWideLayout 주석 */}
       {wide ? (
@@ -178,4 +179,33 @@ export function Component() {
       )}
     </section>
   )
+}
+
+/** 문제 풀이 (SOLVE-01~07·10·11). 주소를 읽고 문제를 받아 Workspace에 넘긴다. */
+export function Component() {
+  const params = useParams()
+  const problemId = parseProblemId(params.id)
+  const { data, isPending, error, refetch } = useQuery({
+    ...problemDetailQuery(problemId ?? 0),
+    enabled: problemId !== null,
+  })
+
+  // 주소를 손으로 고친 경우다. 요청을 보내지 않고 없는 문제와 같은 문구로 끝낸다
+  // (parseProblemId 주석). 화면 전체가 오류이므로 그 제목이 h1이다.
+  if (problemId === null) return <ErrorState problem={{ status: 404 }} headingLevel={1} />
+  if (error) {
+    return <ErrorState problem={error} headingLevel={1} onRetry={() => void refetch()} />
+  }
+  // 제목을 아직 모르지만 제목 없는 화면을 두지 않는다. 스크린 리더의 제목 탐색으로
+  // 잡을 것이 있어야 한다 (ProblemListPage는 h1을 늘 띄워 두고 그 아래를 갈아끼운다).
+  if (isPending || !data) {
+    return (
+      <section className="flex flex-col gap-4">
+        <h1 className="text-2xl font-semibold">문제 풀이</h1>
+        <ListSkeleton rows={8} />
+      </section>
+    )
+  }
+
+  return <Workspace problem={data} />
 }

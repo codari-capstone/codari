@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
@@ -49,6 +49,8 @@ function asWide() {
 describe('SolvePage', () => {
   afterEach(() => {
     vi.restoreAllMocks()
+    // SOLVE-11이 localStorage에 쓴다. 테스트 사이에 남으면 다음 테스트가 그 코드로 열린다.
+    localStorage.clear()
   })
 
   it('제목·난이도·제한을 보여 준다', async () => {
@@ -58,6 +60,87 @@ describe('SolvePage', () => {
     expect(screen.getByText('쉬움')).toBeInTheDocument()
     // 고른 것이 없으면 첫 언어(계약이 보장하는 PYTHON)의 제한이다.
     expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument()
+  })
+
+  describe('코드 임시 저장 (SOLVE-11)', () => {
+    const editorHas = (text: string) =>
+      waitFor(() =>
+        expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(text),
+      )
+
+    it('새로고침해도 저장된 코드로 열린다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 쓰다 만 코드')
+      await editorHas('# 쓰다 만 코드')
+
+      // 새로고침은 재마운트와 같다. state는 사라지고 저장소만 남는다.
+      cleanup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await editorHas('# 쓰다 만 코드')
+    })
+
+    it('언어별로 따로 저장한다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 파이썬으로 쓴 것')
+      await editorHas('# 파이썬으로 쓴 것')
+
+      cleanup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+
+      // Python 저장이 C++ 자리에 열리면 컴파일조차 안 되는 코드를 받는다.
+      await editorHas('ios::sync_with_stdio(false);')
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).not.toHaveTextContent(
+        '# 파이썬으로 쓴 것',
+      )
+    })
+
+    it('시작 코드를 불러오면 저장도 함께 바뀐다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 버릴 코드')
+      await editorHas('# 버릴 코드')
+
+      await user.click(screen.getByRole('button', { name: '시작 코드 불러오기' }))
+      await user.click(screen.getByRole('button', { name: '불러오기' }))
+      await editorHas('sys.stdin.read()')
+
+      cleanup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      // 저장을 같이 갈지 않으면 새로고침에 방금 버린 코드가 돌아온다.
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).not.toHaveTextContent(
+        '# 버릴 코드',
+      )
+    })
+
+    it('저장소가 막혀 있어도 시작 코드로 열린다', async () => {
+      vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('denied')
+      })
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('denied')
+      })
+      renderSolve()
+
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      await editorHas('sys.stdin.read()')
+    })
   })
 
   describe('입문자 안내 (SOLVE-07)', () => {

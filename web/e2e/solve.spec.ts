@@ -117,6 +117,30 @@ test.describe('문제 풀이 화면', () => {
   })
 
   /**
+   * 새로고침해도 코드가 남는지 (SOLVE-11).
+   *
+   * 단위 테스트는 재마운트로 새로고침을 흉내 내지만, 실제 새로고침은 번들을 다시 받고
+   * localStorage만 살아남는 과정이다. 저장 키나 읽는 시점이 틀리면 거기서만 드러난다.
+   */
+  test('새로고침해도 쓰던 코드가 남아 있다', async ({ page }) => {
+    await login(page)
+    await page.goto('/problems/1')
+    await expect(page.getByRole('heading', { level: 1, name: '두 수의 합' })).toBeVisible()
+
+    const editor = page.getByRole('textbox', { name: '코드 편집기' })
+    await editor.click()
+    await page.keyboard.type('# 새로고침해도 남아야 한다')
+    await expect(editor).toContainText('# 새로고침해도 남아야 한다')
+
+    await page.reload()
+    await expect(page.getByRole('heading', { level: 1, name: '두 수의 합' })).toBeVisible()
+
+    await expect(page.getByRole('textbox', { name: '코드 편집기' })).toContainText(
+      '# 새로고침해도 남아야 한다',
+    )
+  })
+
+  /**
    * 디스플레이 수식($$...$$)이 화면을 가로로 밀지 않는지.
    *
    * KaTeX는 디스플레이 수식을 표로 배치해 한 줄로 그린다 — 꺾이지 않으므로
