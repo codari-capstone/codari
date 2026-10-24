@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,21 +37,32 @@ export function StarterCodeButton({
   code: string
   onLoad: () => void
 }) {
+  const [asking, setAsking] = useState(false)
   const drafted = code.trim() !== '' && code.trim() !== starterCode.trim()
 
-  if (!drafted) {
-    return (
-      <Button variant="outline" onClick={onLoad} className="min-h-11">
-        {LABEL}
-      </Button>
-    )
-  }
-
   return (
-    <AlertDialog>
-      {/* 트리거를 쓴다. 닫을 때 초점이 이 버튼으로 돌아와야 키보드 사용자가 자리를 잃지 않는다 */}
+    /*
+      확인창과 트리거를 **늘** 마운트해 둔다. `drafted`에 따라 버튼만 따로 그렸더니,
+      불러오기를 확정하는 순간 `drafted`가 false로 바뀌어 AlertDialog 서브트리가 다른
+      버튼으로 교체됐다 — Radix가 초점을 돌려줄 트리거가 DOM에서 사라져 초점이 body로
+      떨어진다. 키보드 사용자는 처음부터 다시 Tab해야 한다.
+
+      대신 묻지 않아도 되는 경우에는 트리거의 기본 동작을 막고 바로 넣는다. Radix는
+      외부 onClick을 먼저 부르고 `defaultPrevented`면 자기 처리를 건너뛴다
+      (composeEventHandlers). open을 우리가 들고 있으므로 열리지도 않는다.
+    */
+    <AlertDialog open={asking} onOpenChange={setAsking}>
       <AlertDialogTrigger asChild>
-        <Button variant="outline" className="min-h-11">
+        <Button
+          variant="outline"
+          className="min-h-11"
+          onClick={(event) => {
+            if (!drafted) {
+              event.preventDefault()
+              onLoad()
+            }
+          }}
+        >
           {LABEL}
         </Button>
       </AlertDialogTrigger>

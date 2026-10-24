@@ -6,6 +6,7 @@ import type { Language, ProblemDetailView } from '@/api/types'
 import { ErrorState } from '@/components/ErrorState'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useAuth } from '@/features/auth/useAuth'
 import { DIFFICULTY_LABEL } from '@/features/problems/labels'
 import { BeginnerGuide } from './BeginnerGuide'
 import { CodeEditor } from './CodeEditor'
@@ -58,15 +59,24 @@ function Header({
  */
 function Workspace({ problem }: { problem: ProblemDetailView }) {
   const wide = useWideLayout()
-  // 계약은 PYTHON, CPP 순서를 보장한다. 고른 것이 없으면 첫 언어다.
+  const { user } = useAuth()
   const [chosen, setChosen] = useState<Language | null>(null)
   // 언어별로 따로 들고 있는다. C++로 갔다 돌아왔을 때 Python 코드가 그대로 있어야 한다.
   const [codeByLanguage, setCodeByLanguage] = useState<Partial<Record<Language, string>>>({})
   // 밖에서 코드를 갈아끼운 횟수. 에디터 key에 들어간다 — 아래 CodeEditor 주석.
   const [generation, setGeneration] = useState(0)
 
-  const language = chosen ?? problem.languages[0]?.language
-  const current = problem.languages.find((it) => it.language === language)
+  /**
+   * 지금 언어. 고른 것이 지원 목록에 없으면 첫 언어로 돌아간다.
+   *
+   * `chosen`을 그대로 믿으면, 다시 받은 데이터에서 그 언어가 빠졌을 때 `current`가
+   * undefined가 되어 에디터와 **언어 선택이 함께** 사라진다. 그러면 사용자는
+   * 새로고침하지 않고는 지원되는 언어로 돌아갈 길이 없다. 계약은 PYTHON, CPP 순서를
+   * 보장하므로 첫 언어가 기본값이다.
+   */
+  const current =
+    problem.languages.find((it) => it.language === chosen) ?? problem.languages[0] ?? undefined
+  const language = current?.language
 
   /**
    * 이 언어를 처음 열 때 들어갈 코드 (SOLVE-11 → SOLVE-06).
@@ -75,8 +85,11 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
    * 읽기가 싼 작업이어도 렌더 안에서 저장소를 건드리는 모양을 남기지 않는다.
    */
   const opening = useMemo(
-    () => (language && current ? (readSavedCode(problem.id, language) ?? current.starterCode) : ''),
-    [problem.id, language, current],
+    () =>
+      language && current
+        ? (readSavedCode(user?.id, problem.id, language) ?? current.starterCode)
+        : '',
+    [user?.id, problem.id, language, current],
   )
 
   const editor =
@@ -94,7 +107,7 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
             onLoad={() => {
               setCodeByLanguage((prev) => ({ ...prev, [language]: current.starterCode }))
               // 저장도 함께 지운다. 안 하면 새로고침에 방금 버린 코드가 돌아온다.
-              storeSavedCode(problem.id, language, current.starterCode)
+              storeSavedCode(user?.id, problem.id, language, current.starterCode)
               setGeneration((it) => it + 1)
             }}
           />
@@ -121,7 +134,7 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
             setCodeByLanguage((prev) => ({ ...prev, [language]: next }))
             // shortcut: 입력마다 저장한다. 코드가 수십 KB로 커져 입력이 버벅이면
             // 저장을 늦출 자리는 여기다. 지금은 잃는 글자가 없는 쪽을 택한다.
-            storeSavedCode(problem.id, language, next)
+            storeSavedCode(user?.id, problem.id, language, next)
           }}
         />
         <BeginnerGuide language={language} />
@@ -207,5 +220,8 @@ export function Component() {
     )
   }
 
-  return <Workspace problem={data} />
+  // key로 문제를 묶는다. 캐시가 있어 isPending을 거치지 않고 다른 문제로 넘어가면 같은
+  // 인스턴스가 재사용돼, 이전 문제의 codeByLanguage가 새 문제의 저장본보다 우선하고
+  // 다음 입력에서 새 문제의 저장소를 이전 코드로 덮어쓴다.
+  return <Workspace key={data.id} problem={data} />
 }

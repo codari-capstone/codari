@@ -1,4 +1,4 @@
-import { QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -7,18 +7,33 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/app/queryClient'
 import { ThemeProvider } from '@/app/ThemeProvider'
+import { ME_QUERY_KEY } from '@/features/auth/authQuery'
 import { problemDetails } from '@/mocks/fixtures/problemDetails'
 import { server } from '@/mocks/server'
 import { Component as SolvePage } from './SolvePage'
+
+/**
+ * 이 화면은 RequireAuth 뒤에 있다. 임시 저장 키에 사용자가 들어가므로(savedCode)
+ * 세션을 심지 않으면 저장이 통째로 건너뛰어지고, SOLVE-11 테스트가 공짜로 통과한다.
+ */
+const USER = { id: 1, nickname: '코다리', role: 'USER' } as const
+
+/** 마지막으로 렌더한 트리의 쿼리 클라이언트. 재조회를 일으키는 테스트가 쓴다. */
+let lastClient: QueryClient
+let lastRouter: ReturnType<typeof createMemoryRouter>
 
 function renderSolve(url = '/problems/1') {
   const router = createMemoryRouter([{ path: '/problems/:id', Component: SolvePage }], {
     initialEntries: [url],
   })
+  const client = createQueryClient()
+  client.setQueryData(ME_QUERY_KEY, USER)
+  lastClient = client
+  lastRouter = router
 
   const { container } = render(
     <ThemeProvider>
-      <QueryClientProvider client={createQueryClient()}>
+      <QueryClientProvider client={client}>
         <RouterProvider router={router} />
       </QueryClientProvider>
     </ThemeProvider>,
@@ -143,6 +158,64 @@ describe('SolvePage', () => {
     })
   })
 
+  /**
+   * 리뷰에서 나온 두 건이다. 둘 다 다시 받은 데이터·캐시에 달려 있어 화면 전체로만 보인다.
+   */
+  describe('데이터가 바뀌는 경우', () => {
+    it('문제를 바꾸면 이전 문제의 코드가 남지 않는다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 1번 문제 코드')
+      await waitFor(() =>
+        expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(
+          '# 1번 문제 코드',
+        ),
+      )
+
+      // 라우터 안에서 이동해야 고친 경로를 지난다. 캐시가 있어 isPending을 거치지
+      // 않으면 같은 route Component가 재사용돼 Workspace가 다시 마운트되지 않는다.
+      // cleanup 뒤 새로 렌더하면 어차피 새 인스턴스라 이 결함을 비켜 간다.
+      lastClient.setQueryData(['problem', 2], problemDetails[1])
+      await act(() => lastRouter.navigate('/problems/2'))
+      await screen.findByRole('heading', { level: 1, name: '문자열 뒤집기' })
+
+      // 남아 있으면 다음 입력에서 2번의 저장소를 1번 코드로 덮어쓴다.
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).not.toHaveTextContent(
+        '# 1번 문제 코드',
+      )
+    })
+
+    it('고른 언어가 지원 목록에서 빠지면 첫 언어로 돌아간다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+      expect(screen.getByText('C++ · 1초 · 256MB')).toBeInTheDocument()
+
+      // 같은 Workspace가 붙어 있는 채로 데이터만 바뀌어야 고친 경로를 지난다.
+      // 다시 렌더하면 chosen도 초기화돼 이 결함을 비켜 간다.
+      server.use(
+        http.get('*/api/problems/1', () =>
+          HttpResponse.json({
+            ...problemDetails[0],
+            languages: [problemDetails[0].languages[0]],
+          }),
+        ),
+      )
+      await act(() => lastClient.invalidateQueries({ queryKey: ['problem', 1] }))
+
+      // 에디터와 언어 선택이 함께 사라지면 사용자는 새로고침 없이 지원되는 언어로
+      // 돌아갈 길이 없다.
+      await waitFor(() => expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument())
+      expect(screen.getByRole('radio', { name: 'Python' })).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).toBeInTheDocument()
+      expect(screen.queryByRole('radio', { name: 'C++' })).not.toBeInTheDocument()
+    })
+  })
+
   describe('입문자 안내 (SOLVE-07)', () => {
     const summary = (label: string) =>
       screen.getByText(`처음이신가요? ${label}로 표준 입력 읽는 법`)
@@ -216,6 +289,29 @@ describe('SolvePage', () => {
         ),
       )
       await hasCode('sys.stdin.read()')
+    })
+
+    /**
+     * 확인을 확정하면 `drafted`가 false로 바뀐다. 버튼을 경우마다 따로 그리면 Radix가
+     * 초점을 돌려줄 트리거가 DOM에서 사라져 초점이 body로 떨어지고, 키보드 사용자는
+     * 처음부터 다시 Tab해야 한다.
+     */
+    it('덮어쓰기를 확정한 뒤에도 초점이 버튼으로 돌아온다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 버릴 코드')
+      await hasCode('# 버릴 코드')
+
+      const trigger = screen.getByRole('button', { name: '시작 코드 불러오기' })
+      await user.click(trigger)
+      await user.click(screen.getByRole('button', { name: '불러오기' }))
+
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: '시작 코드 불러오기' })).toHaveFocus(),
+      )
     })
 
     it('확인창에서 취소하면 코드가 그대로다', async () => {
@@ -418,6 +514,24 @@ describe('SolvePage', () => {
 
     expect(screen.getByText('출처: 수상한 출처')).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: '수상한 출처' })).not.toBeInTheDocument()
+  })
+
+  /** 계약의 `sourceName`은 길이 제한이 없다. 빈 문자열이면 없는 것으로 봐야 한다. */
+  it('출처 이름이 빈 문자열이면 주소를 글자로 쓴다', async () => {
+    server.use(
+      http.get('*/api/problems/1', () =>
+        HttpResponse.json({
+          ...problemDetails[0],
+          sourceName: '   ',
+          sourceUrl: 'https://example.com/p/1',
+        }),
+      ),
+    )
+    renderSolve()
+    await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+    // 이름을 그대로 쓰면 '출처: ' 뒤에 글자 없는 링크만 남아 가리킬 것이 없다.
+    expect(screen.getByRole('link', { name: 'https://example.com/p/1' })).toBeInTheDocument()
   })
 
   it('제약이 비어 있으면 제약 절을 그리지 않는다', async () => {

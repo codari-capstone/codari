@@ -1,7 +1,15 @@
 import type { Language } from '@/api/types'
 
 export interface BeginnerGuide {
-  /** 표준 입력을 읽어 답을 내놓는 가장 짧은 틀. */
+  /**
+   * 표준 입력을 읽어 답을 내놓는 가장 짧은 틀.
+   *
+   * **그대로 붙여 넣어 돌아가는 한 프로그램**이어야 한다. 처음에는 읽는 방법 여러 개를
+   * 한 예시에 이어 붙였는데, Python 쪽은 `readline()`이 버퍼를 미리 읽어 뒤의
+   * `buffer.read()`가 빈 값을 받고, C++ 쪽은 `cin >>` 다음의 `getline`이 남은 줄바꿈을
+   * 읽어 빈 문자열을 받았다. 입문자용 예시가 바로 그 함정을 담고 있던 셈이다.
+   * 다른 읽기 방법은 `terms`에서 함정과 함께 설명한다.
+   */
   readingExample: string
   /** 그 예시에 나오는 말들. 제목과 뜻. */
   terms: { term: string; meaning: string }[]
@@ -21,16 +29,16 @@ export const BEGINNER_GUIDE: Record<Language, BeginnerGuide> = {
   PYTHON: {
     readingExample: `import sys
 
-# 한 줄씩 읽는다. 끝의 줄바꿈은 빼야 한다
-first = sys.stdin.readline().rstrip()
+# 입력을 한 번에 다 읽어 공백과 줄바꿈으로 나눈다.
+# 줄을 세지 않아도 되고, 줄이 많아도 느려지지 않는다.
+data = sys.stdin.read().split()
 
-# 한 줄에 여러 수가 공백으로 올 때
-n, t = map(int, sys.stdin.readline().split())
+# 예: 첫 줄 "4 9", 둘째 줄 "2 7 11 15"
+n = int(data[0])
+t = int(data[1])
+nums = [int(x) for x in data[2 : 2 + n]]
 
-# 입력이 아주 많으면 한 번에 다 읽는 쪽이 빠르다
-data = sys.stdin.buffer.read().split()
-
-print(n + t)  # 답은 표준 출력으로
+print(nums[0] + t)  # 답은 표준 출력으로. 꾸미는 말을 붙이지 않는다
 `,
     terms: [
       {
@@ -49,9 +57,9 @@ print(n + t)  # 답은 표준 출력으로
           '`input()`은 줄 수가 많아지면 느립니다. 입력이 10만 줄쯤 되는 문제에서 시간 초과의 흔한 원인입니다.',
       },
       {
-        term: '`rstrip()`',
+        term: '줄 단위로 읽고 싶다면',
         meaning:
-          '읽은 줄의 끝에는 줄바꿈 문자가 붙어 있습니다. 문자열을 그대로 비교할 때는 떼야 합니다.',
+          '`sys.stdin.readline()`으로 한 줄씩 읽습니다. 끝에 줄바꿈이 붙어 있으니 문자열을 그대로 비교할 때는 `.rstrip()`으로 떼야 합니다. **한 프로그램에서 `readline()`과 `read()`를 섞지 마세요** — 앞의 `readline()`이 뒤에 올 입력까지 미리 읽어 두어서, 이어지는 `read()`가 빈 값을 돌려받습니다.',
       },
     ],
   },
@@ -64,13 +72,14 @@ int main() {
     ios::sync_with_stdio(false);
     cin.tie(nullptr);
 
+    // 예: 첫 줄 "4 9", 둘째 줄 "2 7 11 15"
     int n, t;
     cin >> n >> t;  // 공백과 줄바꿈은 알아서 넘어간다
 
-    string line;
-    getline(cin, line);  // 줄 하나를 통째로 읽을 때
+    vector<int> nums(n);
+    for (int i = 0; i < n; i++) cin >> nums[i];
 
-    cout << n + t << '\\n';  // 답은 표준 출력으로
+    cout << nums[0] + t << '\\n';  // 답은 표준 출력으로
     return 0;
 }
 `,
@@ -94,6 +103,11 @@ int main() {
         term: '`endl` 대신 `\\n`',
         meaning:
           '`endl`은 줄바꿈마다 버퍼를 비워 느립니다. 줄을 많이 출력하는 문제에서는 `\\n`을 씁니다.',
+      },
+      {
+        term: '줄 단위로 읽고 싶다면',
+        meaning:
+          '`getline(cin, line)`으로 한 줄을 통째로 읽습니다. **`cin >>` 바로 뒤에 쓰면 빈 문자열이 나옵니다** — `cin >>`이 읽고 남긴 줄바꿈을 `getline`이 그 줄의 끝으로 보기 때문입니다. 먼저 `cin.ignore()`로 그 줄바꿈을 버리세요.',
       },
     ],
   },
