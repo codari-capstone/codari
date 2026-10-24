@@ -7,18 +7,30 @@ import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
 import { STATUS_LABEL, VERDICT_LABEL } from '@/constants/verdicts'
 import { LANGUAGE_LABEL } from '@/features/solve/labels'
+import { parsePathId } from '@/lib/pathId'
 import { nextActions } from './nextActions'
-import { parseSubmissionId, submissionResultQuery } from './resultQuery'
+import { submissionResultQuery } from './resultQuery'
 
 /**
- * 채점이 끝나기 전 상태 (RES-01).
+ * 지금 무슨 일이 일어나고 있는지 한 줄 (RES-01·02).
  *
- * `role="status"`여야 폴링으로 문구가 바뀔 때 스크린 리더가 읽어 준다. 화면을 보지 않는
- * 사용자에게는 이것이 유일한 진행 신호다.
+ * **진행 문구와 판정이 같은 live region을 쓴다.** 처음에는 진행만 `role="status"`로 두고
+ * 판정은 일반 문단에 그렸더니, 끝나는 순간 live region이 통째로 사라져 **가장 중요한
+ * 마지막 변화인 판정이 안내되지 않았다.** 화면을 보지 않는 사용자는 '채점 중 60%'까지
+ * 듣고는 결과를 직접 찾아다녀야 했다.
+ *
+ * 판정이 났을 때 글씨가 커지는 것은 같은 자리의 모양만 바뀌는 것이다.
  */
-function Progress({ result }: { result: SubmissionResult }) {
-  const { status, progress } = result
-  if (status === 'COMPLETED') return null
+function Headline({ result }: { result: SubmissionResult }) {
+  const { status, progress, verdict } = result
+
+  if (verdict !== null) {
+    return (
+      <p role="status" className="text-xl font-semibold">
+        {VERDICT_LABEL[verdict]}
+      </p>
+    )
+  }
 
   const label = STATUS_LABEL[status]
   return (
@@ -29,14 +41,13 @@ function Progress({ result }: { result: SubmissionResult }) {
   )
 }
 
-/** 판정과 제출 정보 (RES-02). */
-function Verdict({ result }: { result: SubmissionResult }) {
+/** 제출 번호·언어·시간·메모리 (RES-02). */
+function Meta({ result }: { result: SubmissionResult }) {
   const { verdict, language, executionTimeMs, memoryUsedKb } = result
   if (verdict === null) return null
 
   return (
     <div className="flex flex-col gap-1">
-      <p className="text-xl font-semibold">{VERDICT_LABEL[verdict]}</p>
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <span>제출 #{result.id}</span>
         <span>{LANGUAGE_LABEL[language]}</span>
@@ -78,16 +89,24 @@ function NextActions({ result }: { result: SubmissionResult }) {
 /** 제출 결과 (RES-01·02·07). 설명과 에러 원문은 #32가 더한다. */
 export function Component() {
   const params = useParams()
-  const submissionId = parseSubmissionId(params.id)
+  const submissionId = parsePathId(params.id)
   const { data, isPending, error, refetch } = useQuery({
     ...submissionResultQuery(submissionId ?? 0),
     enabled: submissionId !== null,
   })
 
   // 주소를 손으로 고친 경우다. 요청을 보내지 않고 없는 제출과 같은 문구로 끝낸다
-  // (parseSubmissionId 주석).
+  // (parsePathId 주석).
   if (submissionId === null) return <ErrorState problem={{ status: 404 }} headingLevel={1} />
-  if (error) {
+  /**
+   * 오류 화면은 **보여 줄 것이 없을 때만** 띄운다.
+   *
+   * 처음에는 `error`를 `data`보다 먼저 봤더니, '채점 중 60%'를 보고 있다가 폴링 한 번이
+   * 실패하면(세션 만료·네트워크 끊김) 진행 상태가 통째로 사라지고 오류 화면만 남았다.
+   * 받아 둔 데이터가 있으면 그대로 보여 주고 폴링도 계속한다 — 잠깐 끊긴 것일 수 있고,
+   * 그때 멈추면 채점이 끝나도 영영 모른다(resultQuery 주석).
+   */
+  if (error && !data) {
     return <ErrorState problem={error} headingLevel={1} onRetry={() => void refetch()} />
   }
   if (isPending || !data) {
@@ -107,8 +126,8 @@ export function Component() {
         {data.problemTitle}
       </Link>
 
-      <Progress result={data} />
-      <Verdict result={data} />
+      <Headline result={data} />
+      <Meta result={data} />
       <NextActions result={data} />
     </section>
   )

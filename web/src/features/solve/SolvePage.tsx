@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { useParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 
 import type { Language, ProblemDetailView } from '@/api/types'
 import { ErrorState } from '@/components/ErrorState'
@@ -8,13 +8,14 @@ import { ListSkeleton } from '@/components/ListSkeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/features/auth/useAuth'
 import { DIFFICULTY_LABEL } from '@/features/problems/labels'
+import { parsePathId } from '@/lib/pathId'
 import { BeginnerGuide } from './BeginnerGuide'
 import { CodeEditor } from './CodeEditor'
 import { LanguagePicker } from './LanguagePicker'
 import { formatTimeLimit, LANGUAGE_LABEL } from './labels'
 import { Samples } from './Samples'
 import { readSavedCode, storeSavedCode } from './savedCode'
-import { parseProblemId, problemDetailQuery } from './solveQuery'
+import { problemDetailQuery } from './solveQuery'
 import { StarterCodeButton } from './StarterCodeButton'
 import { useSubmit } from './submitQuery'
 import { SubmitButton } from './SubmitButton'
@@ -65,7 +66,20 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
   // 반응형 분기 **바깥**에서 부른다. 안에서 부르면 폭이 64rem을 넘나들 때 진행 중인
   // 제출을 잃는다 (submitQuery 주석).
   const submit = useSubmit()
-  const [chosen, setChosen] = useState<Language | null>(null)
+  /**
+   * 고른 언어. 주소의 `?language=`로 열린 경우 그 언어로 시작한다.
+   *
+   * 결과 화면의 [다시 풀기]가 제출한 언어를 담아 보낸다(nextActions). 없으면 늘 첫
+   * 언어(PYTHON)가 열려서, C++로 제출해 틀린 뒤 돌아온 사람에게 저장해 둔 C++ 코드가
+   * 아니라 Python 자리를 보여 주게 된다.
+   *
+   * 아는 언어이고 이 문제가 지원할 때만 받는다 — 주소는 사용자가 손으로 고친다.
+   */
+  const [searchParams] = useSearchParams()
+  const [chosen, setChosen] = useState<Language | null>(() => {
+    const asked = searchParams.get('language')
+    return problem.languages.some((it) => it.language === asked) ? (asked as Language) : null
+  })
   // 언어별로 따로 들고 있는다. C++로 갔다 돌아왔을 때 Python 코드가 그대로 있어야 한다.
   const [codeByLanguage, setCodeByLanguage] = useState<Partial<Record<Language, string>>>({})
   // 밖에서 코드를 갈아끼운 횟수. 에디터 key에 들어간다 — 아래 CodeEditor 주석.
@@ -220,14 +234,14 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
 /** 문제 풀이 (SOLVE-01~07·10·11). 주소를 읽고 문제를 받아 Workspace에 넘긴다. */
 export function Component() {
   const params = useParams()
-  const problemId = parseProblemId(params.id)
+  const problemId = parsePathId(params.id)
   const { data, isPending, error, refetch } = useQuery({
     ...problemDetailQuery(problemId ?? 0),
     enabled: problemId !== null,
   })
 
   // 주소를 손으로 고친 경우다. 요청을 보내지 않고 없는 문제와 같은 문구로 끝낸다
-  // (parseProblemId 주석). 화면 전체가 오류이므로 그 제목이 h1이다.
+  // (parsePathId 주석). 화면 전체가 오류이므로 그 제목이 h1이다.
   if (problemId === null) return <ErrorState problem={{ status: 404 }} headingLevel={1} />
   if (error) {
     return <ErrorState problem={error} headingLevel={1} onRetry={() => void refetch()} />

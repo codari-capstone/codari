@@ -54,8 +54,36 @@ test.describe('제출 결과 화면', () => {
     await expect(page.getByRole('button', { name: 'AI 분석 (준비 중)' })).toBeDisabled()
     await page.getByRole('link', { name: '다시 풀기' }).click()
 
-    await expect(page).toHaveURL(/\/problems\/1$/)
+    // 제출한 언어가 주소에 담겨 온다.
+    await expect(page).toHaveURL(/\/problems\/1\?language=PYTHON$/)
     // 쓰던 코드가 그대로 열린다 (SOLVE-11).
     await expect(page.getByRole('textbox', { name: '코드 편집기' })).toContainText('sys.stdin')
+  })
+
+  /**
+   * 제출한 언어로 돌아오는지 (리뷰 지적).
+   *
+   * 풀이 화면은 고른 것이 없으면 첫 언어(PYTHON)를 연다. 결과 화면이 언어를 넘기지
+   * 않으면, C++로 제출해 틀린 사람이 저장해 둔 C++ 코드가 아니라 Python 자리를 본다.
+   * Python으로만 왕복하는 테스트는 이 경우를 지나친다.
+   */
+  test('C++로 제출한 뒤 다시 풀기를 누르면 C++로 돌아온다', async ({ page }) => {
+    await login(page)
+    await page.goto('/problems/1')
+    await page.getByRole('radio', { name: 'C++' }).check()
+    await expect(page.getByRole('textbox', { name: '코드 편집기' })).toContainText(
+      'ios::sync_with_stdio',
+    )
+
+    // 시작 코드를 그대로 내면 목이 오답을 준다 (handlers.ts).
+    await page.getByRole('button', { name: '제출' }).click()
+    await expect(page.getByText('틀렸습니다')).toBeVisible({ timeout: 15_000 })
+
+    await page.getByRole('link', { name: '다시 풀기' }).click()
+
+    await expect(page.getByRole('radio', { name: 'C++' })).toBeChecked()
+    await expect(page.getByRole('textbox', { name: '코드 편집기' })).toContainText(
+      'ios::sync_with_stdio',
+    )
   })
 })

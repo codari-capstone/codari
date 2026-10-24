@@ -1,4 +1,4 @@
-import type { Verdict } from '@/api/types'
+import type { SubmissionStatus, Verdict } from '@/api/types'
 
 /**
  * 판정의 한글 이름 (RES-02).
@@ -27,9 +27,12 @@ export const VERDICT_LABEL: Record<Verdict, string> = {
  * 서버 문제라서(계약: verdict가 null이고 시도 횟수에 넣지 않는다) 판정 표가 아니라 이쪽에
  * 둔다. 그 화면의 안내와 재제출 버튼은 #32(RES-06)가 붙인다.
  */
-export const STATUS_LABEL = {
+export const STATUS_LABEL: Record<SubmissionStatus, string> = {
   QUEUED: '기다리는 중',
   COMPILING: '채점 준비 중',
   RUNNING: '채점 중',
   JUDGE_ERROR: '채점 불가',
-} as const
+  // 계약상 COMPLETED면 판정이 있으므로 화면은 판정을 띄운다. 서버가 그 약속을 어겨
+  // 판정 없이 COMPLETED를 줘도 빈 자리를 두지 않으려고 둔다.
+  COMPLETED: '채점 완료',
+}

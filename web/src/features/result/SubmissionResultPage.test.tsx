@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -174,11 +174,16 @@ describe('SubmissionResultPage', () => {
     })
 
     it('오답이면 다시 풀기와 AI 분석을 둔다', async () => {
-      completed({ verdict: 'WRONG_ANSWER', problemId: 7 })
+      completed({ verdict: 'WRONG_ANSWER', problemId: 7, language: 'CPP' })
       renderResult()
       await screen.findByText('틀렸습니다')
 
-      expect(screen.getByRole('link', { name: '다시 풀기' })).toHaveAttribute('href', '/problems/7')
+      // 제출한 언어를 담아야 저장해 둔 그 언어의 코드가 열린다 (SOLVE-11). 없으면 늘
+      // 첫 언어(PYTHON)가 열려, C++로 제출한 사람이 Python 자리를 보게 된다.
+      expect(screen.getByRole('link', { name: '다시 풀기' })).toHaveAttribute(
+        'href',
+        '/problems/7?language=CPP',
+      )
       expect(screen.getByRole('button', { name: 'AI 분석 (준비 중)' })).toBeDisabled()
     })
 
@@ -229,6 +234,10 @@ describe('SubmissionResultPage', () => {
       renderResult()
       await screen.findByRole('heading', { level: 1, name: '찾을 수 없습니다' })
 
+      // heading이 뜨자마자 세면 1초 뒤 재조회가 나가도 첫 요청만 세어져 공짜로 통과한다.
+      // 오류 화면 뒤에서 폴링이 계속 도는 것이 이 PR에서 나온 가장 큰 결함이었다 —
+      // `retry: false`는 한 번의 fetch 안에서 재시도만 막고 interval 재조회는 막지 않는다.
+      await new Promise((resolve) => setTimeout(resolve, 1200))
       expect(calls).toBe(1)
     })
 
@@ -249,5 +258,60 @@ describe('SubmissionResultPage', () => {
       await new Promise((resolve) => setTimeout(resolve, 0))
       expect(calls).toBe(0)
     })
+  })
+})
+
+/** 리뷰에서 나온 세 건이다. 전부 폴링이 도는 **중**에 벌어지는 일이라 따로 모았다. */
+describe('폴링 중에 생기는 일', () => {
+  /**
+   * '채점 중 60%'를 보고 있다가 세션이 만료되거나 네트워크가 잠깐 끊긴 경우다. 받아 둔
+   * 진행 상태를 버리고 오류 화면만 남기면, 사용자는 제출이 사라진 것으로 읽는다.
+   */
+  it('진행 중 폴링이 실패해도 받아 둔 상태를 그대로 보여 준다', async () => {
+    let calls = 0
+    server.use(
+      http.get('*/api/submissions/:id', () => {
+        calls += 1
+        if (calls === 1) {
+          return HttpResponse.json({
+            id: 1,
+            problemId: 1,
+            problemTitle: '두 수의 합',
+            language: 'PYTHON',
+            status: 'RUNNING',
+            progress: 60,
+            verdict: null,
+            runtimeErrorType: null,
+            runtimeErrorMessage: null,
+            compilerMessage: null,
+            executionTimeMs: null,
+            memoryUsedKb: null,
+            submittedAt: '2026-10-24T05:00:00Z',
+            judgedAt: null,
+          })
+        }
+        return HttpResponse.json({ status: 500, title: 'Internal Server Error' }, { status: 500 })
+      }),
+    )
+    renderResult()
+    expect(await screen.findByText('채점 중 60%')).toBeInTheDocument()
+
+    // 폴링이 한 번 더 나가 실패할 때까지 기다린다.
+    await waitFor(() => expect(calls).toBeGreaterThan(1), { timeout: 3000 })
+
+    expect(screen.getByText('채점 중 60%')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '문제가 발생했습니다' })).not.toBeInTheDocument()
+  })
+
+  /**
+   * 화면을 보지 않는 사용자에게 가장 중요한 변화가 판정이다. 진행만 live region에 두면
+   * 끝나는 순간 그 영역이 통째로 사라져, '채점 중 60%'까지만 듣고 결과를 직접 찾아야 한다.
+   */
+  it('판정도 진행과 같은 live region에서 알려 준다', async () => {
+    completed({ verdict: 'TIME_LIMIT_EXCEEDED' })
+    renderResult()
+
+    const announced = await screen.findByText('시간 초과')
+    expect(announced).toHaveAttribute('role', 'status')
   })
 })

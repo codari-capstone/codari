@@ -33,8 +33,12 @@ export function nextActions(result: SubmissionResult): NextAction[] {
   }
 
   return [
-    // 저장해 둔 코드가 그대로 열린다 (SOLVE-11).
-    { label: '다시 풀기', to: `/problems/${result.problemId}` },
+    /**
+     * 제출한 언어를 주소에 담는다. 풀이 화면은 고른 것이 없으면 첫 언어(PYTHON)를 여는데,
+     * C++로 제출해 틀린 뒤 돌아오면 저장해 둔 C++ 코드가 아니라 Python 자리가 열렸다.
+     * 언어를 넘기면 저장해 둔 그 언어의 코드가 그대로 열린다 (SOLVE-11).
+     */
+    { label: '다시 풀기', to: `/problems/${result.problemId}?language=${result.language}` },
     { label: 'AI 분석', pendingIssue: '#41' },
   ]
 }
