@@ -16,6 +16,7 @@ import { Samples } from './Samples'
 import { readSavedCode, storeSavedCode } from './savedCode'
 import { parseProblemId, problemDetailQuery } from './solveQuery'
 import { StarterCodeButton } from './StarterCodeButton'
+import { SubmitButton } from './SubmitButton'
 import { Statement } from './Statement'
 import { useWideLayout } from './useWideLayout'
 
@@ -136,6 +137,11 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
             // 저장을 늦출 자리는 여기다. 지금은 잃는 글자가 없는 쪽을 택한다.
             storeSavedCode(user?.id, problem.id, language, next)
           }}
+        />
+        <SubmitButton
+          problemId={problem.id}
+          language={language}
+          code={codeByLanguage[language] ?? opening}
         />
         <BeginnerGuide language={language} />
       </div>

@@ -25,6 +25,16 @@ describe('toUserMessage', () => {
     expect(toUserMessage({ status: 429 }).retryable).toBe(true)
   })
 
+  /**
+   * 413은 본문이 512KB를 넘을 때다(계약: 모든 API 공통). 서버가 본문을 읽지도 않아
+   * `code`가 없으므로 이 표가 받는다 — 없으면 "문제가 발생했습니다"로 떨어져, 무엇을
+   * 줄여야 하는지 알 수 없다. 다시 보내도 같은 결과라 retryable이 아니다.
+   */
+  it('413은 줄이라고 말하고 재시도를 권하지 않는다', () => {
+    expect(toUserMessage({ status: 413 }).title).toBe('보낸 내용이 너무 큽니다')
+    expect(toUserMessage({ status: 413 }).retryable).toBe(false)
+  })
+
   it('5xx는 다시 시도할 수 있다고 본다', () => {
     expect(toUserMessage({ status: 500 }).retryable).toBe(true)
     expect(toUserMessage({ status: 502 }).retryable).toBe(true)

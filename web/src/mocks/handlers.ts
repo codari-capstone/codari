@@ -39,6 +39,12 @@ function badRequest(detail: string) {
 /** 한 페이지의 최대 개수. 서버 ProblemController.MAX_PAGE_SIZE와 같은 값이다. */
 const MAX_PAGE_SIZE = 20
 
+/** 코드 길이 한도. 계약의 SOURCE_TOO_LONG과 같은 값이다(UTF-8 64KB). */
+const MAX_SOURCE_BYTES = 64 * 1024
+
+/** 제출 번호. 목은 실제로 저장하지 않고 번호만 센다. */
+let nextSubmissionId = 1
+
 /** 비로그인·인증 실패 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
 function unauthorized() {
   return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
@@ -129,6 +135,52 @@ export const handlers: RequestHandler[] = [
     const detail = problemDetails.find((item) => item.id === id)
     if (!detail) return problem(404, 'PROBLEM_NOT_FOUND', '문제를 찾을 수 없어요')
     return HttpResponse.json(detail)
+  }),
+
+  /**
+   * 코드 제출 (SOLVE-09). 서버와 같은 순서로 검사한다.
+   *
+   * 접수만 하고 채점은 하지 않는다 — 계약도 202로 접수만 답한다. 제출 번호는 1부터
+   * 세어 돌려준다(실제 서버의 번호와 모양만 같으면 된다).
+   *
+   * 세션을 보지 않는 것은 목록·상세 핸들러와 같은 선택이다 — 화면이 RequireAuth 뒤에 있다.
+   */
+  http.post('*/api/submissions', async ({ request }) => {
+    const body = (await request.json()) as {
+      problemId?: number
+      language?: string
+      sourceCode?: string
+    }
+
+    // 모르는 언어와 NUL이 든 코드는 code 없는 400이다(계약).
+    if (body.language !== 'PYTHON' && body.language !== 'CPP') {
+      return badRequest('language는 PYTHON 또는 CPP여야 한다')
+    }
+    const source = body.sourceCode ?? ''
+    if (source.includes('\0')) return badRequest('sourceCode에 NUL 문자가 있다')
+
+    if (source.trim() === '') {
+      return problem(400, 'SOURCE_EMPTY', '코드를 입력해 주세요')
+    }
+    // 64KB는 UTF-8 바이트 기준이다(계약). 글자 수로 재면 한글이 섞인 주석에서 어긋난다.
+    if (new TextEncoder().encode(source).length > MAX_SOURCE_BYTES) {
+      return problem(400, 'SOURCE_TOO_LONG', '코드가 너무 깁니다 (64KB까지)')
+    }
+
+    const detail = problemDetails.find((item) => item.id === body.problemId)
+    if (!detail) return problem(404, 'PROBLEM_NOT_FOUND', '문제를 찾을 수 없어요')
+    // 지금 fixture의 문제는 모두 두 언어를 지원해서 이 분기에 닿을 수 없다. 그래도
+    // 남겨 둔다 — 서버에 있는 분기를 목에서 빼면 목이 계약을 덜 지키게 된다. 화면 쪽
+    // 테스트는 이 응답을 server.use로 직접 돌려준다.
+    if (!detail.languages.some((it) => it.language === body.language)) {
+      return problem(400, 'LANGUAGE_NOT_SUPPORTED', '이 문제는 그 언어를 지원하지 않아요')
+    }
+
+    const id = nextSubmissionId++
+    return HttpResponse.json(
+      { id },
+      { status: 202, headers: { Location: `/api/submissions/${id}` } },
+    )
   }),
 
   http.get('*/api/me', ({ cookies }) => {

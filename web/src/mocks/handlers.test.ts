@@ -521,3 +521,79 @@ describe('가입·재설정 목의 상태 격리', () => {
     expect((res.error as { code?: string }).code).toBe('CODE_EXPIRED')
   })
 })
+
+/**
+ * 제출 목이 서버와 같은 순서로 거르는지 (SOLVE-09).
+ *
+ * 목이 서버보다 관대하면 목에서만 통과하는 테스트가 생기고, 엄하면 화면이 실제로는
+ * 없는 오류 분기를 만들게 된다. 계약에 적힌 코드 넷과 code 없는 400 둘을 모두 본다.
+ */
+describe('제출 목', () => {
+  const body = { problemId: 1, language: 'PYTHON' as const, sourceCode: 'print(1)' }
+
+  it('접수되면 202와 제출 번호를 준다', async () => {
+    const res = await api.POST('/api/submissions', { body })
+
+    expect(res.response.status).toBe(202)
+    expect(typeof res.data?.id).toBe('number')
+    // 결과 화면 경로를 만들 수 있어야 한다. 0이나 음수면 라우트가 깨진다.
+    expect(res.data!.id).toBeGreaterThan(0)
+  })
+
+  it('번호는 제출마다 올라간다', async () => {
+    const first = await api.POST('/api/submissions', { body })
+    const second = await api.POST('/api/submissions', { body })
+
+    expect(second.data!.id).toBeGreaterThan(first.data!.id)
+  })
+
+  it('공백뿐인 코드는 SOURCE_EMPTY다', async () => {
+    const res = await api.POST('/api/submissions', { body: { ...body, sourceCode: '  \n\t ' } })
+
+    expect(res.response.status).toBe(400)
+    expect(code(res)).toBe('SOURCE_EMPTY')
+  })
+
+  it('64KB를 넘는 코드는 SOURCE_TOO_LONG이다', async () => {
+    // 한 글자가 3바이트인 한글로 한도를 넘긴다. 글자 수로 재면 통과해 버린다.
+    const res = await api.POST('/api/submissions', {
+      body: { ...body, sourceCode: '가'.repeat(22_000) },
+    })
+
+    expect(code(res)).toBe('SOURCE_TOO_LONG')
+  })
+
+  it('64KB 이내면 글자 수가 많아도 통과한다', async () => {
+    const res = await api.POST('/api/submissions', {
+      body: { ...body, sourceCode: 'a'.repeat(64 * 1024) },
+    })
+
+    expect(res.response.status).toBe(202)
+  })
+
+  it('없는 문제는 404 PROBLEM_NOT_FOUND다', async () => {
+    const res = await api.POST('/api/submissions', { body: { ...body, problemId: 9999 } })
+
+    expect(res.response.status).toBe(404)
+    expect(code(res)).toBe('PROBLEM_NOT_FOUND')
+  })
+
+  it('모르는 언어는 code 없는 400이다', async () => {
+    const res = await api.POST('/api/submissions', {
+      // 계약에 없는 언어다. 타입으로는 막히지만 서버는 실제로 받을 수 있다.
+      body: { ...body, language: 'JAVA' as unknown as 'PYTHON' },
+    })
+
+    expect(res.response.status).toBe(400)
+    expect(code(res)).toBeUndefined()
+  })
+
+  it('NUL이 든 코드는 code 없는 400이다', async () => {
+    const res = await api.POST('/api/submissions', {
+      body: { ...body, sourceCode: 'print(1)\0' },
+    })
+
+    expect(res.response.status).toBe(400)
+    expect(code(res)).toBeUndefined()
+  })
+})

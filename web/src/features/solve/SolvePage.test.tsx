@@ -23,9 +23,14 @@ let lastClient: QueryClient
 let lastRouter: ReturnType<typeof createMemoryRouter>
 
 function renderSolve(url = '/problems/1') {
-  const router = createMemoryRouter([{ path: '/problems/:id', Component: SolvePage }], {
-    initialEntries: [url],
-  })
+  // 제출이 도착할 자리. 실제 결과 화면은 #31이 채운다 (SOLVE-09는 '이동'까지다).
+  const router = createMemoryRouter(
+    [
+      { path: '/problems/:id', Component: SolvePage },
+      { path: '/submissions/:id', element: <h1>제출 결과 도착</h1> },
+    ],
+    { initialEntries: [url] },
+  )
   const client = createQueryClient()
   client.setQueryData(ME_QUERY_KEY, USER)
   lastClient = client
@@ -75,6 +80,89 @@ describe('SolvePage', () => {
     expect(screen.getByText('쉬움')).toBeInTheDocument()
     // 고른 것이 없으면 첫 언어(계약이 보장하는 PYTHON)의 제한이다.
     expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument()
+  })
+
+  describe('제출 (SOLVE-09)', () => {
+    const submitButton = () => screen.getByRole('button', { name: '제출' })
+
+    it('제출하면 결과 화면으로 간다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(submitButton())
+
+      expect(await screen.findByRole('heading', { name: '제출 결과 도착' })).toBeInTheDocument()
+    })
+
+    it('코드가 비어 있으면 누를 수 없다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      // 시작 코드를 모두 지운 상태다. 서버도 SOURCE_EMPTY로 거절하지만 왕복을 아낀다.
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('{Control>}a{/Control}{Delete}')
+      await waitFor(() => expect(submitButton()).toBeDisabled())
+    })
+
+    /**
+     * 같은 코드를 두 번 보내면 시도 횟수가 두 번 올라간다 (계약: 제출할 때마다 새 제출로
+     * 저장해 시도 횟수를 센다). 되돌릴 수 없으므로 보내는 쪽에서도 막는다.
+     */
+    it('연타해도 한 번만 보낸다', async () => {
+      const user = userEvent.setup()
+      let calls = 0
+      server.use(
+        http.post('*/api/submissions', async () => {
+          calls += 1
+          // 응답을 늦춰 두 번째 클릭이 isPending 구간에 떨어지게 한다.
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          return HttpResponse.json({ id: 7 }, { status: 202 })
+        }),
+      )
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      const button = submitButton()
+      await user.click(button)
+      await user.click(button)
+      await user.click(button)
+
+      await screen.findByRole('heading', { name: '제출 결과 도착' })
+      expect(calls).toBe(1)
+    })
+
+    it('실패하면 서버 문구를 보여 주고 코드는 그대로 둔다', async () => {
+      const user = userEvent.setup()
+      server.use(
+        http.post('*/api/submissions', () =>
+          HttpResponse.json(
+            {
+              status: 400,
+              code: 'LANGUAGE_NOT_SUPPORTED',
+              detail: '이 문제는 그 언어를 지원하지 않아요',
+            },
+            { status: 400 },
+          ),
+        ),
+      )
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 지우면 안 되는 코드')
+
+      await user.click(submitButton())
+
+      // 계약이 detail을 "화면에 그대로 보여 줄 문구"로 정했다. 화면에 또 적지 않는다.
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        '이 문제는 그 언어를 지원하지 않아요',
+      )
+      // 화면을 갈아엎으면 쓰던 코드가 사라진다.
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(
+        '# 지우면 안 되는 코드',
+      )
+    })
   })
 
   describe('코드 임시 저장 (SOLVE-11)', () => {
