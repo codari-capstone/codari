@@ -117,6 +117,25 @@ test.describe('문제 풀이 화면', () => {
   })
 
   /**
+   * 코드를 쓰고 제출하면 결과 화면 주소에 닿는지 (SOLVE-09).
+   *
+   * 결과 화면 자체는 #31이 채운다 — 여기서 보는 것은 "제출이 접수되고 그 번호로 만든
+   * 주소로 이동한다"까지다. 라우트가 실제로 물리는지는 e2e에서만 보인다.
+   */
+  test('코드를 제출하면 결과 화면 주소로 간다', async ({ page }) => {
+    await login(page)
+    await page.goto('/problems/1')
+
+    const editor = page.getByRole('textbox', { name: '코드 편집기' })
+    await editor.click()
+    await page.keyboard.type('print(1)')
+
+    await page.getByRole('button', { name: '제출' }).click()
+
+    await expect(page).toHaveURL(/\/submissions\/\d+$/)
+  })
+
+  /**
    * 넓은 화면에서 지문을 끝까지 읽어도 에디터가 화면에 남는지 (SOLVE-10).
    *
    * 좌우 분할은 둘을 같이 쓰라는 배치인데, 지문이 에디터보다 훨씬 길어서 그냥 두면

@@ -62,6 +62,18 @@ const BY_STATUS: Record<number, UserMessage> = {
     description: '주소가 바뀌었거나 삭제된 내용입니다.',
     retryable: false,
   },
+  /**
+   * 요청 본문이 512KB를 넘음 (계약: 모든 API 공통). 서버는 본문을 읽지도 않으므로
+   * `code`가 없고, 그래서 이 표가 받는다 — 없으면 "문제가 발생했습니다"로 떨어져
+   * 무엇을 줄여야 하는지 알 수 없다.
+   *
+   * 다시 보내도 같은 결과라 retryable이 아니다. 줄이라고 말해 주는 쪽이 맞다.
+   */
+  413: {
+    title: '보낸 내용이 너무 큽니다',
+    description: '코드나 입력을 줄인 뒤 다시 시도해 주세요.',
+    retryable: false,
+  },
   429: {
     title: '잠시만 기다려 주세요',
     description: '요청이 너무 많습니다. 조금 뒤에 다시 시도해 주세요.',
