@@ -109,6 +109,40 @@ test.describe('문제 풀이 화면', () => {
   })
 
   /**
+   * 디스플레이 수식($$...$$)이 화면을 가로로 밀지 않는지.
+   *
+   * KaTeX는 디스플레이 수식을 표로 배치해 한 줄로 그린다 — 꺾이지 않으므로
+   * `overflow-wrap:anywhere`가 듣지 않는다. 긴 식 하나가 375px 화면에서 문서 전체를
+   * 민다. pre와 같은 방식(자기 안에서 가로로 흐르게)으로 막는다.
+   *
+   * 두 가지를 함께 잰다. 문서가 안 넘치는 것만 보면 식이 짧아도 통과하므로(1차의
+   * 가로 넘침 테스트가 그래서 세 번 고쳐졌다), 식이 실제로 자기 상자보다 넓어
+   * **스크롤되고 있다**는 것도 단언한다.
+   */
+  test('지문의 긴 디스플레이 수식이 화면을 가로로 밀지 않는다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 })
+    await login(page)
+    await page.goto('/problems/2')
+    await expect(page.getByRole('heading', { level: 1, name: '문자열 뒤집기' })).toBeVisible()
+
+    const measured = await page.evaluate(() => {
+      const math = document.querySelector('.katex-display')
+      if (!math) return null
+      return {
+        math: { scroll: math.scrollWidth, client: math.clientWidth },
+        document: document.documentElement.scrollWidth,
+        viewport: window.innerWidth,
+      }
+    })
+
+    expect(measured).not.toBeNull()
+    // 식이 상자보다 넓다 = 막을 거리가 실제로 있다
+    expect(measured!.math.scroll).toBeGreaterThan(measured!.math.client)
+    // 그런데도 문서는 넘치지 않는다 = 식이 자기 안에서 흐른다
+    expect(measured!.document).toBeLessThanOrEqual(measured!.viewport)
+  })
+
+  /**
    * 지문에는 글자만 이어진 긴 토큰이 들어온다 (문자열 문제의 예시가 그렇다).
    *
    * Chromium은 `sys.stdin.read()`처럼 괄호·점이 있는 토큰은 알아서 꺾지만, 글자만 이어진

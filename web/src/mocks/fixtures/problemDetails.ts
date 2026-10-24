@@ -35,11 +35,12 @@ const LANGUAGES: ProblemDetailView['languages'] = [
 /**
  * 손으로 쓴 세 문제. 나머지는 아래에서 목록 fixture로 만든다.
  *
- * 출처·라이선스가 각각 다르다 — 계약에서 셋 다 null일 수 있고(`sourceName`·`sourceUrl`·
- * `license`), 화면은 없는 줄을 빼야 한다(SOLVE-03). 세 가지 조합을 모두 둔다.
+ * 출처·라이선스가 각각 다르다 — 계약에서 셋이 **따로** null일 수 있고(`sourceName`·
+ * `sourceUrl`·`license`), 화면은 없는 줄을 빼야 한다(SOLVE-03). 네 가지 조합을 둔다.
  *   1번 — 셋 다 있음(링크 걸린 출처)
  *   2번 — 셋 다 없음
  *   3번 — 출처 이름만 있고 링크는 없음 + 라이선스 있음
+ *   4번 — 이름 없이 주소만 있음. 이 조합에서 출처 줄이 사라지는 버그가 있었다
  */
 const overrides: Record<number, Partial<ProblemDetailView>> = {
   1: {
@@ -72,11 +73,21 @@ seen = {}
   2: {
     statementMarkdown: `문자열이 주어지면 뒤집어 출력하라.
 
-예를 들어 \`abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\`를 뒤집으면 z부터 시작하는 문자열이 된다.`,
+예를 들어 \`abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz\`를 뒤집으면 z부터 시작하는 문자열이 된다.
+
+뒤집기를 식으로 쓰면 이렇다. 좁은 화면에서 가로로 넘치는지 e2e가 이 식을 잰다.
+
+$$
+S'_i = S_{|S| - 1 - i} \\quad (0 \\le i < |S|) \\qquad \\text{where} \\quad |S| \\le 10^6 \\quad \\text{and} \\quad S_i \\in \\{\\texttt{a}, \\dots, \\texttt{z}\\}
+$$`,
     inputDescription: '첫 줄에 문자열 S가 주어진다.',
     outputDescription: 'S를 뒤집어 한 줄에 출력한다.',
     constraintsMarkdown: '',
-    samples: [{ input: 'codari\n', output: 'iradoc\n' }],
+    samples: [{ input: 'codingmon\n', output: 'nomgnidoc\n' }],
+  },
+  4: {
+    sourceName: null,
+    sourceUrl: 'https://leetcode.com/problems/group-anagrams/',
   },
   3: {
     statementMarkdown: '괄호 문자열이 올바른지 판단하라.',

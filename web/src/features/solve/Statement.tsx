@@ -5,19 +5,31 @@ import { Markdown } from '@/components/Markdown'
 function Source({ problem }: { problem: ProblemDetailView }) {
   const { sourceName, sourceUrl, license, versionNo } = problem
 
+  // 지문 안 링크는 react-markdown이 scheme을 걸러 주지만(기본 urlTransform) 이 링크는
+  // 우리가 직접 만든다. rehype-raw를 거절한 것과 같은 이유로 scheme을 본다
+  // (Markdown.tsx 주석) — `javascript:` 출처 하나로 그 지문을 여는 모두가 당한다.
+  const href =
+    sourceUrl && (sourceUrl.startsWith('https://') || sourceUrl.startsWith('http://'))
+      ? sourceUrl
+      : null
+
   return (
-    <footer className="text-muted-foreground border-border/60 flex flex-col gap-1 border-t pt-4 text-xs">
-      {/* 세 값 모두 null일 수 있다(계약). 없는 줄은 라벨만 남지 않게 아예 뺀다. */}
-      {sourceName ? (
+    <footer className="text-muted-foreground border-border/60 flex flex-col gap-1 border-t pt-4 text-xs [overflow-wrap:anywhere]">
+      {/*
+        세 값 모두 **따로** null일 수 있다(계약). 없는 줄은 라벨만 남지 않게 아예 뺀다.
+        이름이 없고 주소만 있으면 주소를 글자로 쓴다 — 출처를 아예 숨기면 라이선스 표기
+        의무를 지킬 수 없다.
+      */}
+      {sourceName || sourceUrl ? (
         <p>
           출처:{' '}
-          {sourceUrl ? (
+          {href ? (
             // 출처는 외부 사이트다. 새 탭으로 열고 referrer를 보내지 않는다.
-            <a href={sourceUrl} target="_blank" rel="noreferrer" className="text-primary underline">
-              {sourceName}
+            <a href={href} target="_blank" rel="noreferrer" className="text-primary underline">
+              {sourceName ?? href}
             </a>
           ) : (
-            sourceName
+            (sourceName ?? sourceUrl)
           )}
         </p>
       ) : null}

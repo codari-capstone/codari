@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/app/queryClient'
 import { ThemeProvider } from '@/app/ThemeProvider'
+import { problemDetails } from '@/mocks/fixtures/problemDetails'
 import { server } from '@/mocks/server'
 import { Component as SolvePage } from './SolvePage'
 
@@ -150,6 +151,43 @@ describe('SolvePage', () => {
     expect(screen.queryByRole('link', { name: '직접 제작' })).not.toBeInTheDocument()
     // 3번은 versionNo가 2다. v1만 단언하면 버전을 하드코딩해도 통과한다.
     expect(screen.getByText('문제 버전: v2')).toBeInTheDocument()
+  })
+
+  /**
+   * 계약은 `sourceName`과 `sourceUrl`을 따로 null 허용한다.
+   *
+   * 조건이 이름만 보고 있어서 이 조합에서 출처 줄이 통째로 사라졌다. 출처를 숨기면
+   * 라이선스 표기 의무를 지킬 수 없다 — 주소라도 보여야 한다.
+   */
+  it('출처 이름이 없고 주소만 있으면 주소를 링크로 보여 준다', async () => {
+    renderSolve('/problems/4')
+    await screen.findByRole('heading', { level: 1, name: '애너그램 묶기' })
+
+    const source = screen.getByRole('link', {
+      name: 'https://leetcode.com/problems/group-anagrams/',
+    })
+    expect(source).toHaveAttribute('href', 'https://leetcode.com/problems/group-anagrams/')
+  })
+
+  /**
+   * 출처 주소는 관리자가 넣는 값이고, 이 링크만은 우리가 직접 만든다
+   * (지문 안 링크는 react-markdown이 scheme을 걸러 준다).
+   */
+  it('http가 아닌 출처 주소는 링크로 만들지 않는다', async () => {
+    server.use(
+      http.get('*/api/problems/1', () =>
+        HttpResponse.json({
+          ...problemDetails[0],
+          sourceName: '수상한 출처',
+          sourceUrl: 'javascript:alert(1)',
+        }),
+      ),
+    )
+    renderSolve()
+    await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+    expect(screen.getByText('출처: 수상한 출처')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: '수상한 출처' })).not.toBeInTheDocument()
   })
 
   it('제약이 비어 있으면 제약 절을 그리지 않는다', async () => {
