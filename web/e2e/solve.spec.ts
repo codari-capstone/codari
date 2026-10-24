@@ -47,6 +47,14 @@ test.describe('문제 풀이 화면', () => {
     await expect(page.getByRole('tablist')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: '예제', exact: true })).toBeVisible()
     await expect(page.getByRole('textbox', { name: '코드 편집기' })).toBeVisible()
+
+    // 언어를 바꾸면 제한 표시도 바뀐다 (SOLVE-04). 문법 강조가 실제로 C++로 바뀌는지는
+    // 실제 브라우저에서만 보인다 — jsdom에는 CodeMirror의 강조 레이어가 없다.
+    await page.getByRole('radio', { name: 'C++' }).check()
+    await expect(page.getByText('C++ · 1초 · 256MB')).toBeVisible()
+    await expect(page.getByRole('textbox', { name: '코드 편집기' })).toContainText(
+      'ios::sync_with_stdio',
+    )
   })
 
   test('좁은 화면은 탭으로 나누고 문서가 가로로 넘치지 않는다', async ({ page }) => {

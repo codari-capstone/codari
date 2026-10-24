@@ -56,8 +56,63 @@ describe('SolvePage', () => {
 
     expect(await screen.findByRole('heading', { level: 1, name: '두 수의 합' })).toBeInTheDocument()
     expect(screen.getByText('쉬움')).toBeInTheDocument()
-    // 제한은 첫 언어(계약이 보장하는 PYTHON)의 값이다. 언어 선택은 SOLVE-04(2차)다.
+    // 고른 것이 없으면 첫 언어(계약이 보장하는 PYTHON)의 제한이다.
     expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument()
+  })
+
+  describe('언어 선택 (SOLVE-04)', () => {
+    it('언어를 바꾸면 제한 표시도 함께 바뀐다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+
+      // Python이 느려서 제한이 두 배다. 바뀌지 않으면 제출 전에 잘못된 제한을 보고 푼다.
+      expect(screen.getByText('C++ · 1초 · 256MB')).toBeInTheDocument()
+      expect(screen.queryByText('Python · 2초 · 256MB')).not.toBeInTheDocument()
+    })
+
+    it('문제가 주는 언어만 띄운다', async () => {
+      server.use(
+        http.get('*/api/problems/1', () =>
+          HttpResponse.json({
+            ...problemDetails[0],
+            languages: [problemDetails[0].languages[0]],
+          }),
+        ),
+      )
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      expect(screen.getByRole('radio', { name: 'Python' })).toBeInTheDocument()
+      // 계약의 `languages`는 그 버전이 지원하는 목록이다. 없는 언어로 제출하면 서버가
+      // LANGUAGE_NOT_SUPPORTED로 거절한다 — 고를 수 있게 두면 안 된다.
+      expect(screen.queryByRole('radio', { name: 'C++' })).not.toBeInTheDocument()
+    })
+
+    it('언어를 바꿨다 돌아오면 그 언어에 쓴 코드가 남아 있다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      const editor = screen.getByRole('textbox', { name: '코드 편집기' })
+      await user.click(editor)
+      await user.keyboard('# 내가 쓴 Python')
+      expect(editor).toHaveTextContent('# 내가 쓴 Python')
+
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+      // 손대지 않은 언어는 그 언어의 시작 코드로 연다 (SOLVE-06).
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(
+        'ios::sync_with_stdio(false);',
+      )
+
+      await user.click(screen.getByRole('radio', { name: 'Python' }))
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(
+        '# 내가 쓴 Python',
+      )
+    })
   })
 
   it('지문의 수식을 KaTeX로 그린다', async () => {

@@ -2,12 +2,13 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useParams } from 'react-router'
 
-import type { ProblemDetailView } from '@/api/types'
+import type { Language, ProblemDetailView } from '@/api/types'
 import { ErrorState } from '@/components/ErrorState'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DIFFICULTY_LABEL } from '@/features/problems/labels'
 import { CodeEditor } from './CodeEditor'
+import { LanguagePicker } from './LanguagePicker'
 import { formatTimeLimit, LANGUAGE_LABEL } from './labels'
 import { Samples } from './Samples'
 import { parseProblemId, problemDetailQuery } from './solveQuery'
@@ -15,20 +16,23 @@ import { Statement } from './Statement'
 import { useWideLayout } from './useWideLayout'
 
 /** 제목 줄: 난이도·제한·태그 (SOLVE-01). */
-function Header({ problem }: { problem: ProblemDetailView }) {
-  // 지금은 첫 언어의 제한을 보여 준다. 언어를 고르는 UI는 SOLVE-04(2차)에서 들어오고,
-  // 그때 이 자리가 고른 언어의 제한을 받는다. 계약은 PYTHON, CPP 순서를 보장한다.
-  const first = problem.languages[0]
-
+function Header({
+  problem,
+  current,
+}: {
+  problem: ProblemDetailView
+  current: ProblemDetailView['languages'][number] | undefined
+}) {
   return (
     <div className="flex flex-col gap-2">
       <h1 className="text-2xl font-semibold">{problem.title}</h1>
       <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
         <span>{DIFFICULTY_LABEL[problem.difficulty]}</span>
-        {first ? (
-          // 한 문자열로 둔다. 조각으로 나누면 텍스트 노드가 쪼개져 "Python · 2초 · 256MB"를
+        {current ? (
+          // 제한은 고른 언어의 것이다 (SOLVE-04). Python이 C++보다 느려 제한이 다르다.
+          // 한 문자열로 둔다 — 조각으로 나누면 텍스트 노드가 쪼개져 "Python · 2초 · 256MB"를
           // 한 덩어리로 찾는 테스트가 못 찾는다.
-          <span>{`${LANGUAGE_LABEL[first.language]} · ${formatTimeLimit(first.timeLimitMs)} · ${first.memoryLimitMb}MB`}</span>
+          <span>{`${LANGUAGE_LABEL[current.language]} · ${formatTimeLimit(current.timeLimitMs)} · ${current.memoryLimitMb}MB`}</span>
         ) : null}
         <span className="flex flex-wrap gap-1">
           {problem.tags.map((tag) => (
@@ -51,7 +55,11 @@ export function Component() {
     enabled: problemId !== null,
   })
   const wide = useWideLayout()
-  const [code, setCode] = useState('')
+  // 데이터가 오기 전에는 어느 언어가 있는지 모른다. 고르기 전까지 null로 두고 아래에서
+  // 첫 언어로 떨어뜨린다 — 훅은 조기 반환보다 위에 있어야 하기 때문이다.
+  const [chosen, setChosen] = useState<Language | null>(null)
+  // 언어별로 따로 들고 있는다. C++로 갔다 돌아왔을 때 Python 코드가 그대로 있어야 한다.
+  const [codeByLanguage, setCodeByLanguage] = useState<Partial<Record<Language, string>>>({})
 
   // 주소를 손으로 고친 경우다. 요청을 보내지 않고 없는 문제와 같은 문구로 끝낸다
   // (parseProblemId 주석). 화면 전체가 오류이므로 그 제목이 h1이다.
@@ -70,10 +78,34 @@ export function Component() {
     )
   }
 
-  const language = data.languages[0]?.language
-  const editor = language ? (
-    <CodeEditor language={language} value={code} onChange={setCode} />
-  ) : null
+  // 계약은 PYTHON, CPP 순서를 보장한다. 고른 것이 없으면 첫 언어다.
+  const language = chosen ?? data.languages[0]?.language
+  const current = data.languages.find((it) => it.language === language)
+  const editor =
+    language && current ? (
+      <div className="flex flex-col gap-2">
+        <LanguagePicker
+          languages={data.languages}
+          value={language}
+          onChange={(next) => setChosen(next)}
+        />
+        {/*
+          한 번도 손대지 않은 언어는 그 언어의 시작 코드로 연다 (SOLVE-06). 계약은
+          시작 코드가 없으면 빈 문자열을 준다.
+
+          key로 언어를 묶어 언어를 바꿀 때 에디터를 새로 켠다. @uiw는 타이핑 중
+          들어온 외부 value를 타이머(TYPING_TIMOUT)가 끝날 때까지 미뤄 둬서, 글자를
+          치다 바로 언어를 바꾸면 전환이 늦게 적용된다. 새로 켜면 그 경합이 없다 —
+          탭 전환과 달리 언어 전환은 코드 자체가 바뀌는 일이라 undo 이력을 버려도 된다.
+        */}
+        <CodeEditor
+          key={language}
+          language={language}
+          value={codeByLanguage[language] ?? current.starterCode}
+          onChange={(next) => setCodeByLanguage((prev) => ({ ...prev, [language]: next }))}
+        />
+      </div>
+    ) : null
 
   const statement = (
     <div className="flex flex-col gap-6">
@@ -84,7 +116,7 @@ export function Component() {
 
   return (
     <section className="flex flex-col gap-4">
-      <Header problem={data} />
+      <Header problem={data} current={current} />
 
       {/* 넓은 화면은 좌우 분할, 좁은 화면은 탭 전환 (SOLVE-10). 가르는 이유는 useWideLayout 주석 */}
       {wide ? (
