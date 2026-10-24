@@ -380,6 +380,23 @@ describe('로그인 화면', () => {
     expect(client.getQueryData(listKey)).toBeUndefined()
   })
 
+  /**
+   * 제출 결과는 본인 것만 볼 수 있다(계약). 공용 PC에서 A의 세션이 끊긴 뒤 B가 같은 탭에서
+   * 로그인하면 `useLogout`의 `clear()`는 돌지 않으므로, 여기서 지우지 않으면 B가 기록으로
+   * A의 `/submissions/5`를 열 때 gcTime 안에서는 A의 판정이 그대로 그려진다.
+   */
+  it('로그인하면 앞사람의 제출 결과 캐시를 버린다', async () => {
+    const user = userEvent.setup()
+    const { client } = renderLogin(undefined, (c) => {
+      c.setQueryData(['submission', 5], { id: 5, verdict: 'ACCEPTED' })
+    })
+
+    await fillAndSubmit(user)
+    await screen.findByRole('heading', { name: '문제 목록 도착' })
+
+    expect(client.getQueryData(['submission', 5])).toBeUndefined()
+  })
+
   it('목 계정을 화면에 노출하지 않는다', async () => {
     renderLogin()
 

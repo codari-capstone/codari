@@ -81,11 +81,13 @@ describe('SubmissionResultPage', () => {
       // 중간 상태를 하나씩 잡지 않는다. 폴링 간격(기본 1000ms)과 경합해 조용히 깨진다 —
       // 실제로 '채점 준비 중'을 놓쳐 한 번 깨졌다. 상태별 문구는 아래 테스트들이 목을
       // 직접 세워 보고, 여기서 보는 것은 아무도 밀지 않아도 끝까지 나아간다는 것이다.
-      // 세 번 더 물어야 하므로 기다리는 시간을 늘린다.
+      // 세 번 더 물어야 하므로 기다리는 시간을 늘린다. **테스트 쪽 제한도 함께** 늘린다 —
+      // vitest 기본값이 5초라, findByText만 6초로 두면 그보다 먼저 걸려 원인을 알려 주는
+      // 메시지 대신 일반 timeout으로 실패한다.
       expect(
         await screen.findByText('맞았습니다!!', undefined, { timeout: 6000 }),
       ).toBeInTheDocument()
-    })
+    }, 15_000)
 
     /**
      * 끝났는데 계속 물으면 서버와 배터리를 버린다. 탭을 열어 둔 채 자리를 비운 사용자에게
@@ -185,6 +187,21 @@ describe('SubmissionResultPage', () => {
         '/problems/7?language=CPP',
       )
       expect(screen.getByRole('button', { name: 'AI 분석 (준비 중)' })).toBeDisabled()
+    })
+
+    /**
+     * 위쪽 문제 제목 링크로 들어가도 같은 곳이어야 한다. 언어가 빠지면 '다시 풀기'에서
+     * 고친 문제(저장해 둔 C++ 코드 대신 Python 자리가 열림)가 이 링크에만 남는다.
+     */
+    it('문제 제목 링크도 제출 언어를 담는다', async () => {
+      completed({ verdict: 'WRONG_ANSWER', problemId: 7, language: 'CPP' })
+      renderResult()
+      await screen.findByText('틀렸습니다')
+
+      expect(screen.getByRole('link', { name: '두 수의 합' })).toHaveAttribute(
+        'href',
+        '/problems/7?language=CPP',
+      )
     })
 
     /** 출력 형식이 틀린 것도 다시 풀어야 하는 것은 같다. */
@@ -302,6 +319,50 @@ describe('폴링 중에 생기는 일', () => {
     expect(screen.getByText('채점 중 60%')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: '문제가 발생했습니다' })).not.toBeInTheDocument()
   })
+
+  /**
+   * 오래 걸리는 채점을 띄워 둔 채 자리를 비우면 폴링 중에 세션이 만료된다.
+   *
+   * 받아 둔 데이터가 있다고 숨기면 멈춘 진행률만 보이고 401이 끝없이 나간다 — 사용자는
+   * 끝나지 않는 채점으로 읽는다. 다시 물어도 같은 답인 오류는 화면을 오류로 바꾼다.
+   */
+  it('진행 중 401이 오면 폴링을 멈추고 세션을 버린다', async () => {
+    let calls = 0
+    server.use(
+      http.get('*/api/submissions/:id', () => {
+        calls += 1
+        if (calls === 1) {
+          return HttpResponse.json({
+            id: 1,
+            problemId: 1,
+            problemTitle: '두 수의 합',
+            language: 'PYTHON',
+            status: 'RUNNING',
+            progress: 60,
+            verdict: null,
+            runtimeErrorType: null,
+            runtimeErrorMessage: null,
+            compilerMessage: null,
+            executionTimeMs: null,
+            memoryUsedKb: null,
+            submittedAt: '2026-10-24T05:00:00Z',
+            judgedAt: null,
+          })
+        }
+        return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
+      }),
+    )
+    const client = renderResult()
+    expect(await screen.findByText('채점 중 60%')).toBeInTheDocument()
+
+    // 세션을 버려야 RequireAuth가 로그인 화면으로 보낸다. 문구만 띄우면 주소를 직접 쳐야 한다.
+    await waitFor(() => expect(client.getQueryData(ME_QUERY_KEY)).toBeNull(), { timeout: 3000 })
+    expect(screen.queryByText('채점 중 60%')).not.toBeInTheDocument()
+
+    const after = calls
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(calls).toBe(after)
+  }, 15_000)
 
   /**
    * 화면을 보지 않는 사용자에게 가장 중요한 변화가 판정이다. 진행만 live region에 두면

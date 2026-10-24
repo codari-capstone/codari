@@ -29,10 +29,11 @@ test.describe('제출 결과 화면', () => {
     await page.getByRole('button', { name: '제출' }).click()
 
     await expect(page).toHaveURL(/\/submissions\/\d+$/)
-    // 처음에는 기다리는 중이다. 한 번에 판정이 뜨면 폴링이 돌지 않은 것이다.
-    await expect(page.getByText('기다리는 중')).toBeVisible()
-
-    // 아무도 밀지 않아도 판정까지 나아간다.
+    // 중간 상태를 잡지 않는다. 목은 조회마다 한 걸음 나아가므로 QUEUED는 다음 폴링까지
+    // 1초만 남고, 워커가 붐비면 Playwright가 그 구간을 놓쳐 이따금 실패한다 — 단위
+    // 테스트에서 같은 이유로 중간 상태 단언을 뺀 것과 같다.
+    //
+    // 아무도 밀지 않아도 판정까지 나아간다는 것이 여기서 볼 것이다.
     await expect(page.getByText('맞았습니다!!')).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText(/^제출 #\d+$/)).toBeVisible()
     await expect(page.getByText('Python')).toBeVisible()
@@ -56,7 +57,9 @@ test.describe('제출 결과 화면', () => {
 
     // 제출한 언어가 주소에 담겨 온다.
     await expect(page).toHaveURL(/\/problems\/1\?language=PYTHON$/)
-    // 쓰던 코드가 그대로 열린다 (SOLVE-11).
+    // 이 테스트는 시작 코드를 그대로 냈으므로 여기 보이는 것도 시작 코드다 — 저장된 코드가
+    // 복원됐다는 증거가 아니다. 그쪽은 solve.spec.ts의 '새로고침해도 쓰던 코드가 남아
+    // 있다'가 본다.
     await expect(page.getByRole('textbox', { name: '코드 편집기' })).toContainText('sys.stdin')
   })
 
