@@ -43,7 +43,7 @@ export function AppHeader() {
           >
             C
           </span>
-          Codari
+          Codingmon
         </Link>
 
         {/*
