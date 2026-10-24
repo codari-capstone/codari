@@ -42,8 +42,27 @@ const MAX_PAGE_SIZE = 20
 /** 코드 길이 한도. 계약의 SOURCE_TOO_LONG과 같은 값이다(UTF-8 64KB). */
 const MAX_SOURCE_BYTES = 64 * 1024
 
-/** 제출 번호. 목은 실제로 저장하지 않고 번호만 센다. */
+/** 제출 번호. */
 let nextSubmissionId = 1
+
+interface MockSubmission {
+  problemId: number
+  problemTitle: string
+  language: 'PYTHON' | 'CPP'
+  submittedAt: string
+  /** 몇 번 조회됐는지. 조회할 때마다 채점이 한 걸음씩 나아간다 — 아래 핸들러 주석. */
+  polls: number
+  /** 끝났을 때 줄 판정. 제출할 때 정해 둔다. */
+  verdict: 'ACCEPTED' | 'WRONG_ANSWER'
+}
+
+const mockSubmissions = new Map<number, MockSubmission>()
+
+/** 테스트 사이에 채점 진행이 새지 않게 비운다. 가입·재설정의 resetEmailCodes와 같은 쓰임이다. */
+export function resetSubmissions(): void {
+  mockSubmissions.clear()
+  nextSubmissionId = 1
+}
 
 /** 비로그인·인증 실패 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
 function unauthorized() {
@@ -194,10 +213,95 @@ export const handlers: RequestHandler[] = [
     }
 
     const id = nextSubmissionId++
+    const starter = detail.languages.find((it) => it.language === language)?.starterCode ?? ''
+    mockSubmissions.set(id, {
+      problemId: detail.id,
+      problemTitle: detail.title,
+      language,
+      submittedAt: new Date().toISOString(),
+      polls: 0,
+      // 시작 코드를 그대로 낸 제출은 아무것도 풀지 않았으니 틀린다. 손을 댔으면 맞는다 —
+      // 목이 실제로 채점할 수는 없고, 정답·오답 두 화면(RES-07)을 사람이 손으로
+      // 둘 다 볼 수 있어야 한다. 다른 판정은 테스트가 server.use로 직접 돌려준다.
+      verdict: source.trim() === starter.trim() ? 'WRONG_ANSWER' : 'ACCEPTED',
+    })
     return HttpResponse.json(
       { id },
       { status: 202, headers: { Location: `/api/submissions/${id}` } },
     )
+  }),
+
+  /**
+   * 채점 상태·결과 (RES-01·02).
+   *
+   * **조회할 때마다 한 걸음 나아간다.** 한 번에 COMPLETED를 주면 폴링 화면을 사람도
+   * 테스트도 볼 수 없다. 시간으로 진행시키지 않는 이유는 테스트가 시계에 매이지 않게
+   * 하려는 것이다 — 폴링 횟수는 테스트가 통제할 수 있다.
+   *
+   * 없는 제출은 404 `SUBMISSION_NOT_FOUND`다. 계약은 남의 제출·예제 실행도 같은 404로
+   * 답하라고 정했는데, 목은 세션을 보지 않아(목록·상세 핸들러와 같은 선택) 그 둘을
+   * 구분하지 않는다.
+   */
+  http.get('*/api/submissions/:id', ({ params }) => {
+    const id = Number(params.id)
+    if (!Number.isSafeInteger(id)) return badRequest('id는 정수여야 한다')
+
+    const found = mockSubmissions.get(id)
+    if (!found) return problem(404, 'SUBMISSION_NOT_FOUND', '제출을 찾을 수 없어요')
+
+    const step = found.polls++
+    const base = {
+      id,
+      problemId: found.problemId,
+      problemTitle: found.problemTitle,
+      language: found.language,
+      submittedAt: found.submittedAt,
+      runtimeErrorType: null,
+      runtimeErrorMessage: null,
+      compilerMessage: null,
+    }
+    if (step === 0) {
+      return HttpResponse.json({
+        ...base,
+        status: 'QUEUED',
+        progress: 0,
+        verdict: null,
+        executionTimeMs: null,
+        memoryUsedKb: null,
+        judgedAt: null,
+      })
+    }
+    if (step === 1) {
+      return HttpResponse.json({
+        ...base,
+        status: 'COMPILING',
+        progress: 0,
+        verdict: null,
+        executionTimeMs: null,
+        memoryUsedKb: null,
+        judgedAt: null,
+      })
+    }
+    if (step === 2) {
+      return HttpResponse.json({
+        ...base,
+        status: 'RUNNING',
+        progress: 60,
+        verdict: null,
+        executionTimeMs: null,
+        memoryUsedKb: null,
+        judgedAt: null,
+      })
+    }
+    return HttpResponse.json({
+      ...base,
+      status: 'COMPLETED',
+      progress: 100,
+      verdict: found.verdict,
+      executionTimeMs: 128,
+      memoryUsedKb: 31_204,
+      judgedAt: new Date().toISOString(),
+    })
   }),
 
   http.get('*/api/me', ({ cookies }) => {
