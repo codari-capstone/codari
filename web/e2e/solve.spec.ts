@@ -1,21 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
-// 목 계정이다. web/src/mocks/fixtures/users.ts와 같은 값을 쓴다.
-const USER = { email: 'user@codari.test', password: 'Codari!test1' }
-
-/**
- * 문제 풀이 화면은 로그인해야 본다 (COM-05, RequireAuth).
- *
- * 로그인 자체를 시험하는 것은 auth.spec.ts다. 여기서는 그 화면에 닿기 위한 준비다.
- */
-async function login(page: Page) {
-  await page.goto('/login')
-  await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
-  await page.getByLabel('이메일').fill(USER.email)
-  await page.getByLabel('비밀번호').fill(USER.password)
-  await page.getByRole('button', { name: '로그인' }).click()
-  await expect(page).toHaveURL(/\/problems$/)
-}
+import { login } from './login.js'
 
 test.describe('문제 풀이 화면', () => {
   test('목록에서 문제를 누르면 지문·예제·출처가 보인다', async ({ page }) => {
@@ -50,7 +35,9 @@ test.describe('문제 풀이 화면', () => {
 
     // 언어를 바꾸면 제한 표시도 바뀐다 (SOLVE-04). 문법 강조가 실제로 C++로 바뀌는지는
     // 실제 브라우저에서만 보인다 — jsdom에는 CodeMirror의 강조 레이어가 없다.
-    await page.getByRole('radio', { name: 'C++' }).check()
+    // 언어는 주소에 담긴다. check()는 누른 직후 상태를 보는데 그 사이 리렌더가 끼어 어긋난다.
+    await page.getByRole('radio', { name: 'C++' }).click()
+    await expect(page.getByRole('radio', { name: 'C++' })).toBeChecked()
     await expect(page.getByText('C++ · 1초 · 256MB')).toBeVisible()
     await expect(page.getByRole('textbox', { name: '코드 편집기' })).toContainText(
       'ios::sync_with_stdio',

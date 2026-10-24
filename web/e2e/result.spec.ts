@@ -1,16 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 
-// 목 계정이다. web/src/mocks/fixtures/users.ts와 같은 값을 쓴다.
-const USER = { email: 'user@codari.test', password: 'Codari!test1' }
-
-async function login(page: Page) {
-  await page.goto('/login')
-  await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
-  await page.getByLabel('이메일').fill(USER.email)
-  await page.getByLabel('비밀번호').fill(USER.password)
-  await page.getByRole('button', { name: '로그인' }).click()
-  await expect(page).toHaveURL(/\/problems$/)
-}
+import { login } from './login.js'
 
 test.describe('제출 결과 화면', () => {
   /**
@@ -73,7 +63,9 @@ test.describe('제출 결과 화면', () => {
   test('C++로 제출한 뒤 다시 풀기를 누르면 C++로 돌아온다', async ({ page }) => {
     await login(page)
     await page.goto('/problems/1')
-    await page.getByRole('radio', { name: 'C++' }).check()
+    // 언어는 주소에 담긴다. check()는 누른 직후 상태를 보는데 그 사이 리렌더가 끼어 어긋난다.
+    await page.getByRole('radio', { name: 'C++' }).click()
+    await expect(page.getByRole('radio', { name: 'C++' })).toBeChecked()
     await expect(page.getByRole('textbox', { name: '코드 편집기' })).toContainText(
       'ios::sync_with_stdio',
     )

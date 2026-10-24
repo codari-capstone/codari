@@ -15,6 +15,7 @@ import { LanguagePicker } from './LanguagePicker'
 import { formatTimeLimit, LANGUAGE_LABEL } from './labels'
 import { Samples } from './Samples'
 import { readSavedCode, storeSavedCode } from './savedCode'
+import { askedLanguage } from './solvePath'
 import { problemDetailQuery } from './solveQuery'
 import { StarterCodeButton } from './StarterCodeButton'
 import { useSubmit } from './submitQuery'
@@ -67,19 +68,27 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
   // 제출을 잃는다 (submitQuery 주석).
   const submit = useSubmit()
   /**
-   * 고른 언어. 주소의 `?language=`로 열린 경우 그 언어로 시작한다.
+   * 고른 언어는 **주소가 들고 있다** (`?language=`).
    *
-   * 결과 화면의 [다시 풀기]가 제출한 언어를 담아 보낸다(nextActions). 없으면 늘 첫
-   * 언어(PYTHON)가 열려서, C++로 제출해 틀린 뒤 돌아온 사람에게 저장해 둔 C++ 코드가
-   * 아니라 Python 자리를 보여 주게 된다.
+   * 결과 화면의 [다시 풀기]가 제출한 언어를 담아 보낸다(solvePath). 처음에는 그 값을
+   * 첫 렌더에 한 번만 읽어 state로 옮겼는데, 그러면 화면에서 언어를 바꿔도 주소는 그대로라
+   * 새로고침하면 쓰던 언어가 아닌 쪽이 열린다. 주소를 진실로 두면 그 어긋남이 없다.
    *
-   * 아는 언어이고 이 문제가 지원할 때만 받는다 — 주소는 사용자가 손으로 고친다.
+   * `replace`로 쓴다 — 언어를 몇 번 바꿨다고 뒤로 가기가 그만큼 쌓이면 안 된다.
    */
-  const [searchParams] = useSearchParams()
-  const [chosen, setChosen] = useState<Language | null>(() => {
-    const asked = searchParams.get('language')
-    return problem.languages.some((it) => it.language === asked) ? (asked as Language) : null
-  })
+  const [searchParams, setSearchParams] = useSearchParams()
+  const chosen = askedLanguage(searchParams.get('language'), problem.languages)
+  const setChosen = (next: Language) =>
+    setSearchParams(
+      (prev) => {
+        // 받은 것을 고쳐 그대로 돌려주면 주소가 바뀌지 않는다 — 라디오를 눌러도 아무
+        // 일이 없었다(e2e가 "체크 상태가 바뀌지 않았다"로 잡았다). 새 객체를 만든다.
+        const next_ = new URLSearchParams(prev)
+        next_.set('language', next)
+        return next_
+      },
+      { replace: true },
+    )
   // 언어별로 따로 들고 있는다. C++로 갔다 돌아왔을 때 Python 코드가 그대로 있어야 한다.
   const [codeByLanguage, setCodeByLanguage] = useState<Partial<Record<Language, string>>>({})
   // 밖에서 코드를 갈아끼운 횟수. 에디터 key에 들어간다 — 아래 CodeEditor 주석.

@@ -321,6 +321,34 @@ describe('폴링 중에 생기는 일', () => {
   })
 
   /**
+   * 받아 둔 것이 없는데 첫 조회가 5xx로 끝난 경우다.
+   *
+   * 일시적 실패라고 숨기면 오류 화면도 다시 시도 버튼도 없이 스켈레톤만 남고, 매초 실패
+   * 요청이 나간다 — 끝나지 않는 로딩으로 읽힌다. 숨길 진행 상태가 없으면 숨기지 않는다.
+   */
+  it('데이터 없이 일시 오류로 끝나면 오류와 다시 시도를 보여 준다', async () => {
+    let calls = 0
+    server.use(
+      http.get('*/api/submissions/:id', () => {
+        calls += 1
+        return HttpResponse.json({ status: 503, title: 'Service Unavailable' }, { status: 503 })
+      }),
+    )
+    renderResult()
+
+    expect(
+      await screen.findByRole('heading', { level: 1, name: '문제가 발생했습니다' }),
+    ).toBeInTheDocument()
+    // 일시적 실패는 retryable이라 버튼이 뜬다 — 이 분기에서 onRetry가 실제로 쓰인다.
+    expect(screen.getByRole('button', { name: '다시 시도' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    const after = calls
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(calls).toBe(after)
+  }, 15_000)
+
+  /**
    * 오래 걸리는 채점을 띄워 둔 채 자리를 비우면 폴링 중에 세션이 만료된다.
    *
    * 받아 둔 데이터가 있다고 숨기면 멈춘 진행률만 보이고 401이 끝없이 나간다 — 사용자는

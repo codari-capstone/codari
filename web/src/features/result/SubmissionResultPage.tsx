@@ -8,10 +8,11 @@ import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
 import { STATUS_LABEL, VERDICT_LABEL } from '@/constants/verdicts'
 import { LANGUAGE_LABEL } from '@/features/solve/labels'
+import { solvePath } from '@/features/solve/solvePath'
 import { forgetSessionIfUnauthorized } from '@/features/auth/session'
 import { parsePathId } from '@/lib/pathId'
 import { nextActions } from './nextActions'
-import { isTransient, submissionResultQuery } from './resultQuery'
+import { isDeadEnd, submissionResultQuery } from './resultQuery'
 
 /**
  * 지금 무슨 일이 일어나고 있는지 한 줄 (RES-01·02).
@@ -112,18 +113,9 @@ export function Component() {
   // 주소를 손으로 고친 경우다. 요청을 보내지 않고 없는 제출과 같은 문구로 끝낸다
   // (parsePathId 주석).
   if (submissionId === null) return <ErrorState problem={{ status: 404 }} headingLevel={1} />
-  /**
-   * 오류 화면은 **다시 물어도 같은 답일 때만** 띄운다.
-   *
-   * 처음에는 `error`를 `data`보다 먼저 봤더니 '채점 중 60%'를 보던 중 폴링이 한 번만
-   * 실패해도 진행 상태가 통째로 사라졌다. 그래서 "데이터가 있으면 숨긴다"로 바꿨는데,
-   * 이번에는 세션이 만료돼 401이 계속 와도 멈춘 진행률만 보여 주게 됐다.
-   *
-   * 가르는 것은 데이터 유무가 아니라 **오류의 성격**이다(resultQuery의 `isTransient`).
-   * 5xx나 네트워크 끊김이면 받아 둔 상태를 그대로 두고 폴링도 이어 간다. 401·403·404는
-   * 다시 물어도 같은 답이라 화면을 오류로 바꾼다 — 받아 둔 것이 남의 결과일 수도 있다.
-   */
-  if (error && !isTransient(error)) {
+  // 오류 화면을 띄우는 때와 폴링을 멈추는 때가 같다 (resultQuery의 isDeadEnd).
+  // 그 주석에 세 번 어긋났던 경위를 적어 뒀다.
+  if (isDeadEnd(error, data !== undefined)) {
     return <ErrorState problem={error} headingLevel={1} onRetry={() => void refetch()} />
   }
   if (isPending || !data) {
@@ -139,10 +131,9 @@ export function Component() {
     <section className="flex flex-col gap-4">
       <h1 className="text-2xl font-semibold">제출 결과</h1>
 
-      {/* 다시 풀기와 같은 곳으로 가야 한다. 언어가 빠지면 여기로 들어온 사람만 첫
-          언어(PYTHON) 자리를 보게 된다 (nextActions 주석). */}
+      {/* 다시 풀기와 같은 주소를 쓴다 (solvePath) */}
       <Link
-        to={`/problems/${data.problemId}?language=${data.language}`}
+        to={solvePath(data.problemId, data.language)}
         className="text-primary text-sm underline"
       >
         {data.problemTitle}
