@@ -1,8 +1,10 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useNavigate } from 'react-router'
 
 import { api } from '@/api/client'
 import { fail } from '@/api/fail'
 import type { Language } from '@/api/types'
+import { ME_QUERY_KEY } from '@/features/auth/authQuery'
 
 export interface SubmitInput {
   problemId: number
@@ -26,17 +28,50 @@ export async function submitCode(input: SubmitInput): Promise<number> {
   return result.data.id
 }
 
+function statusOf(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const status = (error as { status?: unknown }).status
+  return typeof status === 'number' ? status : undefined
+}
+
 /**
  * 제출 mutation.
+ *
+ * **반응형 분기 바깥에서 불러야 한다.** 에디터 칸은 넓은 화면의 grid와 좁은 화면의 Tabs라는
+ * 서로 다른 트리에 들어가므로, 제출이 떠 있는 동안 폭이 64rem을 넘나들면(창 크기 조절·기기
+ * 회전) 그 안의 컴포넌트가 새로 마운트된다. mutation이 거기 있으면 idle로 되살아나 이동이
+ * 일어나지 않고 버튼만 다시 열린다 — 서버는 접수했는데 사용자는 실패한 줄 알고 다시 눌러
+ * 시도 횟수가 두 번 오른다. `Workspace`가 그 분기 위에 있어서 거기서 부른다.
+ *
+ * 이동도 여기서 한다. mutate에 콜백을 붙이면 그 호출에 매이는데, observer가 사라지면
+ * 콜백도 실행되지 않는다. 계약이 주는 `id`로 우리가 아는 라우트를 만든다 — 202의
+ * `Location` 헤더를 따라가면 "서버 경로와 화면 경로가 같다"는 가정이 코드에 숨는다.
  *
  * 중복 클릭 방지(SOLVE-09)는 버튼의 `disabled`가 맡는다(SubmitButton 주석). 여기에
  * 가드를 또 두지 않는다 — 같은 검사가 두 벌이 되면 둘이 갈라지는 날 어느 쪽이 진짜
  * 규칙인지 알 수 없다.
  */
 export function useSubmit() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
   return useMutation({
     mutationFn: submitCode,
-    // 제출은 돈이 드는 쪽이다(채점 큐에 들어간다). 실패하면 사람이 다시 누르게 한다.
+    // 제출은 되돌릴 수 없다(시도 횟수가 오른다). 실패하면 사람이 다시 누르게 한다.
     retry: false,
+    onSuccess: (id) => void navigate(`/submissions/${id}`),
+    onError: (error) => {
+      /**
+       * 401이면 세션을 버린다. 그래야 RequireAuth가 로그인 화면으로 보내고, 돌아올 주소도
+       * 함께 담는다 — 문구만 띄우면 사용자가 주소를 직접 쳐야 한다. 쓰던 코드는
+       * localStorage에 남아 있어(SOLVE-11) 다시 로그인하면 그대로 열린다.
+       *
+       * useLogout이 ['me']에 null을 심지 않는 것과 어긋나지 않는다. 거기서는 로그아웃
+       * **요청이 실패**해 서버 세션이 살아 있을 수 있는데 로그아웃된 것처럼 보이는 것이
+       * 문제였다. 여기는 반대로 서버가 "세션이 없다"고 확정해 준 경우라, 화면을 사실에
+       * 맞추는 쪽이 null을 심는 것이다.
+       */
+      if (statusOf(error) === 401) queryClient.setQueryData(ME_QUERY_KEY, null)
+    },
   })
 }

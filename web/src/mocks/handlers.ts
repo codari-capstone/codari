@@ -138,7 +138,11 @@ export const handlers: RequestHandler[] = [
   }),
 
   /**
-   * 코드 제출 (SOLVE-09). 서버와 같은 순서로 검사한다.
+   * 코드 제출 (SOLVE-09).
+   *
+   * 검사 순서를 `SubmissionController.submit`과 똑같이 맞춘다: 빈 코드 → 길이 →
+   * (NUL·problemId·language) → 없는 문제 → 미지원 언어. 순서가 어긋나면 같은 요청에
+   * 목과 서버가 다른 code를 주고, 화면은 목에만 있는 분기를 믿게 된다.
    *
    * 접수만 하고 채점은 하지 않는다 — 계약도 202로 접수만 답한다. 제출 번호는 1부터
    * 세어 돌려준다(실제 서버의 번호와 모양만 같으면 된다).
@@ -152,19 +156,28 @@ export const handlers: RequestHandler[] = [
       sourceCode?: string
     }
 
-    // 모르는 언어와 NUL이 든 코드는 code 없는 400이다(계약).
-    if (body.language !== 'PYTHON' && body.language !== 'CPP') {
+    const language = body.language
+    // 모르는 언어는 서버가 JSON을 읽는 단계에서 걸러 code 없는 400이 된다
+    // (SubmissionController.SubmitRequest 주석). null은 여기 걸리지 않는다 — 서버에서도
+    // 역직렬화는 되고 아래 빈 코드·길이 검사 뒤에 걸린다.
+    if (language != null && language !== 'PYTHON' && language !== 'CPP') {
       return badRequest('language는 PYTHON 또는 CPP여야 한다')
     }
-    const source = body.sourceCode ?? ''
-    if (source.includes('\0')) return badRequest('sourceCode에 NUL 문자가 있다')
 
-    if (source.trim() === '') {
+    const source = body.sourceCode
+    // 서버는 빈 코드와 길이를 **먼저** 본다. NUL이 섞이고 64KB를 넘는 코드에 서버는
+    // SOURCE_TOO_LONG을 주므로, NUL을 먼저 보면 목만 code 없는 400을 준다.
+    if (source == null || source.trim() === '') {
       return problem(400, 'SOURCE_EMPTY', '코드를 입력해 주세요')
     }
     // 64KB는 UTF-8 바이트 기준이다(계약). 글자 수로 재면 한글이 섞인 주석에서 어긋난다.
     if (new TextEncoder().encode(source).length > MAX_SOURCE_BYTES) {
-      return problem(400, 'SOURCE_TOO_LONG', '코드가 너무 깁니다 (64KB까지)')
+      return problem(400, 'SOURCE_TOO_LONG', '코드는 64KB까지 제출할 수 있어요')
+    }
+    // 화면이 정상적으로는 보낼 수 없는 값이라 서버도 code 없이 답한다. problemId가 없는
+    // 요청도 여기서 끝난다 — 아래 find로 흘려보내면 목만 404 PROBLEM_NOT_FOUND를 준다.
+    if (source.includes('\0') || body.problemId == null || language == null) {
+      return badRequest('problemId·language·sourceCode를 확인해 주세요')
     }
 
     const detail = problemDetails.find((item) => item.id === body.problemId)
@@ -172,8 +185,12 @@ export const handlers: RequestHandler[] = [
     // 지금 fixture의 문제는 모두 두 언어를 지원해서 이 분기에 닿을 수 없다. 그래도
     // 남겨 둔다 — 서버에 있는 분기를 목에서 빼면 목이 계약을 덜 지키게 된다. 화면 쪽
     // 테스트는 이 응답을 server.use로 직접 돌려준다.
-    if (!detail.languages.some((it) => it.language === body.language)) {
-      return problem(400, 'LANGUAGE_NOT_SUPPORTED', '이 문제는 그 언어를 지원하지 않아요')
+    if (!detail.languages.some((it) => it.language === language)) {
+      return problem(
+        400,
+        'LANGUAGE_NOT_SUPPORTED',
+        '이 문제는 그 언어를 지원하지 않아요. 새로고침하고 언어를 다시 골라 주세요',
+      )
     }
 
     const id = nextSubmissionId++

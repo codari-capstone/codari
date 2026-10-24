@@ -597,3 +597,40 @@ describe('제출 목', () => {
     expect(code(res)).toBeUndefined()
   })
 })
+
+/**
+ * 검사 순서가 SubmissionController와 같은지 (리뷰 지적).
+ *
+ * 순서가 어긋나면 같은 요청에 목과 서버가 다른 code를 주고, 화면은 목에만 있는 분기를
+ * 믿게 된다. 순서가 드러나는 조합만 고른다 — 한 요청이 두 검사에 걸리는 경우다.
+ */
+describe('제출 목의 검사 순서', () => {
+  const body = { problemId: 1, language: 'PYTHON' as const, sourceCode: 'print(1)' }
+
+  it('NUL이 섞이고 64KB도 넘으면 SOURCE_TOO_LONG이다', async () => {
+    const res = await api.POST('/api/submissions', {
+      body: { ...body, sourceCode: '\0' + '가'.repeat(22_000) },
+    })
+
+    // 서버는 길이를 먼저 본다. NUL을 먼저 보면 code 없는 400이 되어 어긋난다.
+    expect(code(res)).toBe('SOURCE_TOO_LONG')
+  })
+
+  it('problemId가 없으면 404가 아니라 code 없는 400이다', async () => {
+    const res = await api.POST('/api/submissions', {
+      body: { ...body, problemId: undefined as unknown as number },
+    })
+
+    // find로 흘려보내면 목만 404 PROBLEM_NOT_FOUND를 준다.
+    expect(res.response.status).toBe(400)
+    expect(code(res)).toBeUndefined()
+  })
+
+  it('없는 문제라도 코드가 비어 있으면 SOURCE_EMPTY가 먼저다', async () => {
+    const res = await api.POST('/api/submissions', {
+      body: { ...body, problemId: 9999, sourceCode: '   ' },
+    })
+
+    expect(code(res)).toBe('SOURCE_EMPTY')
+  })
+})

@@ -133,6 +133,51 @@ describe('SolvePage', () => {
       expect(calls).toBe(1)
     })
 
+    /**
+     * 세션이 끊긴 상태로 제출하면 문구만 띄우고 끝낼 수 없다. 로그인 화면으로 보내야
+     * 돌아올 주소도 함께 담긴다(RequireAuth). 쓰던 코드는 localStorage에 남는다.
+     */
+    it('401이면 세션을 버려 로그인으로 보낼 수 있게 한다', async () => {
+      const user = userEvent.setup()
+      server.use(
+        http.post('*/api/submissions', () =>
+          HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 }),
+        ),
+      )
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(submitButton())
+
+      await waitFor(() => expect(lastClient.getQueryData(ME_QUERY_KEY)).toBeNull())
+    })
+
+    /**
+     * C++로 제출해 LANGUAGE_NOT_SUPPORTED를 받은 뒤 Python으로 바꿔도 문구가 남으면,
+     * 사용자는 Python도 안 되는 것으로 읽는다.
+     */
+    it('언어를 바꾸면 이전 언어의 오류 문구가 사라진다', async () => {
+      const user = userEvent.setup()
+      server.use(
+        http.post('*/api/submissions', () =>
+          HttpResponse.json(
+            { status: 400, code: 'LANGUAGE_NOT_SUPPORTED', detail: '언어를 다시 골라 주세요' },
+            { status: 400 },
+          ),
+        ),
+      )
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      await user.click(screen.getByRole('radio', { name: 'C++' }))
+
+      await user.click(submitButton())
+      expect(await screen.findByRole('alert')).toHaveTextContent('언어를 다시 골라 주세요')
+
+      await user.click(screen.getByRole('radio', { name: 'Python' }))
+
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    })
+
     it('실패하면 서버 문구를 보여 주고 코드는 그대로 둔다', async () => {
       const user = userEvent.setup()
       server.use(

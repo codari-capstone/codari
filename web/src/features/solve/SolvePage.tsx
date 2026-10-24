@@ -16,6 +16,7 @@ import { Samples } from './Samples'
 import { readSavedCode, storeSavedCode } from './savedCode'
 import { parseProblemId, problemDetailQuery } from './solveQuery'
 import { StarterCodeButton } from './StarterCodeButton'
+import { useSubmit } from './submitQuery'
 import { SubmitButton } from './SubmitButton'
 import { Statement } from './Statement'
 import { useWideLayout } from './useWideLayout'
@@ -61,6 +62,9 @@ function Header({
 function Workspace({ problem }: { problem: ProblemDetailView }) {
   const wide = useWideLayout()
   const { user } = useAuth()
+  // 반응형 분기 **바깥**에서 부른다. 안에서 부르면 폭이 64rem을 넘나들 때 진행 중인
+  // 제출을 잃는다 (submitQuery 주석).
+  const submit = useSubmit()
   const [chosen, setChosen] = useState<Language | null>(null)
   // 언어별로 따로 들고 있는다. C++로 갔다 돌아왔을 때 Python 코드가 그대로 있어야 한다.
   const [codeByLanguage, setCodeByLanguage] = useState<Partial<Record<Language, string>>>({})
@@ -139,6 +143,7 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
           }}
         />
         <SubmitButton
+          submit={submit}
           problemId={problem.id}
           language={language}
           code={codeByLanguage[language] ?? opening}
