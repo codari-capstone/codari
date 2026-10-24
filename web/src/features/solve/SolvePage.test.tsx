@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
@@ -58,6 +58,65 @@ describe('SolvePage', () => {
     expect(screen.getByText('쉬움')).toBeInTheDocument()
     // 고른 것이 없으면 첫 언어(계약이 보장하는 PYTHON)의 제한이다.
     expect(screen.getByText('Python · 2초 · 256MB')).toBeInTheDocument()
+  })
+
+  describe('시작 코드 불러오기 (SOLVE-06)', () => {
+    /** @uiw는 타이핑 직후 들어온 외부 value를 200ms 미뤄 둔다(CodeEditor 쪽 주석). */
+    const hasCode = (text: string) =>
+      waitFor(() =>
+        expect(screen.getByRole('textbox', { name: '코드 편집기' })).toHaveTextContent(text),
+      )
+
+    it('작성 중인 코드가 없으면 묻지 않고 바로 넣는다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      // 시작 코드로 열려 있으니 잃을 것이 없다. 아무것도 안 지우는 확인창을 띄우면
+      // 사용자가 확인을 읽지 않게 길들인다.
+      await user.click(screen.getByRole('button', { name: '시작 코드 불러오기' }))
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      await hasCode('sys.stdin.read()')
+    })
+
+    it('작성 중인 코드가 있으면 확인을 받고 덮어쓴다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 내가 쓴 코드')
+      await hasCode('# 내가 쓴 코드')
+
+      await user.click(screen.getByRole('button', { name: '시작 코드 불러오기' }))
+      expect(await screen.findByRole('alertdialog')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: '불러오기' }))
+
+      await waitFor(() =>
+        expect(screen.getByRole('textbox', { name: '코드 편집기' })).not.toHaveTextContent(
+          '# 내가 쓴 코드',
+        ),
+      )
+      await hasCode('sys.stdin.read()')
+    })
+
+    it('확인창에서 취소하면 코드가 그대로다', async () => {
+      const user = userEvent.setup()
+      renderSolve()
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+
+      await user.click(screen.getByRole('textbox', { name: '코드 편집기' }))
+      await user.keyboard('# 지우면 안 되는 코드')
+      await hasCode('# 지우면 안 되는 코드')
+
+      await user.click(screen.getByRole('button', { name: '시작 코드 불러오기' }))
+      await user.click(screen.getByRole('button', { name: '취소' }))
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+      await hasCode('# 지우면 안 되는 코드')
+    })
   })
 
   describe('언어 선택 (SOLVE-04)', () => {

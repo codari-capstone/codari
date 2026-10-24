@@ -12,6 +12,7 @@ import { LanguagePicker } from './LanguagePicker'
 import { formatTimeLimit, LANGUAGE_LABEL } from './labels'
 import { Samples } from './Samples'
 import { parseProblemId, problemDetailQuery } from './solveQuery'
+import { StarterCodeButton } from './StarterCodeButton'
 import { Statement } from './Statement'
 import { useWideLayout } from './useWideLayout'
 
@@ -60,6 +61,8 @@ export function Component() {
   const [chosen, setChosen] = useState<Language | null>(null)
   // 언어별로 따로 들고 있는다. C++로 갔다 돌아왔을 때 Python 코드가 그대로 있어야 한다.
   const [codeByLanguage, setCodeByLanguage] = useState<Partial<Record<Language, string>>>({})
+  // 밖에서 코드를 갈아끼운 횟수. 에디터 key에 들어간다 — 아래 CodeEditor 주석.
+  const [generation, setGeneration] = useState(0)
 
   // 주소를 손으로 고친 경우다. 요청을 보내지 않고 없는 문제와 같은 문구로 끝낸다
   // (parseProblemId 주석). 화면 전체가 오류이므로 그 제목이 h1이다.
@@ -84,22 +87,37 @@ export function Component() {
   const editor =
     language && current ? (
       <div className="flex flex-col gap-2">
-        <LanguagePicker
-          languages={data.languages}
-          value={language}
-          onChange={(next) => setChosen(next)}
-        />
+        <div className="flex flex-wrap items-center justify-between gap-x-4">
+          <LanguagePicker
+            languages={data.languages}
+            value={language}
+            onChange={(next) => setChosen(next)}
+          />
+          <StarterCodeButton
+            starterCode={current.starterCode}
+            code={codeByLanguage[language] ?? current.starterCode}
+            onLoad={() => {
+              setCodeByLanguage((prev) => ({ ...prev, [language]: current.starterCode }))
+              setGeneration((it) => it + 1)
+            }}
+          />
+        </div>
         {/*
           한 번도 손대지 않은 언어는 그 언어의 시작 코드로 연다 (SOLVE-06). 계약은
           시작 코드가 없으면 빈 문자열을 준다.
 
-          key로 언어를 묶어 언어를 바꿀 때 에디터를 새로 켠다. @uiw는 타이핑 중
-          들어온 외부 value를 타이머(TYPING_TIMOUT)가 끝날 때까지 미뤄 둬서, 글자를
-          치다 바로 언어를 바꾸면 전환이 늦게 적용된다. 새로 켜면 그 경합이 없다 —
-          탭 전환과 달리 언어 전환은 코드 자체가 바뀌는 일이라 undo 이력을 버려도 된다.
+          **에디터에 값을 밀어 넣는 길은 key뿐이다.** @uiw는 타이핑 직후 들어온 외부
+          value를 200ms 동안 미뤄 두는데(useCodeMirror의 typingLatch), 그 200ms를
+          `setInterval(…, 1)`로 200번 세기 때문에 바쁜 환경에서는 훨씬 늦게 온다.
+          글자를 치다 바로 언어를 바꾸거나 시작 코드를 불러오면 전환이 안 보인다 —
+          테스트에서 두 번 걸렸다. 밖에서 갈아끼울 때마다 새로 켜면 그 경합이 없다.
+
+          탭 전환에서는 반대로 forceMount로 살려 둔다(아래 TabsContent 주석). 거기서는
+          같은 코드를 계속 쓰는 중이라 undo 이력이 자산이고, 여기서는 코드 자체가
+          바뀌는 일이라 버리는 것이 맞다 — 그래서 덮어쓰기 전에 확인을 받는다.
         */}
         <CodeEditor
-          key={language}
+          key={`${language}:${generation}`}
           language={language}
           value={codeByLanguage[language] ?? current.starterCode}
           onChange={(next) => setCodeByLanguage((prev) => ({ ...prev, [language]: next }))}
