@@ -478,6 +478,23 @@ describe('SolvePage', () => {
       expect(screen.queryByText('Python · 2초 · 256MB')).not.toBeInTheDocument()
     })
 
+    /**
+     * 주소를 진실로 둔다. 첫 렌더에 한 번만 읽어 state로 옮기면, 화면에서 언어를 바꿔도
+     * 주소는 그대로라 새로고침하면 쓰던 언어가 아닌 쪽이 열린다.
+     */
+    it('언어를 바꾸면 주소에도 쓴다', async () => {
+      const user = userEvent.setup()
+      renderSolve('/problems/1?language=CPP')
+      await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
+      expect(screen.getByRole('radio', { name: 'C++' })).toBeChecked()
+
+      await user.click(screen.getByRole('radio', { name: 'Python' }))
+
+      expect(lastRouter.state.location.search).toBe('?language=PYTHON')
+      // 뒤로 가기가 언어 전환마다 쌓이면 안 된다.
+      expect(lastRouter.state.historyAction).toBe('REPLACE')
+    })
+
     it('문제가 주는 언어만 띄운다', async () => {
       server.use(
         http.get('*/api/problems/1', () =>

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { createQueryClient } from '@/app/queryClient'
 import { problemDetails } from '@/mocks/fixtures/problemDetails'
 import { problems } from '@/mocks/fixtures/problems'
-import { parseProblemId, problemDetailQuery } from './solveQuery'
+import { problemDetailQuery } from './solveQuery'
 
 function client(): QueryClient {
   return createQueryClient()
@@ -33,17 +33,5 @@ describe('problemDetailQuery', () => {
     expect(problemDetails.map((item) => item.id).sort((a, b) => a - b)).toEqual(
       problems.map((item) => item.id).sort((a, b) => a - b),
     )
-  })
-})
-
-describe('parseProblemId', () => {
-  it('정수를 읽는다', () => {
-    expect(parseProblemId('12')).toBe(12)
-  })
-
-  // 주소는 사용자가 손으로 고친다. 계약은 정수가 아닌 id에 400, 없는 번호에 404를 주는데
-  // 사용자에게는 둘 다 "없는 문제"다. 보낼 필요가 없는 요청은 보내지 않는다.
-  it.each(['abc', '1.5', '0', '-3', '', '1e300', undefined])('모르는 id는 null이다: %s', (raw) => {
-    expect(parseProblemId(raw)).toBeNull()
   })
 })

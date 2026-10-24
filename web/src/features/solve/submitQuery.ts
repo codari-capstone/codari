@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router'
 import { api } from '@/api/client'
 import { fail } from '@/api/fail'
 import type { Language } from '@/api/types'
-import { ME_QUERY_KEY } from '@/features/auth/authQuery'
+import { forgetSessionIfUnauthorized } from '@/features/auth/session'
 
 export interface SubmitInput {
   problemId: number
@@ -26,12 +26,6 @@ export async function submitCode(input: SubmitInput): Promise<number> {
   const result = await api.POST('/api/submissions', { body: input })
   if (result.data === undefined) fail(result)
   return result.data.id
-}
-
-function statusOf(error: unknown): number | undefined {
-  if (typeof error !== 'object' || error === null) return undefined
-  const status = (error as { status?: unknown }).status
-  return typeof status === 'number' ? status : undefined
 }
 
 /**
@@ -60,18 +54,8 @@ export function useSubmit() {
     // 제출은 되돌릴 수 없다(시도 횟수가 오른다). 실패하면 사람이 다시 누르게 한다.
     retry: false,
     onSuccess: (id) => void navigate(`/submissions/${id}`),
-    onError: (error) => {
-      /**
-       * 401이면 세션을 버린다. 그래야 RequireAuth가 로그인 화면으로 보내고, 돌아올 주소도
-       * 함께 담는다 — 문구만 띄우면 사용자가 주소를 직접 쳐야 한다. 쓰던 코드는
-       * localStorage에 남아 있어(SOLVE-11) 다시 로그인하면 그대로 열린다.
-       *
-       * useLogout이 ['me']에 null을 심지 않는 것과 어긋나지 않는다. 거기서는 로그아웃
-       * **요청이 실패**해 서버 세션이 살아 있을 수 있는데 로그아웃된 것처럼 보이는 것이
-       * 문제였다. 여기는 반대로 서버가 "세션이 없다"고 확정해 준 경우라, 화면을 사실에
-       * 맞추는 쪽이 null을 심는 것이다.
-       */
-      if (statusOf(error) === 401) queryClient.setQueryData(ME_QUERY_KEY, null)
-    },
+    // 세션이 끊겼으면 로그인 화면으로 보낸다(session.ts). 쓰던 코드는 localStorage에
+    // 남아 있어(SOLVE-11) 다시 로그인하면 그대로 열린다.
+    onError: (error) => forgetSessionIfUnauthorized(queryClient, error),
   })
 }

@@ -43,6 +43,10 @@ export function Component() {
       // (ProblemTable.tsx). 무효화가 아니라 제거다 — 무효화는 다시 받아 오는 동안 그
       // 틀린 값을 화면에 남긴다. 사용자별 응답을 캐시하는 키가 늘면 여기도 늘어난다.
       queryClient.removeQueries({ queryKey: ['problems'] })
+      // 제출 결과는 본인 것만 볼 수 있다(계약). 지우지 않으면 공용 PC에서 A의 세션이
+      // 끊긴 뒤 B가 로그인해 기록으로 A의 /submissions/5를 열 때, gcTime 안에서는 A의
+      // 판정이 그대로 그려진다.
+      queryClient.removeQueries({ queryKey: ['submission'] })
       // 아래의 <Navigate> 분기도 setQueryData로 isAuthenticated가 바뀌면 같은 곳으로 보내므로
       // 이 호출이 없어도 도착한다. 그래도 두는 이유는 재렌더에 기대지 않고 바로 이동하기 위해서다.
       // replace를 빼면 /login이 기록에 남는다. LoginPage.test.tsx가 PUSH 여부로 이를 지킨다.

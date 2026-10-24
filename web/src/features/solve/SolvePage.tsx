@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
-import { useParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 
 import type { Language, ProblemDetailView } from '@/api/types'
 import { ErrorState } from '@/components/ErrorState'
@@ -8,13 +8,15 @@ import { ListSkeleton } from '@/components/ListSkeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/features/auth/useAuth'
 import { DIFFICULTY_LABEL } from '@/features/problems/labels'
+import { parsePathId } from '@/lib/pathId'
 import { BeginnerGuide } from './BeginnerGuide'
 import { CodeEditor } from './CodeEditor'
 import { LanguagePicker } from './LanguagePicker'
 import { formatTimeLimit, LANGUAGE_LABEL } from './labels'
 import { Samples } from './Samples'
 import { readSavedCode, storeSavedCode } from './savedCode'
-import { parseProblemId, problemDetailQuery } from './solveQuery'
+import { askedLanguage } from './solvePath'
+import { problemDetailQuery } from './solveQuery'
 import { StarterCodeButton } from './StarterCodeButton'
 import { useSubmit } from './submitQuery'
 import { SubmitButton } from './SubmitButton'
@@ -65,7 +67,28 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
   // 반응형 분기 **바깥**에서 부른다. 안에서 부르면 폭이 64rem을 넘나들 때 진행 중인
   // 제출을 잃는다 (submitQuery 주석).
   const submit = useSubmit()
-  const [chosen, setChosen] = useState<Language | null>(null)
+  /**
+   * 고른 언어는 **주소가 들고 있다** (`?language=`).
+   *
+   * 결과 화면의 [다시 풀기]가 제출한 언어를 담아 보낸다(solvePath). 처음에는 그 값을
+   * 첫 렌더에 한 번만 읽어 state로 옮겼는데, 그러면 화면에서 언어를 바꿔도 주소는 그대로라
+   * 새로고침하면 쓰던 언어가 아닌 쪽이 열린다. 주소를 진실로 두면 그 어긋남이 없다.
+   *
+   * `replace`로 쓴다 — 언어를 몇 번 바꿨다고 뒤로 가기가 그만큼 쌓이면 안 된다.
+   */
+  const [searchParams, setSearchParams] = useSearchParams()
+  const chosen = askedLanguage(searchParams.get('language'), problem.languages)
+  const setChosen = (next: Language) =>
+    setSearchParams(
+      (prev) => {
+        // 받은 것을 고쳐 그대로 돌려주면 주소가 바뀌지 않는다 — 라디오를 눌러도 아무
+        // 일이 없었다(e2e가 "체크 상태가 바뀌지 않았다"로 잡았다). 새 객체를 만든다.
+        const next_ = new URLSearchParams(prev)
+        next_.set('language', next)
+        return next_
+      },
+      { replace: true },
+    )
   // 언어별로 따로 들고 있는다. C++로 갔다 돌아왔을 때 Python 코드가 그대로 있어야 한다.
   const [codeByLanguage, setCodeByLanguage] = useState<Partial<Record<Language, string>>>({})
   // 밖에서 코드를 갈아끼운 횟수. 에디터 key에 들어간다 — 아래 CodeEditor 주석.
@@ -220,14 +243,14 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
 /** 문제 풀이 (SOLVE-01~07·10·11). 주소를 읽고 문제를 받아 Workspace에 넘긴다. */
 export function Component() {
   const params = useParams()
-  const problemId = parseProblemId(params.id)
+  const problemId = parsePathId(params.id)
   const { data, isPending, error, refetch } = useQuery({
     ...problemDetailQuery(problemId ?? 0),
     enabled: problemId !== null,
   })
 
   // 주소를 손으로 고친 경우다. 요청을 보내지 않고 없는 문제와 같은 문구로 끝낸다
-  // (parseProblemId 주석). 화면 전체가 오류이므로 그 제목이 h1이다.
+  // (parsePathId 주석). 화면 전체가 오류이므로 그 제목이 h1이다.
   if (problemId === null) return <ErrorState problem={{ status: 404 }} headingLevel={1} />
   if (error) {
     return <ErrorState problem={error} headingLevel={1} onRetry={() => void refetch()} />

@@ -30,6 +30,17 @@ export type ProblemPage = components['schemas']['ProblemPage']
  */
 export type ProblemDetailView = components['schemas']['ProblemDetailView']
 
+/**
+ * 채점 상태·결과 (RES-01~07). 끝나지 않았으면 판정·시간·메모리가 null이다(계약).
+ */
+export type SubmissionResult = components['schemas']['SubmissionResult']
+
+/** 채점 진행 상태. `COMPLETED`면 판정이 있고, `JUDGE_ERROR`면 서버 문제다. */
+export type SubmissionStatus = SubmissionResult['status']
+
+/** 판정 여덟 가지. 끝나기 전에는 null이라 벗겨 쓴다. */
+export type Verdict = NonNullable<SubmissionResult['verdict']>
+
 /** 목록 조회 쿼리. toQuery와 목 테스트가 이 타입에 맞춘다. */
 export type ProblemListQuery = NonNullable<operations['listProblems']['parameters']['query']>
 
