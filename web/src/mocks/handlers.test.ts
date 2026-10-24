@@ -204,7 +204,16 @@ describe('MSW 인증 핸들러', () => {
 
   const asUser = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } })
 
+  /**
+   * 갱신까지 막아 둔다. `resetSessions`는 발급 번호만 비우고 MSW 쿠키 항아리의
+   * `refresh_token`은 남긴다 — 앞에 로그아웃 없이 끝난 로그인 테스트가 오면(순서 변경,
+   * 셔플 실행) 미들웨어가 그 쿠키로 새 토큰을 받아 재시도가 200이 되어 이 테스트가 깨진다.
+   */
   it('토큰이 없으면 /api/users/me가 401이다', async () => {
+    server.use(
+      http.post('*/api/auth/refresh', () => HttpResponse.json({ status: 401 }, { status: 401 })),
+    )
+
     const { response } = await api.GET('/api/users/me')
 
     expect(response.status).toBe(401)

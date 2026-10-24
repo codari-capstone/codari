@@ -159,13 +159,16 @@
 
 목은 `web/src/mocks/handlers.ts`와 `web/src/mocks/fixtures/users.ts`에 있다. 개발과 테스트용 가짜 응답이다.
 
-- **가장 중요한 점: 목은 계약이 버린 쿠키 세션 설계를 구현한다.** 로그인이 `codari_session` 쿠키를 심고,
-  `/api/me`가 그 쿠키로 사용자를 찾는다 (`handlers.ts`의 `/api/me`·로그인 핸들러와 `users.ts`의
-  `SESSION_COOKIE`). 갱신 핸들러는 없다.
-  이 문서의 중심 주제에서 목은 틀렸다.
-- 쿠키는 `codari_session=<사용자 id>; Path=/; SameSite=Lax`이고 `HttpOnly`와 `Secure`가 없다
-  (`handlers.ts`의 로그인 핸들러). 이름과 값은 목이 정한 것이다. 실제 쿠키는 `refresh_token`, `HttpOnly`, `Secure`,
-  `SameSite=Strict`, `Path=/api/auth`다.
+- **목도 이제 계약과 같은 세션 모델을 쓴다** (COM-04, PR #128). 로그인이 access token을 본문으로 주고
+  `/api/users/me`가 `Authorization` 헤더로 가리며, `/api/auth/refresh` 핸들러가 새 토큰을 준다
+  (`handlers.ts`와 `users.ts`의 `mockAccessToken`·`userIdFromToken`). 전에는 `codari_session` 쿠키 하나로
+  로그인 상태를 나타냈는데, 그러면 **실서버에서만 깨지는 차이**가 남아서 바꿨다.
+- 쿠키는 `refresh_token=<사용자 id>; Path=/; SameSite=Lax`이고 `HttpOnly`와 `Secure`가 없다
+  (`handlers.ts`의 로그인·갱신 핸들러). 값과 속성은 목이 정한 것이다. 실제 쿠키는 `HttpOnly`, `Secure`,
+  `SameSite=Strict`, `Path=/api/auth`다 — **경로가 다르다**는 점은 실서버에 붙일 때 확인해야 한다.
+- 목은 access token을 **만료시키지 않는다**. 재사용 유예(10초)와 탈취 감지도 없다 — 시간에 매인 규칙이라
+  목이 흉내 내면 테스트가 시계에 매이고, 화면이 하는 일은 어느 쪽이든 "401이면 갱신, 또 401이면
+  로그인으로"로 같다. 만료 경로는 단위 테스트가 401을 꾸며 재현한다 (`web/src/api/refresh.test.ts`).
 - 로그인 핸들러는 실패 횟수를 세지 않는다. 시도 제한은 서버의 일이다 (`handlers.ts`의 로그인 핸들러).
 - 401 본문은 `{ status, title }`이다 (`handlers.ts`의 `unauthorized`). 실제 서버의 RFC 9457 본문에는 `status`가 없을 수
   있고 `code`가 더 있다. 프론트는 `fail()`로 HTTP 상태를 덮어 그 차이를 메운다 (`authQuery.ts`의 `fail`).

@@ -1,9 +1,9 @@
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { api } from './client'
+import { api, pendingRequestCount } from './client'
 import { refreshAccessToken } from './refresh'
-import { getAccessToken, setAccessToken } from './session'
+import { endSession, getAccessToken, getGeneration, setAccessToken } from './session'
 import { server } from '@/mocks/server'
 
 /** 갱신 응답. 호출 수를 세고 매번 다른 토큰을 준다. */
@@ -29,7 +29,7 @@ describe('refreshAccessToken (COM-04)', () => {
     setAccessToken('old')
     refreshReturns('new')
 
-    const token = await refreshAccessToken()
+    const token = await refreshAccessToken('old')
 
     expect(token).toBe('new.1')
     expect(getAccessToken()).toBe('new.1')
@@ -39,9 +39,62 @@ describe('refreshAccessToken (COM-04)', () => {
     setAccessToken('old')
     refreshReturns(null)
 
-    expect(await refreshAccessToken()).toBeNull()
+    expect(await refreshAccessToken('old')).toBeNull()
     // 만료된 토큰을 쥐고 있으면 다음 요청이 또 401을 받는다.
     expect(getAccessToken()).toBeNull()
+  })
+
+  /**
+   * 보낸 토큰과 지금 토큰이 다르면 누군가 이미 갱신했다는 뜻이다. 한 번 더 요청할 이유가
+   * 없다 — 전에는 "부른 시점의 토큰"과 비교해서, 느리게 도착한 401이 중복 갱신을 냈다.
+   */
+  it('이미 다른 요청이 갱신했으면 그 토큰을 쓴다', async () => {
+    setAccessToken('new')
+    const calls = refreshReturns('another')
+
+    expect(await refreshAccessToken('old')).toBe('new')
+    expect(calls()).toBe(0)
+  })
+
+  /** 세션이 끝난 뒤 밀려 오는 401들이 각자 갱신을 또 요청하면 실패 요청만 401 개수만큼 난다. */
+  it('이미 세션이 끝났으면 다시 요청하지 않는다', async () => {
+    setAccessToken(null)
+    const calls = refreshReturns('new')
+
+    expect(await refreshAccessToken('old')).toBeNull()
+    expect(calls()).toBe(0)
+  })
+
+  /**
+   * 서버의 로그아웃은 refresh 계열만 폐기하고 이미 발급된 access token은 만료까지
+   * 유효하다. 늦게 도착한 갱신 응답을 심으면 로그아웃한 탭이 다시 인증된다.
+   */
+  it('기다리는 동안 로그아웃했으면 받은 토큰을 버린다', async () => {
+    setAccessToken('old')
+    server.use(
+      http.post('*/api/auth/refresh', async () => {
+        // 응답이 돌아오기 전에 로그아웃이 끼어든다.
+        endSession()
+        return HttpResponse.json({ accessToken: 'new' })
+      }),
+    )
+
+    expect(await refreshAccessToken('old')).toBeNull()
+    expect(getAccessToken()).toBeNull()
+  })
+
+  /** 실패했다고 그사이 로그인이 심어 둔 유효한 토큰까지 지우면 안 된다. */
+  it('실패해도 그사이 심긴 토큰은 지우지 않는다', async () => {
+    setAccessToken('old')
+    server.use(
+      http.post('*/api/auth/refresh', async () => {
+        setAccessToken('from-login')
+        return HttpResponse.json({ status: 401 }, { status: 401 })
+      }),
+    )
+
+    expect(await refreshAccessToken('old')).toBeNull()
+    expect(getAccessToken()).toBe('from-login')
   })
 
   /**
@@ -70,7 +123,10 @@ describe('refreshAccessToken (COM-04)', () => {
     })
 
     try {
-      const [first, second] = await Promise.all([refreshAccessToken(), refreshAccessToken()])
+      const [first, second] = await Promise.all([
+        refreshAccessToken('old'),
+        refreshAccessToken('old'),
+      ])
 
       expect(calls()).toBe(1)
       expect(first).toBe('new.1')
@@ -86,9 +142,10 @@ describe('refreshAccessToken (COM-04)', () => {
   it('Web Locks가 없어도 갱신은 된다', async () => {
     // jsdom에 원래 없다 — 이 환경이 곧 그 경우다.
     expect(navigator.locks).toBeUndefined()
+    setAccessToken('old')
     refreshReturns('new')
 
-    expect(await refreshAccessToken()).toBe('new.1')
+    expect(await refreshAccessToken('old')).toBe('new.1')
   })
 })
 
@@ -208,5 +265,74 @@ describe('세션 미들웨어 (api/client.ts)', () => {
     expect(result.data?.id).toBe(7)
     expect(bodies).toHaveLength(2)
     expect(bodies[1]).toEqual(bodies[0])
+  })
+})
+
+describe('세션 정리', () => {
+  afterEach(() => setAccessToken(null))
+
+  /**
+   * 전에는 쿠키 세션이라 탭끼리 함께 끊겼다. access token이 탭마다의 메모리에 있어,
+   * 한 탭에서 로그아웃해도 다른 탭은 만료될 때까지(최대 30분) 인증 요청이 계속 성공한다 —
+   * 서버의 로그아웃은 refresh 계열만 폐기한다. 공용 컴퓨터에서 위험하다.
+   */
+  it('다른 탭이 로그아웃하면 이 탭의 토큰도 버린다', async () => {
+    setAccessToken('still-valid')
+    const channel = new BroadcastChannel('codingmon-session')
+
+    try {
+      channel.postMessage('ended')
+      // BroadcastChannel은 다음 태스크에 전달된다.
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(getAccessToken()).toBeNull()
+    } finally {
+      channel.close()
+    }
+  })
+
+  /** 로그아웃마다 세대가 올라가야 떠 있던 갱신 응답을 버릴 수 있다. */
+  it('로그아웃하면 세대가 올라간다', () => {
+    const before = getGeneration()
+
+    endSession()
+
+    expect(getGeneration()).toBeGreaterThan(before)
+    expect(getAccessToken()).toBeNull()
+  })
+})
+
+/**
+ * 사본을 지우는 곳이 둘이어야 한다 (api/client.ts의 pending).
+ *
+ * onResponse에서만 지웠더니 네트워크 오류나 abort로 fetch가 던질 때 사본이 남아, API에
+ * 닿지 못하는 동안 제출 본문까지 든 Request가 쌓였다. 쌓이는 것을 직접 세는 대신 "던진
+ * 뒤에도 다음 요청이 멀쩡하다"로 본다 — Map이 새면 같은 id가 재사용되며 어긋난다.
+ */
+describe('요청 사본 정리', () => {
+  afterEach(() => setAccessToken(null))
+
+  it('fetch가 던져도 사본을 남기지 않는다', async () => {
+    setAccessToken('mock-access.1.1')
+    server.use(
+      // HttpResponse.error()는 **진짜 네트워크 실패**를 만든다. 핸들러에서 throw하면
+      // MSW가 500 응답으로 바꿔 버려 onResponse가 돌고, 오류 경로를 지나지 않는다.
+      http.get('*/api/users/me', () => HttpResponse.error()),
+    )
+    const before = pendingRequestCount()
+
+    // 네트워크 실패는 그대로 던져진다 — onError가 Response를 돌려주지 않기 때문이다.
+    await expect(api.GET('/api/users/me')).rejects.toThrow()
+
+    expect(pendingRequestCount()).toBe(before)
+  })
+
+  it('응답이 와도 사본을 남기지 않는다', async () => {
+    setAccessToken('mock-access.1.1')
+    const before = pendingRequestCount()
+
+    await api.GET('/api/users/me')
+
+    expect(pendingRequestCount()).toBe(before)
   })
 })

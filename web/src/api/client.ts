@@ -38,19 +38,32 @@ export const clientOptions: ClientOptions = {
  */
 export const api = createClient<paths>(clientOptions)
 
-/** 갱신을 시도하지 않는 경로. 이 401은 "토큰이 없다"가 아니라 "자격이 틀렸다"는 뜻이다. */
-const NO_REFRESH = new Set(['/api/auth/login', '/api/auth/refresh'])
+/**
+ * 토큰을 붙이지도, 갱신하지도 않는 경로.
+ *
+ * `/api/auth/*`는 전부 비로그인으로 쓰는 곳이다(로그인·가입·재설정·GitHub·갱신). 서버의
+ * Bearer 필터는 permitAll 경로에서도 **무효 토큰이면 401로 막으므로**, 만료된 토큰을 들고
+ * 있는 채로 로그아웃을 누르면 logout 401 → 갱신 → logout 재시도로 왕복이 세 번 생기고
+ * refresh 쿠키가 한 번 더 회전한다. 로그인은 더 나쁘다 — 갱신 대상도 아니라서, 비밀번호가
+ * 맞아도 만료 토큰 때문에 받은 401이 그대로 '로그인 실패'로 보인다.
+ *
+ * 갱신을 거는 쪽에서도 같은 판단이다. 갱신 자체의 401로 또 갱신하면 고리가 된다.
+ */
+function isPublicAuthPath(url: string): boolean {
+  return new URL(url).pathname.startsWith('/api/auth/')
+}
 
 /**
- * 재시도에 쓸 요청 사본. 요청 id로 찾는다.
+ * 재시도에 쓸 요청 사본과 그때 보낸 토큰. 요청 id로 찾는다.
  *
  * 응답을 받은 뒤의 `request`는 본문을 이미 흘려보낸 뒤라 `new Request(request)`가
  * 던진다("body already read") — GET은 괜찮지만 제출 같은 POST가 깨진다. 보내기 전에
  * 떠 둔 사본이 있어야 같은 본문을 한 번 더 보낼 수 있다.
  *
- * 응답을 처리하면 바로 지운다. 남겨 두면 보낸 요청마다 사본이 쌓인다.
+ * 응답이 오든 실패하든 바로 지운다. onResponse에서만 지웠더니 네트워크 오류나 abort로
+ * fetch가 던질 때 사본이 남아, API에 닿지 못하는 동안 제출 본문까지 든 Request가 쌓였다.
  */
-const pending = new Map<string, Request>()
+const pending = new Map<string, { request: Request; token: string | null }>()
 
 /**
  * 세션 미들웨어 (COM-04).
@@ -62,16 +75,14 @@ const pending = new Map<string, Request>()
  * 이 미들웨어를 다시 거치지 않으므로(우리가 직접 fetch를 부른다) 고리가 생기지 않는다.
  * 갱신이 실패하면 원래의 401을 그대로 내보내고, 그 401을 받은 쪽이 세션을 버려 로그인
  * 화면으로 간다(features/auth/session.ts).
- *
- * 로그인의 401은 건드리지 않는다. 계약이 "프런트는 이 401로 토큰 갱신을 시도하지
- * 않는다"고 적어 두었다 — 비밀번호가 틀린 것을 세션 만료로 보면 갱신 요청만 늘어난다.
- * 갱신 자체의 401도 같은 이유로 뺀다.
  */
 const sessionMiddleware: Middleware = {
   onRequest({ request, id }) {
+    if (isPublicAuthPath(request.url)) return request
+
     const token = getAccessToken()
     if (token !== null) request.headers.set('Authorization', `Bearer ${token}`)
-    if (!NO_REFRESH.has(new URL(request.url).pathname)) pending.set(id, request.clone())
+    pending.set(id, { request: request.clone(), token })
     return request
   },
 
@@ -80,12 +91,28 @@ const sessionMiddleware: Middleware = {
     pending.delete(id)
     if (response.status !== 401 || original === undefined) return response
 
-    const token = await refreshAccessToken()
+    const token = await refreshAccessToken(original.token)
     if (token === null) return response
 
-    original.headers.set('Authorization', `Bearer ${token}`)
-    return clientOptions.fetch!(original)
+    original.request.headers.set('Authorization', `Bearer ${token}`)
+    return clientOptions.fetch!(original.request)
+  },
+
+  // fetch가 던지면 onResponse가 불리지 않는다. 사본을 여기서도 치운다.
+  onError({ id }) {
+    pending.delete(id)
   },
 }
 
 api.use(sessionMiddleware)
+
+/**
+ * 보관 중인 요청 사본 수. **테스트만 쓴다.**
+ *
+ * 사본이 쌓이는 것은 화면에 드러나지 않아 동작으로는 잴 수 없다 — 지우는 곳이 둘(응답과
+ * 오류)이라는 것을 붙들어 두려면 이 값을 직접 보는 수밖에 없다. 읽기만 하는 통로라
+ * 밖에서 상태를 바꿀 수는 없다.
+ */
+export function pendingRequestCount(): number {
+  return pending.size
+}

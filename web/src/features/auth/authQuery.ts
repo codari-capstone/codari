@@ -2,15 +2,10 @@ import { queryOptions } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
 import { fail } from '@/api/fail'
-import { setAccessToken } from '@/api/session'
-import type { CurrentUser } from '@/api/types'
+import { endSession, setAccessToken } from '@/api/session'
+import type { CurrentUser, LoginRequest } from '@/api/types'
 
 export const ME_QUERY_KEY = ['me'] as const
-
-export interface LoginRequest {
-  email: string
-  password: string
-}
 
 /**
  * 현재 세션. 비로그인은 오류가 아니라 null이다.
@@ -68,9 +63,13 @@ export async function loginRequest(body: LoginRequest): Promise<CurrentUser> {
  *
  * 서버는 쿠키의 refresh token을 폐기하고, 우리는 들고 있던 access token을 버린다. 둘 중
  * 하나만 하면 한쪽이 살아 있다 — 쿠키만 지우면 만료까지 이 탭이 계속 요청에 성공한다.
+ *
+ * `endSession`이 세대를 올리고 다른 탭에도 알린다(api/session.ts). 떠 있던 갱신 응답이
+ * 늦게 도착해 방금 버린 세션을 되살리는 것과, 다른 탭이 만료까지 로그인 상태로 남는 것을
+ * 둘 다 막는다.
  */
 export async function logoutRequest(): Promise<void> {
   const result = await api.POST('/api/auth/logout')
-  setAccessToken(null)
+  endSession()
   if (!result.response.ok) fail(result)
 }

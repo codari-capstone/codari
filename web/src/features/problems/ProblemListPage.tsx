@@ -44,6 +44,19 @@ export function Component() {
 
   const { data, isPending, isFetching, isPlaceholderData, error, refetch } = useQuery({
     ...problemListQuery(params),
+    /*
+      세션을 알기 전에는 받지 않는다 (COM-05).
+
+      이 응답은 **누가 묻느냐에 따라 달라진다** — 서버는 비로그인에게 `solveStatus`를
+      주지 않고 상태 필터도 무시한다. 그런데 이 경로는 permitAll이라 토큰 없이 물어도
+      200이고, 그러면 401이 없어 갱신도 일어나지 않는다. 새로고침하면 access token이
+      메모리에서 사라지므로(api/session.ts), 세션을 알기 전에 받아 둔 비로그인 목록이
+      staleTime 동안 남아 '풀이 상태' 열이 전부 '—'로 보였다. 무효화할 곳도 없다 —
+      로그인 경로만 이 캐시를 지운다(LoginPage).
+
+      한 번 더 받는 대신 한 번을 늦춘다. 세션 조회는 이미 같은 화면에서 돌고 있다.
+    */
+    enabled: !isSessionLoading,
     // 필터를 바꾸는 동안 이전 표를 유지한다. 스켈레톤으로 갈아끼우면 표가
     // 사라졌다 나타나며 화면이 뛴다. v5에서는 keepPreviousData를 placeholderData에 넘긴다.
     placeholderData: keepPreviousData,
