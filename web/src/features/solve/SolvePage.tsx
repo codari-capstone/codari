@@ -156,7 +156,19 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
       {wide ? (
         <div className="grid grid-cols-2 items-start gap-6">
           {statement}
-          {editor}
+          {/*
+            에디터 칸을 화면에 붙여 둔다. 지문은 에디터보다 훨씬 길어서(측정: 1280px
+            화면에서 지문 1271px, 에디터 칸 492px) 지문을 읽으려고 내리면 에디터가
+            화면 밖으로 사라진다. 좌우 분할(SOLVE-10)은 둘을 같이 쓰라는 배치다.
+
+            상단바는 sticky가 아니라 함께 올라가므로 top은 여백만 띄운다.
+            AppShell이 사이드바를 sticky로 두지 않는 이유(좁아지면 위로 쌓인다)는
+            여기 걸리지 않는다 — 좁은 화면은 아예 다른 트리(탭)다.
+
+            입문자 안내를 펼치거나 화면이 낮으면 칸이 뷰포트보다 길어질 수 있어
+            그때는 칸 안에서 스크롤한다.
+          */}
+          <div className="sticky top-4 max-h-[calc(100dvh-2rem)] overflow-y-auto">{editor}</div>
         </div>
       ) : (
         <Tabs defaultValue="statement">

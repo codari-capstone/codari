@@ -117,6 +117,36 @@ test.describe('문제 풀이 화면', () => {
   })
 
   /**
+   * 넓은 화면에서 지문을 끝까지 읽어도 에디터가 화면에 남는지 (SOLVE-10).
+   *
+   * 좌우 분할은 둘을 같이 쓰라는 배치인데, 지문이 에디터보다 훨씬 길어서 그냥 두면
+   * 지문을 읽으려고 내리는 순간 에디터가 화면 위로 사라진다(측정: 붙이기 전 top -339px,
+   * 붙인 뒤 +69px). 치수는 실제 브라우저에서만 보이므로 여기서 잰다.
+   */
+  test('넓은 화면에서 지문을 내려도 에디터가 화면에 남는다', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 })
+    await login(page)
+    await page.goto('/problems/1')
+    await expect(page.getByRole('textbox', { name: '코드 편집기' })).toBeVisible()
+
+    // 페이지 끝까지 내린다. 지문이 길어 에디터 칸보다 한참 아래로 이어진다.
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    const measured = await page.evaluate(() => {
+      const box = document.querySelector('.cm-editor')!.getBoundingClientRect()
+      return {
+        top: Math.round(box.top),
+        bottom: Math.round(box.bottom),
+        height: window.innerHeight,
+      }
+    })
+
+    // 실제로 내려갔는지 먼저 본다 — 스크롤이 0이면 이 단언은 공짜로 통과한다.
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(300)
+    expect(measured.top).toBeGreaterThanOrEqual(0)
+    expect(measured.bottom).toBeLessThanOrEqual(measured.height)
+  })
+
+  /**
    * 새로고침해도 코드가 남는지 (SOLVE-11).
    *
    * 단위 테스트는 재마운트로 새로고침을 흉내 내지만, 실제 새로고침은 번들을 다시 받고
