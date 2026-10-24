@@ -46,7 +46,7 @@ test.describe('문제 풀이 화면', () => {
     await expect(page.getByRole('heading', { level: 1, name: '두 수의 합' })).toBeVisible()
     await expect(page.getByRole('tablist')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: '예제', exact: true })).toBeVisible()
-    await expect(page.getByText('코드 에디터는 준비 중입니다.')).toBeVisible()
+    await expect(page.getByRole('textbox', { name: '코드 편집기' })).toBeVisible()
   })
 
   test('좁은 화면은 탭으로 나누고 문서가 가로로 넘치지 않는다', async ({ page }) => {
@@ -56,14 +56,56 @@ test.describe('문제 풀이 화면', () => {
 
     await expect(page.getByRole('heading', { level: 1, name: '두 수의 합' })).toBeVisible()
     await expect(page.getByRole('tab', { name: '지문' })).toBeVisible()
-    await expect(page.getByText('코드 에디터는 준비 중입니다.')).toBeHidden()
+    await expect(page.getByRole('textbox', { name: '코드 편집기' })).toBeHidden()
 
     await page.getByRole('tab', { name: '코드 작성' }).click()
-    await expect(page.getByText('코드 에디터는 준비 중입니다.')).toBeVisible()
+    await expect(page.getByRole('textbox', { name: '코드 편집기' })).toBeVisible()
     await expect(page.getByRole('heading', { name: '예제', exact: true })).toBeHidden()
 
     await page.getByRole('tab', { name: '지문' }).click()
     await expect(page.getByRole('heading', { name: '예제', exact: true })).toBeVisible()
+  })
+
+  /**
+   * 탭을 옮겨도 에디터가 죽지 않는지 (SOLVE-10 + SOLVE-05).
+   *
+   * 좁은 화면에서 지문↔코드 전환은 풀면서 계속 일어난다. Radix는 비활성 패널을
+   * 언마운트하므로 `forceMount`가 없으면 CodeMirror가 매번 새로 켜진다. 코드 문자열은
+   * SolvePage의 state라 그것만으로는 살아남아, **undo 이력**으로 가른다 — 이력은
+   * CodeMirror 인스턴스 안에만 있어서 다시 켜지면 비어 있다.
+   *
+   * 높이도 함께 잰다. 비활성 패널은 `display:none`이라 그동안 CodeMirror가 자기 크기를
+   * 재지 못한다. 다시 보일 때 0으로 남으면 에디터가 사라진 것처럼 보인다.
+   */
+  test('탭을 옮겼다 돌아와도 코드와 undo 이력이 남아 있다', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 })
+    await login(page)
+    await page.goto('/problems/1')
+    await expect(page.getByRole('heading', { level: 1, name: '두 수의 합' })).toBeVisible()
+
+    await page.getByRole('tab', { name: '코드 작성' }).click()
+    const editor = page.getByRole('textbox', { name: '코드 편집기' })
+    await editor.click()
+    await page.keyboard.type('first = 1')
+    // CodeMirror의 undo는 기본 500ms 안의 입력을 한 덩어리로 묶는다. 두 덩어리로
+    // 나눠야 "한 번 되돌리면 첫 줄만 남는다"를 단언할 수 있다.
+    await page.waitForTimeout(700)
+    await page.keyboard.press('Enter')
+    await page.keyboard.type('second = 2')
+    await expect(editor).toContainText('second = 2')
+
+    await page.getByRole('tab', { name: '지문' }).click()
+    await expect(page.getByRole('heading', { name: '예제', exact: true })).toBeVisible()
+    await page.getByRole('tab', { name: '코드 작성' }).click()
+
+    await expect(editor).toContainText('second = 2')
+    const box = await page.locator('.cm-editor').boundingBox()
+    expect(box?.height ?? 0).toBeGreaterThan(100)
+
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+z')
+    await expect(editor).toContainText('first = 1')
+    await expect(editor).not.toContainText('second = 2')
   })
 
   /**

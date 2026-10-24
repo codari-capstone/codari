@@ -15,6 +15,9 @@ export type Difficulty = components['schemas']['Difficulty']
 /** 풀이 상태 (LIST-01). 뜻은 계약의 description에 있다. */
 export type SolveStatus = components['schemas']['SolveStatus']
 
+/** 제출·채점에 쓰는 언어 (SOLVE-04). */
+export type Language = components['schemas']['Language']
+
 export type ConceptTag = components['schemas']['ConceptTag']
 export type ProblemSummary = components['schemas']['ProblemSummary']
 export type ProblemPage = components['schemas']['ProblemPage']

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
 import { useParams } from 'react-router'
 
 import type { ProblemDetailView } from '@/api/types'
@@ -6,6 +7,7 @@ import { ErrorState } from '@/components/ErrorState'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { DIFFICULTY_LABEL } from '@/features/problems/labels'
+import { CodeEditor } from './CodeEditor'
 import { formatTimeLimit, LANGUAGE_LABEL } from './labels'
 import { Samples } from './Samples'
 import { parseProblemId, problemDetailQuery } from './solveQuery'
@@ -40,11 +42,6 @@ function Header({ problem }: { problem: ProblemDetailView }) {
   )
 }
 
-/** 에디터 자리. SOLVE-04~07(2차)에서 채운다. */
-function EditorPlaceholder() {
-  return <p className="text-muted-foreground text-sm">코드 에디터는 준비 중입니다.</p>
-}
-
 /** 문제 풀이 (SOLVE-01~03·10). */
 export function Component() {
   const params = useParams()
@@ -54,6 +51,7 @@ export function Component() {
     enabled: problemId !== null,
   })
   const wide = useWideLayout()
+  const [code, setCode] = useState('')
 
   // 주소를 손으로 고친 경우다. 요청을 보내지 않고 없는 문제와 같은 문구로 끝낸다
   // (parseProblemId 주석). 화면 전체가 오류이므로 그 제목이 h1이다.
@@ -72,6 +70,11 @@ export function Component() {
     )
   }
 
+  const language = data.languages[0]?.language
+  const editor = language ? (
+    <CodeEditor language={language} value={code} onChange={setCode} />
+  ) : null
+
   const statement = (
     <div className="flex flex-col gap-6">
       <Statement problem={data} />
@@ -87,7 +90,7 @@ export function Component() {
       {wide ? (
         <div className="grid grid-cols-2 items-start gap-6">
           {statement}
-          <EditorPlaceholder />
+          {editor}
         </div>
       ) : (
         <Tabs defaultValue="statement">
@@ -107,8 +110,17 @@ export function Component() {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="statement">{statement}</TabsContent>
-          <TabsContent value="editor">
-            <EditorPlaceholder />
+          {/*
+            forceMount가 있어야 에디터가 탭을 옮겨도 살아 있다 — 없으면 Radix가 비활성
+            패널을 언마운트해서 undo 이력·커서·스크롤이 매번 사라진다. forceMount를 켜면
+            Radix는 `hidden`을 걸지 않으므로(present가 늘 true다) 숨기는 쪽은 우리가 건다.
+            1차에서 막혔던 preflight의 `display:none !important`는 `hidden`을 되살릴 때만
+            걸리는 벽이고, 여기는 반대 방향이라 Tailwind `hidden`으로 충분하다.
+            지문 쪽은 켜지 않는다 — 살릴 상태가 없고, 양쪽을 켜면 jsdom에서 같은 제목이
+            둘이 되어 단위 테스트가 가리킬 곳을 잃는다.
+          */}
+          <TabsContent value="editor" forceMount className="data-[state=inactive]:hidden">
+            {editor}
           </TabsContent>
         </Tabs>
       )}

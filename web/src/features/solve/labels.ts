@@ -1,6 +1,4 @@
-import type { ProblemDetailView } from '@/api/types'
-
-type Language = ProblemDetailView['languages'][number]['language']
+import type { Language } from '@/api/types'
 
 export const LANGUAGE_LABEL: Record<Language, string> = {
   PYTHON: 'Python',

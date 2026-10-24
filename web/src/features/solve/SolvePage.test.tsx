@@ -6,6 +6,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createQueryClient } from '@/app/queryClient'
+import { ThemeProvider } from '@/app/ThemeProvider'
 import { server } from '@/mocks/server'
 import { Component as SolvePage } from './SolvePage'
 
@@ -15,9 +16,11 @@ function renderSolve(url = '/problems/1') {
   })
 
   const { container } = render(
-    <QueryClientProvider client={createQueryClient()}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <ThemeProvider>
+      <QueryClientProvider client={createQueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>,
   )
 
   return container
@@ -203,11 +206,16 @@ describe('SolvePage', () => {
       await screen.findByRole('heading', { level: 1, name: '두 수의 합' })
 
       expect(screen.getByRole('tab', { name: '지문' })).toHaveAttribute('data-state', 'active')
-      expect(screen.queryByText('코드 에디터는 준비 중입니다.')).not.toBeInTheDocument()
+      // 에디터는 지문 탭에서도 DOM에 남아 있다 (forceMount). 그게 undo 이력을 살리는
+      // 방법이다 — SolvePage.tsx의 주석. jsdom에는 CSS가 없어 "안 보인다"까지는 못 보니,
+      // 실제로 가려지는지는 e2e가 잰다.
+      const editor = screen.getByRole('textbox', { name: '코드 편집기' })
+      expect(editor).toBeInTheDocument()
+      // 가리는 클래스가 물 자리. 이 속성이 없으면 지문 탭에서 에디터가 함께 보인다.
+      expect(editor.closest('[role="tabpanel"]')).toHaveAttribute('data-state', 'inactive')
 
       await user.click(screen.getByRole('tab', { name: '코드 작성' }))
 
-      expect(screen.getByText('코드 에디터는 준비 중입니다.')).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: '예제' })).not.toBeInTheDocument()
     })
 
@@ -218,7 +226,7 @@ describe('SolvePage', () => {
 
       expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
       expect(screen.getByRole('heading', { name: '예제' })).toBeInTheDocument()
-      expect(screen.getByText('코드 에디터는 준비 중입니다.')).toBeInTheDocument()
+      expect(screen.getByRole('textbox', { name: '코드 편집기' })).toBeInTheDocument()
     })
   })
 })
