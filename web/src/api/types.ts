@@ -41,6 +41,9 @@ export type SubmissionStatus = SubmissionResult['status']
 /** 판정 여덟 가지. 끝나기 전에는 null이라 벗겨 쓴다. */
 export type Verdict = NonNullable<SubmissionResult['verdict']>
 
+/** 런타임 에러 종류 여덟 가지. 판정이 RUNTIME_ERROR일 때만 있다(계약). */
+export type RuntimeErrorType = NonNullable<SubmissionResult['runtimeErrorType']>
+
 /** 목록 조회 쿼리. toQuery와 목 테스트가 이 타입에 맞춘다. */
 export type ProblemListQuery = NonNullable<operations['listProblems']['parameters']['query']>
 

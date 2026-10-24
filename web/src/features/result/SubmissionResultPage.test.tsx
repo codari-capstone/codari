@@ -1,5 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -133,8 +134,9 @@ describe('SubmissionResultPage', () => {
       const status = await screen.findByText('기다리는 중')
       expect(status).not.toHaveTextContent('%')
       // 폴링으로 문구가 바뀔 때 스크린 리더가 읽어야 한다. 화면을 보지 않는
-      // 사용자에게는 이것이 유일한 진행 신호다.
-      expect(status).toHaveAttribute('role', 'status')
+      // 사용자에게는 이것이 유일한 진행 신호다. 래퍼가 live region이다 — 분기마다
+      // 노드 종류가 바뀌면 새로 붙은 영역을 스크린 리더가 읽지 않는다(Headline 주석).
+      expect(status.closest('[role="status"]')).not.toBeNull()
     })
   })
 
@@ -401,6 +403,203 @@ describe('폴링 중에 생기는 일', () => {
     renderResult()
 
     const announced = await screen.findByText('시간 초과')
-    expect(announced).toHaveAttribute('role', 'status')
+    expect(announced.closest('[role="status"]')).not.toBeNull()
+  })
+})
+
+describe('쉬운 설명과 에러 안내 (RES-03~06)', () => {
+  it('판정마다 무슨 일인지와 먼저 확인할 것을 보여 준다', async () => {
+    completed({ verdict: 'TIME_LIMIT_EXCEEDED' })
+    renderResult()
+
+    expect(await screen.findByText('시간 초과')).toBeInTheDocument()
+    expect(screen.getByText(/정해진 시간 안에 프로그램이 끝나지 않았어요/)).toBeInTheDocument()
+    expect(screen.getByText(/입력이 가장 클 때 반복이 몇 번 도는지/)).toBeInTheDocument()
+  })
+
+  /**
+   * 원문은 공개 예제에서 난 에러일 때만 온다(계약). 비공개 입력이 섞인 메시지를 보여 주면
+   * 테스트 데이터가 샌다 — 화면이 없는 원문을 만들어 내서는 안 된다.
+   */
+  it('런타임 에러는 종류별 설명을 보여 주고, 원문이 있으면 함께 보여 준다', async () => {
+    completed({
+      verdict: 'RUNTIME_ERROR',
+      runtimeErrorType: 'ZERO_DIVISION',
+      runtimeErrorMessage: 'Traceback (most recent call last):\n  File "main.py", line 3',
+    })
+    renderResult()
+
+    expect(await screen.findByText('ZeroDivisionError / DivisionByZero')).toBeInTheDocument()
+    expect(screen.getByText(/0으로 나눴어요/)).toBeInTheDocument()
+    expect(screen.getByText(/line 3/)).toBeInTheDocument()
+  })
+
+  it('원문이 없으면 종류만 보여 준다', async () => {
+    completed({
+      verdict: 'RUNTIME_ERROR',
+      runtimeErrorType: 'INDEX_ERROR',
+      runtimeErrorMessage: null,
+    })
+    renderResult()
+
+    expect(await screen.findByText('IndexError / Segfault')).toBeInTheDocument()
+    // 비공개 테스트에서 났거나(계약) C++ Segfault처럼 원문 자체가 없는 경우다.
+    expect(document.querySelector('pre')).toBeNull()
+  })
+
+  /**
+   * 설명 문구가 "결과를 누르면 … 메시지를 볼 수 있어요"라고 약속한다(AI_FEATURES 10절).
+   * 그래서 판정 자체가 펼치는 자리다.
+   */
+  /**
+   * 래퍼의 종류가 분기마다 바뀌면 React가 live region 노드를 지우고 새로 붙인다. 내용을
+   * 이미 담은 채 새로 붙은 영역은 스크린 리더가 읽지 않는 경우가 많아, 판정이 안내되지
+   * 않는 문제가 컴파일 에러에서만 되살아난다.
+   */
+  it('컴파일 에러로 바뀌어도 live region 노드가 그대로다', async () => {
+    let calls = 0
+    server.use(
+      http.get('*/api/submissions/:id', () => {
+        calls += 1
+        const base = {
+          id: 1,
+          problemId: 1,
+          problemTitle: '두 수의 합',
+          language: 'PYTHON',
+          runtimeErrorType: null,
+          runtimeErrorMessage: null,
+          submittedAt: '2026-10-24T05:00:00Z',
+        }
+        if (calls === 1) {
+          return HttpResponse.json({
+            ...base,
+            status: 'COMPILING',
+            progress: 0,
+            verdict: null,
+            compilerMessage: null,
+            executionTimeMs: null,
+            memoryUsedKb: null,
+            judgedAt: null,
+          })
+        }
+        return HttpResponse.json({
+          ...base,
+          status: 'COMPLETED',
+          progress: 100,
+          verdict: 'COMPILE_ERROR',
+          compilerMessage: 'main.py:1: SyntaxError: invalid syntax',
+          executionTimeMs: null,
+          memoryUsedKb: null,
+          judgedAt: '2026-10-24T05:00:03Z',
+        })
+      }),
+    )
+    renderResult()
+    const before = (await screen.findByText('채점 준비 중')).closest('[role="status"]')
+    expect(before).not.toBeNull()
+
+    await waitFor(() => expect(screen.getByText('컴파일 에러')).toBeInTheDocument(), {
+      timeout: 3000,
+    })
+
+    // 같은 노드여야 한다. 지우고 새로 붙이면 안내가 끊긴다.
+    expect(screen.getByText('컴파일 에러').closest('[role="status"]')).toBe(before)
+  }, 15_000)
+
+  /**
+   * 계약은 `compilerMessage`를 "COMPILE_ERROR일 때" 있다고만 적고 `runtimeErrorType`처럼
+   * "일 때만"이라고 하지 않았다. 메시지만 보고 가르면 서버가 다른 판정에 컴파일 경고를
+   * 실어 보낼 때 '맞았습니다!!'가 접히는 토글이 된다.
+   */
+  it('컴파일 에러가 아니면 메시지가 와도 접지 않는다', async () => {
+    completed({ verdict: 'ACCEPTED', compilerMessage: 'warning: unused variable' })
+    renderResult()
+
+    expect(await screen.findByText('맞았습니다!!')).toBeInTheDocument()
+    expect(document.querySelector('details')).toBeNull()
+  })
+
+  it('컴파일 에러는 판정을 눌러 메시지를 펼친다', async () => {
+    const user = userEvent.setup()
+    completed({
+      verdict: 'COMPILE_ERROR',
+      compilerMessage: "main.cpp:5:3: error: expected ';' before '}' token",
+      executionTimeMs: null,
+      memoryUsedKb: null,
+    })
+    renderResult()
+
+    const summary = await screen.findByText('컴파일 에러')
+    expect(screen.getByText(/expected ';' before/)).not.toBeVisible()
+    // 접히는 것은 메시지뿐이다. 누르라고 알려 주는 그 문구까지 숨으면 누를 곳이 있다는
+    // 것을 알 길이 없다 — 처음 쓴 구조가 그랬다.
+    expect(screen.getByText(/결과를 누르면/)).toBeVisible()
+    expect(screen.getByText('제출 #1')).toBeVisible()
+
+    await user.click(summary)
+
+    expect(screen.getByText(/expected ';' before/)).toBeVisible()
+  })
+
+  /**
+   * 학생 코드가 만든 문자열이라 글자 그대로 보여 준다(계약). Markdown으로 물리면 학생이
+   * 쓴 `*`이나 `<`가 해석되어 원문이 달라진다 — 무엇이 틀렸는지 알아볼 수 없게 된다.
+   */
+  it('에러 원문 속 마크다운 기호를 해석하지 않는다', async () => {
+    completed({
+      verdict: 'RUNTIME_ERROR',
+      runtimeErrorType: 'TYPE_ERROR',
+      runtimeErrorMessage: "TypeError: can't multiply **a** by <b>",
+    })
+    renderResult()
+
+    expect(await screen.findByText(/can't multiply \*\*a\*\* by <b>/)).toBeInTheDocument()
+    // Markdown으로 물렸다면 **a**가 strong이 되고 글자에서는 사라진다.
+    expect(document.querySelector('strong')).toBeNull()
+  })
+
+  describe('채점 불가 (RES-06)', () => {
+    const judgeError = () =>
+      completed({
+        status: 'JUDGE_ERROR',
+        verdict: null,
+        progress: 0,
+        executionTimeMs: null,
+        memoryUsedKb: null,
+        judgedAt: null,
+      })
+
+    it('서버 문제임을 알리고 시도 횟수에 넣지 않는다고 적는다', async () => {
+      judgeError()
+      renderResult()
+
+      expect(await screen.findByText('채점 불가')).toBeInTheDocument()
+      expect(screen.getByText(/내 코드의 문제가 아니에요/)).toBeInTheDocument()
+      expect(screen.getByText(/시도 횟수에 넣지 않아요/)).toBeInTheDocument()
+    })
+
+    it('다시 제출할 길을 준다', async () => {
+      judgeError()
+      renderResult()
+      await screen.findByText('채점 불가')
+
+      // 결과 응답에는 제출한 코드가 없다. 풀이 화면으로 돌려보내면 저장해 둔 코드가
+      // 그대로 열린다 (SOLVE-11).
+      // [다시 풀기]와 같은 주소를 쓴다. 언어가 빠지면 C++로 제출한 사람이 Python 자리로
+      // 돌아간다 (solvePath).
+      expect(screen.getByRole('link', { name: '다시 제출하기' })).toHaveAttribute(
+        'href',
+        '/problems/1?language=PYTHON',
+      )
+    })
+
+    it('채점 불가에는 진행 문구를 띄우지 않는다', async () => {
+      judgeError()
+      renderResult()
+      await screen.findByText('채점 불가')
+
+      // 더 기다릴 것이 없다. 진행 문구가 남으면 아직 채점 중인 것으로 읽힌다.
+      expect(screen.queryByText('기다리는 중')).not.toBeInTheDocument()
+    })
   })
 })
