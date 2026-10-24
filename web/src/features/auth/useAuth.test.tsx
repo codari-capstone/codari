@@ -55,7 +55,7 @@ describe('useAuth', () => {
 
   it('401이면 비로그인이다', async () => {
     server.use(
-      http.get('*/api/me', () =>
+      http.get('*/api/users/me', () =>
         HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 }),
       ),
     )
@@ -69,7 +69,9 @@ describe('useAuth', () => {
 
   it('200이면 사용자와 isAuthenticated를 돌려준다', async () => {
     server.use(
-      http.get('*/api/me', () => HttpResponse.json({ id: 3, nickname: '수진', role: 'ADMIN' })),
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({ id: 3, nickname: '수진', role: 'ADMIN' }),
+      ),
     )
 
     const { result } = renderUseAuth()
@@ -80,12 +82,12 @@ describe('useAuth', () => {
   })
 
   it('이미 받아 둔 세션이 있으면 재조회가 500이어도 로그인 상태를 지킨다', async () => {
-    // staleTime(60초)이 지난 뒤 다시 마운트되며 나간 /api/me가 500으로 끝나는 상황이다.
+    // staleTime(60초)이 지난 뒤 다시 마운트되며 나간 /api/users/me가 500으로 끝나는 상황이다.
     // TanStack Query는 오류가 나도 이전 data를 지우지 않는다. 그걸 그대로 쓴다 — 서버가
     // 한 번 흔들릴 때마다 쓰던 사람을 로그아웃시키는 쪽이 더 나쁘다. 첫 조회가 실패하는
     // 아래 테스트와 판단이 갈리는 지점이라 둘을 나란히 둔다.
     server.use(
-      http.get('*/api/me', () =>
+      http.get('*/api/users/me', () =>
         HttpResponse.json({ status: 500, title: 'Server Error' }, { status: 500 }),
       ),
     )
@@ -100,11 +102,11 @@ describe('useAuth', () => {
     expect(result.current.user).toEqual(cached)
   })
 
-  it('/api/me가 500이면 비로그인으로 다룬다', async () => {
+  it('/api/users/me가 500이면 비로그인으로 다룬다', async () => {
     // 기본 핸들러도 401로 답하므로, 덮어쓴 핸들러가 실제로 불렸는지 확인한다.
     let hit = false
     server.use(
-      http.get('*/api/me', () => {
+      http.get('*/api/users/me', () => {
         hit = true
         return HttpResponse.json({ status: 500, title: 'Server Error' }, { status: 500 })
       }),

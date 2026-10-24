@@ -1,6 +1,6 @@
 import { http, HttpResponse, type RequestHandler } from 'msw'
 
-import type { LoginRequest } from '@/api/provisional'
+import type { LoginRequest } from '@/features/auth/authQuery'
 import { DIFFICULTY_RANK, type Difficulty, type SolveStatus } from '@/api/types'
 import { EMAIL_PATTERN, isValidNickname, isValidPassword } from '@/features/auth/accountRules'
 import {
@@ -14,7 +14,7 @@ import {
 } from './fixtures/emailCodes'
 import { problemDetails } from './fixtures/problemDetails'
 import { conceptTags, problems } from './fixtures/problems'
-import { mockAccounts, SESSION_COOKIE } from './fixtures/users'
+import { mockAccessToken, mockAccounts, REFRESH_COOKIE, userIdFromToken } from './fixtures/users'
 
 /** 인증번호 오류의 문구. 실제 서버(EmailCodeService.java)의 문구와 같게 맞춘다. */
 const CODE_DETAIL: Record<Extract<VerifyResult, { ok: false }>['code'], string> = {
@@ -62,6 +62,24 @@ const mockSubmissions = new Map<number, MockSubmission>()
 export function resetSubmissions(): void {
   mockSubmissions.clear()
   nextSubmissionId = 1
+}
+
+/** `Authorization: Bearer <token>`에서 토큰만. 없으면 undefined. */
+function bearer(request: Request): string | undefined {
+  const header = request.headers.get('Authorization')
+  return header?.startsWith('Bearer ') === true ? header.slice('Bearer '.length) : undefined
+}
+
+/**
+ * 사용자별 access token 발급 번호. 갱신할 때마다 올라간다.
+ *
+ * 테스트 사이에 남으면 다음 테스트가 2번째 토큰부터 받는다 — resetSubmissions처럼 비운다.
+ */
+const issued = new Map<number, number>()
+
+/** 테스트 사이에 세션 상태가 새지 않게 비운다. */
+export function resetSessions(): void {
+  issued.clear()
 }
 
 /** 비로그인·인증 실패 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
@@ -304,8 +322,15 @@ export const handlers: RequestHandler[] = [
     })
   }),
 
-  http.get('*/api/me', ({ cookies }) => {
-    const account = mockAccounts.find((item) => String(item.user.id) === cookies[SESSION_COOKIE])
+  /**
+   * 로그인한 사용자 (COM-01·COM-05). `Authorization` 헤더의 access token으로 가린다.
+   *
+   * 쿠키가 아니라 헤더를 보는 것이 계약이다. 목이 쿠키로 흉내 내면 실서버에서만 깨지는
+   * 차이가 남는다 — 전에 그랬다.
+   */
+  http.get('*/api/users/me', ({ request }) => {
+    const id = userIdFromToken(bearer(request))
+    const account = mockAccounts.find((item) => item.user.id === id)
     return account ? HttpResponse.json(account.user) : unauthorized()
   }),
 
@@ -318,17 +343,43 @@ export const handlers: RequestHandler[] = [
     )
     if (!account) return unauthorized()
 
+    // 계약의 TokensIssued: access token은 본문, refresh token은 쿠키다.
     // HttpResponse(= msw의 클래스)여야 한다. 평범한 Response로는 쿠키가 저장되지 않는다 —
     // msw는 생성 시점에 init.headers의 set-cookie를 심볼로 옮겨 두고 그것만 항아리에 넣는다.
-    return HttpResponse.json(account.user, {
-      headers: { 'Set-Cookie': `${SESSION_COOKIE}=${account.user.id}; Path=/; SameSite=Lax` },
-    })
+    issued.set(account.user.id, 1)
+    return HttpResponse.json(
+      { accessToken: mockAccessToken(account.user.id, 1) },
+      { headers: { 'Set-Cookie': `${REFRESH_COOKIE}=${account.user.id}; Path=/; SameSite=Lax` } },
+    )
   }),
 
+  /**
+   * access token 갱신 (COM-04).
+   *
+   * refresh token은 쿠키로 온다(계약의 `in: cookie`). 발급 번호를 올려 **값이 다른** 토큰을
+   * 주는 이유는, 화면이 새 토큰으로 바꿔 끼웠는지를 테스트가 볼 수 있게 하려는 것이다.
+   *
+   * 재사용 유예(10초)와 탈취 감지는 목에 넣지 않는다 — 시간에 매인 규칙이라 목이 흉내 내면
+   * 테스트가 시계에 매이고, 화면이 하는 일은 어느 쪽이든 "401이면 로그인으로"로 같다.
+   */
+  http.post('*/api/auth/refresh', ({ cookies }) => {
+    const id = Number(cookies[REFRESH_COOKIE])
+    const account = mockAccounts.find((item) => item.user.id === id)
+    if (!account) return unauthorized()
+
+    const next = (issued.get(id) ?? 1) + 1
+    issued.set(id, next)
+    return HttpResponse.json(
+      { accessToken: mockAccessToken(id, next) },
+      { headers: { 'Set-Cookie': `${REFRESH_COOKIE}=${id}; Path=/; SameSite=Lax` } },
+    )
+  }),
+
+  // 쿠키가 없거나 모르는 토큰이어도 204다(계약).
   http.post('*/api/auth/logout', () => {
     return new HttpResponse(null, {
       status: 204,
-      headers: { 'Set-Cookie': `${SESSION_COOKIE}=; Path=/; Max-Age=0` },
+      headers: { 'Set-Cookie': `${REFRESH_COOKIE}=; Path=/; Max-Age=0` },
     })
   }),
 

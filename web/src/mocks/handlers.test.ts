@@ -2,11 +2,11 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { api } from '@/api/client'
-import { provisionalApi } from '@/api/provisional'
 import type { ProblemListQuery, ProblemPage } from '@/api/types'
 import { MOCK_CODE, resetEmailCodes } from './fixtures/emailCodes'
 import { conceptTags, problems } from './fixtures/problems'
-import { mockAccounts, SESSION_COOKIE } from './fixtures/users'
+import { mockAccounts } from './fixtures/users'
+import { resetSessions } from './handlers'
 import { server } from './server'
 
 async function fetchProblems(query: ProblemListQuery): Promise<ProblemPage> {
@@ -192,61 +192,99 @@ describe('MSW 문제 상세 핸들러', () => {
   })
 })
 
+/**
+ * 목도 계약과 같은 세션 모델을 쓴다 (COM-04).
+ *
+ * access token은 응답 본문으로 받아 `Authorization` 헤더로 보내고, 쿠키는 갱신에만 쓴다.
+ * 전에는 세션 쿠키 하나로 로그인 상태를 나타냈는데, 그러면 실서버에서만 깨지는 차이가
+ * 남는다 — 지금 고치는 것이 그 차이다.
+ */
 describe('MSW 인증 핸들러', () => {
-  it('세션 쿠키가 비어 있으면 /api/me가 401이다', async () => {
-    // MSW에 쿠키 항아리를 비우는 공개 API가 없어 헤더 쿠키가 결정적인 수단이다. 헤더로 보낸 쿠키가
-    // 항아리보다 우선하므로(getRequestCookies.mjs의 병합 순서), 빈 값을
-    // 명시해 다른 테스트의 로그인에 영향받지 않게 한다.
-    const { response } = await provisionalApi.GET('/api/me', {
-      headers: { cookie: `${SESSION_COOKIE}=` },
-    })
+  afterEach(() => resetSessions())
+
+  const asUser = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } })
+
+  it('토큰이 없으면 /api/users/me가 401이다', async () => {
+    const { response } = await api.GET('/api/users/me')
 
     expect(response.status).toBe(401)
   })
 
-  it('자격 증명이 틀리면 401이고 세션을 심지 않는다', async () => {
-    const { response } = await provisionalApi.POST('/api/auth/login', {
+  // 모양은 맞지만 없는 사용자다. 헤더에는 ASCII만 들어간다 — 한글을 넣으면 요청 단계에서 던진다.
+  it('없는 사용자의 토큰도 401이다', async () => {
+    const { response } = await api.GET('/api/users/me', asUser('mock-access.999.1'))
+
+    expect(response.status).toBe(401)
+  })
+
+  it('로그인하면 토큰을 본문으로 주고 쿠키는 갱신용만 심는다', async () => {
+    const login = await api.POST('/api/auth/login', {
+      body: { email: 'user@codari.test', password: 'Codari!test1' },
+    })
+
+    // 계약의 TokensIssued: 본문에는 access token만 있고 사용자는 없다.
+    expect(typeof login.data?.accessToken).toBe('string')
+    expect(login.data).not.toHaveProperty('nickname')
+
+    const me = await api.GET('/api/users/me', asUser(login.data!.accessToken))
+    expect(me.data).toEqual({ id: 1, nickname: '코다리', role: 'USER' })
+  })
+
+  it('자격 증명이 틀리면 401이고 토큰을 주지 않는다', async () => {
+    const { response, data } = await api.POST('/api/auth/login', {
       body: { email: 'user@codari.test', password: '틀린비밀번호1!' },
     })
 
     expect(response.status).toBe(401)
-
-    // 일부러 헤더 쿠키를 넘기지 않는다. 헤더는 항아리를 가리므로, 넘기면 실패한
-    // 로그인이 쿠키를 심었는지 확인할 수 없다. 이 파일에서 이 테스트까지 성공한 로그인이
-    // 없고 이후 테스트는 로그아웃으로 끝나 항아리는 비어 있다.
-    const me = await provisionalApi.GET('/api/me')
-    expect(me.response.status).toBe(401)
+    expect(data).toBeUndefined()
   })
 
-  it('로그인하면 쿠키로 세션이 유지되고 로그아웃하면 끊긴다', async () => {
-    const login = await provisionalApi.POST('/api/auth/login', {
+  /**
+   * 갱신은 `fetch`로 부른다. 계약이 refresh token을 **필수 쿠키 파라미터**로 선언해서
+   * 생성된 클라이언트로는 부를 수 없다 — 쿠키는 브라우저가 붙이지 코드가 붙이지 않는다.
+   * 생산 코드(api/refresh.ts)도 같은 이유로 fetch를 쓴다.
+   */
+  const refresh = () =>
+    fetch(`${window.location.origin}/api/auth/refresh`, {
+      method: 'POST',
+      credentials: 'same-origin',
+    })
+
+  /** 갱신 뒤 토큰이 **바뀌어야** 화면이 바꿔 끼웠는지를 볼 수 있다. */
+  it('갱신하면 쿠키로 새 토큰을 준다', async () => {
+    const login = await api.POST('/api/auth/login', {
       body: { email: 'user@codari.test', password: 'Codari!test1' },
     })
-    expect(login.data).toEqual({ id: 1, nickname: '코다리', role: 'USER' })
+    const first = login.data!.accessToken
 
-    // 쿠키를 직접 넘기지 않는다. MSW 항아리가 돌려주는 것을 확인하는 것이 요점이다.
-    const me = await provisionalApi.GET('/api/me')
-    expect(me.data).toEqual({ id: 1, nickname: '코다리', role: 'USER' })
+    const response = await refresh()
+    const refreshed = (await response.json()) as { accessToken: string }
 
-    const logout = await provisionalApi.POST('/api/auth/logout')
+    expect(refreshed.accessToken).not.toBe(first)
+    // 새 토큰도 같은 사람이다.
+    const me = await api.GET('/api/users/me', asUser(refreshed.accessToken))
+    expect(me.data?.id).toBe(1)
+  })
+
+  it('로그아웃하면 갱신도 막힌다', async () => {
+    await api.POST('/api/auth/login', {
+      body: { email: 'user@codari.test', password: 'Codari!test1' },
+    })
+
+    const logout = await api.POST('/api/auth/logout')
     expect(logout.response.status).toBe(204)
 
-    const after = await provisionalApi.GET('/api/me')
-    expect(after.response.status).toBe(401)
+    // 쿠키가 지워졌으니 갱신할 근거가 없다.
+    expect((await refresh()).status).toBe(401)
   })
 
   it('ADMIN 계정은 role이 ADMIN이다', async () => {
-    const login = await provisionalApi.POST('/api/auth/login', {
+    const login = await api.POST('/api/auth/login', {
       body: { email: 'admin@codari.test', password: 'Codari!admin1' },
     })
 
-    expect(login.data?.role).toBe('ADMIN')
-
-    // 쿠키가 계정별로 심기고 읽히는지 본다. 로그인 응답의 role은 이메일 조회에서 온 값이다.
-    const me = await provisionalApi.GET('/api/me')
+    const me = await api.GET('/api/users/me', asUser(login.data!.accessToken))
     expect(me.data).toEqual({ id: 2, nickname: '관리자', role: 'ADMIN' })
-
-    await provisionalApi.POST('/api/auth/logout')
   })
 })
 

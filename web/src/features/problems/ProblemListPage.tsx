@@ -38,7 +38,7 @@ export function Component() {
   const params = useMemo(() => parseParams(searchParams), [searchParams])
   // 세션을 아직 모르는 동안은 비로그인으로 그리지 않는다. 이 PR 전에는 useAuth가
   // 비로그인으로 고정이어서 이 구간이 없었다. 지금은 로그인한 사람이 이 화면을 새로
-  // 열면 /api/me가 오기 전까지 아래 안내가 보이고, 풀이 상태 열과 필터가 없는 표가
+  // 열면 /api/users/me가 오기 전까지 아래 안내가 보이고, 풀이 상태 열과 필터가 없는 표가
   // 그려진 뒤 열이 하나 늘며 표가 움직인다.
   const { isAuthenticated, isLoading: isSessionLoading } = useAuth()
 
@@ -174,7 +174,7 @@ export function Component() {
 
       {/*
         error와 함께 켜지지 않게 막는다. isPending만 보던 때는 둘이 동시에 참일 수 없었지만,
-        세션 확인이 조건에 들어오면서 "목록은 오류로 끝났는데 /api/me는 아직"인 구간이
+        세션 확인이 조건에 들어오면서 "목록은 오류로 끝났는데 /api/users/me는 아직"인 구간이
         생겨 스켈레톤과 오류가 나란히 그려진다.
       */}
       {waiting && !error ? <ListSkeleton rows={PAGE_SIZE} /> : null}

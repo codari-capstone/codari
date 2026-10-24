@@ -264,7 +264,9 @@ describe('비밀번호 재설정 화면', () => {
 
   it('이미 로그인한 사람은 문제 목록으로 보낸다', async () => {
     server.use(
-      http.get('*/api/me', () => HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' })),
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' }),
+      ),
     )
     renderReset()
 

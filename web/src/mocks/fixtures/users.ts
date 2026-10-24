@@ -1,23 +1,38 @@
-import type { AuthUser } from '@/api/provisional'
+import type { CurrentUser } from '@/api/types'
 
 /**
- * 목 세션 쿠키 이름. 핸들러가 심고 핸들러가 읽는다.
+ * refresh token 쿠키 이름. 계약의 `/api/auth/refresh`가 읽는 이름과 같다.
  *
- * **이름만 바꿔서 실제 API에 붙일 수는 없다.** 계약(`contracts/openapi.yaml`)이 정한 것은
- * 다른 세션 모델이다 — access token은 응답 본문으로 받아 메모리에 두고 `Authorization`
- * 헤더로 보내고, 쿠키(`refresh_token`, `Path=/api/auth`)는 갱신에만 쓴다. 목은 서버가 심는
- * 세션 쿠키 하나로 로그인 상태를 나타내므로 구조가 다르다. 무엇이 달라지는지는
- * `contracts/auth-proposal.md` 2절과 6절에 있다.
- *
- * 그래도 이 상수를 두는 이유는, 그날까지 목의 쿠키 이름이 한 곳에만 적혀 있게 하는 것이다.
- * 핸들러와 테스트가 모두 이 값을 쓴다.
+ * 목도 계약과 같은 세션 모델을 쓴다 — access token은 응답 본문으로 주고 `Authorization`
+ * 헤더로 받으며, 쿠키는 갱신에만 쓴다. 전에는 세션 쿠키 하나로 로그인 상태를 나타냈는데,
+ * 그러면 **실서버에서만 깨지는 차이**가 남는다(그 파일에 "그날까지"라고 적어 둔 그날이다).
  */
-export const SESSION_COOKIE = 'codari_session'
+export const REFRESH_COOKIE = 'refresh_token'
+
+/**
+ * access token을 사용자 번호로 만든다. 목에만 있는 규칙이다.
+ *
+ * 진짜 서버는 서명한 JWT를 주지만, 목이 검증할 것은 "누구인가"뿐이다. 토큰을 발급 번호로
+ * 구분해 두는 이유는 갱신 테스트 때문이다 — 갱신 뒤 토큰이 **바뀌었는지**를 보려면 같은
+ * 사용자라도 값이 달라야 한다.
+ */
+export function mockAccessToken(userId: number, issue = 1): string {
+  return `mock-access.${userId}.${issue}`
+}
+
+/** 토큰에서 사용자 번호를 꺼낸다. 모르는 모양이면 null. */
+export function userIdFromToken(token: string | undefined): number | null {
+  if (token === undefined) return null
+  const parts = token.split('.')
+  if (parts.length !== 3 || parts[0] !== 'mock-access') return null
+  const id = Number(parts[1])
+  return Number.isSafeInteger(id) ? id : null
+}
 
 export interface MockAccount {
   email: string
   password: string
-  user: AuthUser
+  user: CurrentUser
 }
 
 /**

@@ -4,8 +4,9 @@ import { fail } from '@/api/fail'
 /**
  * 가입 호출 (COM-06). 경로와 본문 모양은 contracts/openapi.yaml이 정한다.
  *
- * 임시 계약(provisional.ts)이 아니라 생성 타입을 쓰는 첫 모듈이다. /api/me·로그인·로그아웃은
- * 세션 모델이 계약과 달라 아직 provisionalApi에 있다 (contracts/auth-proposal.md 2절).
+ * 생성 타입을 쓰는 첫 모듈이었다. 세션 쪽(`/api/users/me`·로그인·로그아웃)만 임시 계약에
+ * 남아 있었는데, COM-04로 세션 모델을 계약에 맞추면서 그쪽도 옮겨 왔다 — 손으로 쓴 계약은
+ * 이제 없다.
  */
 
 /** 인증번호 발송. 204라 돌려줄 본문이 없다. */

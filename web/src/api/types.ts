@@ -15,6 +15,20 @@ export type Difficulty = components['schemas']['Difficulty']
 /** 풀이 상태 (LIST-01). 뜻은 계약의 description에 있다. */
 export type SolveStatus = components['schemas']['SolveStatus']
 
+/**
+ * 로그인한 사용자 (COM-01·COM-05).
+ *
+ * 닉네임은 바뀔 수 있어 토큰이 아니라 `/api/users/me`로 받는다(계약 description).
+ * 그래서 로그인 응답에는 토큰만 있고 이 모양은 따로 받아 온다.
+ */
+export type CurrentUser = components['schemas']['CurrentUser']
+
+/** 권한. 관리자 메뉴를 보일지 가른다 (COM-05). */
+export type Role = CurrentUser['role']
+
+/** 로그인 응답. refresh token은 본문이 아니라 쿠키로 온다(계약). */
+export type AccessTokenResponse = components['schemas']['AccessTokenResponse']
+
 /** 제출·채점에 쓰는 언어 (SOLVE-04). */
 export type Language = components['schemas']['Language']
 
