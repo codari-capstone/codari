@@ -12,8 +12,12 @@ export interface VerdictInfo {
 /**
  * 판정별 이름과 쉬운 설명 (RES-02·03).
  *
- * 문구는 `docs/AI_FEATURES.md` 10절 표 그대로다. AI 없이 보여 주는 것이라 서버를 거치지
- * 않고 여기 둔다(`constants/README.md`).
+ * 문구는 `docs/AI_FEATURES.md` 10절 표에서 가져왔다. AI 없이 보여 주는 것이라 서버를
+ * 거치지 않고 여기 둔다(`constants/README.md`).
+ *
+ * **런타임 에러만 문서와 다르다.** 문서는 이름이 "런타임 에러 (종류)"이고 설명이 "…멈췄어요.
+ * 괄호 안이 멈춘 이유예요."인데, 화면은 종류를 괄호가 아니라 아래 따로 둔 상자에 보여 준다
+ * (`RUNTIME_ERROR_INFO`). 괄호가 없는 화면에 "괄호 안"이라고 적으면 가리킬 것이 없다.
  *
  * 백준 표기를 따르는 이유는 입문자가 다른 곳에서 본 이름과 같아야 검색이 되기 때문이다.
  *
@@ -96,7 +100,7 @@ export const RUNTIME_ERROR_INFO: Record<RuntimeErrorType, { label: string; descr
     VALUE_ERROR: {
       label: 'ValueError',
       description:
-        '값의 모양이 맞지 않아 변환하지 못했어요. 한 줄에 숫자가 여러 개인데 `int(input())`으로 읽지 않았는지 확인해 보세요.',
+        '값의 모양이 맞지 않아 변환하지 못했어요. 한 줄에 숫자가 여러 개인데 int(input())으로 읽지 않았는지 확인해 보세요.',
     },
     NAME_ERROR: {
       label: 'NameError',
@@ -125,15 +129,17 @@ export const RUNTIME_ERROR_INFO: Record<RuntimeErrorType, { label: string; descr
 /**
  * 채점이 끝나기 전 상태 문구 (RES-01).
  *
- * `COMPLETED`는 여기 없다 — 그때는 판정이 자리를 차지한다. `JUDGE_ERROR`는 이름을
- * `VERDICT_INFO`에서 가져오므로 여기서도 빠진다.
+ * 채점이 끝난 뒤에는 `Headline`이 `VERDICT_INFO`의 이름을 띄우므로 `COMPLETED`와
+ * `JUDGE_ERROR`는 쓰일 일이 없다. 그래도 타입을 전부 채우는 이유는 서버가 계약을 어겨
+ * 판정 없이 COMPLETED를 줘도 빈 자리를 두지 않기 위해서다.
+ *
+ * `JUDGE_ERROR`는 글자를 다시 적지 않고 `VERDICT_INFO`에서 가져온다 — 같은 이름을 두
+ * 곳에 적으면 한쪽만 고쳐져도 타입 검사는 통과한다.
  */
 export const STATUS_LABEL: Record<SubmissionStatus, string> = {
   QUEUED: '기다리는 중',
   COMPILING: '채점 준비 중',
   RUNNING: '채점 중',
-  // 계약상 COMPLETED면 판정이 있고 JUDGE_ERROR의 이름은 VERDICT_INFO가 가진다.
-  // 서버가 그 약속을 어겨도 빈 자리를 두지 않으려고 둘 다 적어 둔다.
   COMPLETED: '채점 완료',
-  JUDGE_ERROR: '채점 불가',
+  JUDGE_ERROR: VERDICT_INFO.JUDGE_ERROR.label,
 }

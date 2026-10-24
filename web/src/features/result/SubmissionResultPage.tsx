@@ -15,55 +15,61 @@ import { nextActions } from './nextActions'
 import { isDeadEnd, submissionResultQuery } from './resultQuery'
 
 /**
- * 지금 무슨 일이 일어나고 있는지 한 줄 (RES-01·02).
+ * 지금 무슨 일이 일어나고 있는지 한 줄 (RES-01·02·05).
  *
  * **진행 문구와 판정이 같은 live region을 쓴다.** 처음에는 진행만 `role="status"`로 두고
  * 판정은 일반 문단에 그렸더니, 끝나는 순간 live region이 통째로 사라져 **가장 중요한
  * 마지막 변화인 판정이 안내되지 않았다.** 화면을 보지 않는 사용자는 '채점 중 60%'까지
  * 듣고는 결과를 직접 찾아다녀야 했다.
  *
- * 판정이 났을 때 글씨가 커지는 것은 같은 자리의 모양만 바뀌는 것이다.
+ * 그래서 **래퍼의 종류도 분기마다 바꾸지 않는다.** 컴파일 에러일 때만 `div`를 쓰고 그
+ * 밖에는 `p`를 썼더니, 상태가 COMPILING에서 COMPILE_ERROR로 넘어갈 때 React가 live
+ * region 노드를 지우고 새로 붙였다 — 내용을 이미 담은 채 새로 붙은 live region은 스크린
+ * 리더가 읽지 않는 경우가 많아, 같은 문제가 컴파일 에러에서만 되살아났다. 늘 같은
+ * `div`를 두고 그 안의 내용만 바꾼다.
  */
 function Headline({ result }: { result: SubmissionResult }) {
   const { status, progress, verdict, compilerMessage } = result
   // 채점 불가는 판정이 아니라 상태다(계약). 화면에서는 같은 자리에 나온다.
   const key = status === 'JUDGE_ERROR' ? 'JUDGE_ERROR' : verdict
 
-  if (key !== null) {
-    const label = VERDICT_INFO[key].label
-    /*
-      컴파일 에러는 판정 자체가 펼치는 자리다 — 설명이 "결과를 누르면 … 메시지를 볼 수
-      있어요"라고 약속하기 때문이다(AI_FEATURES 10절). 접히는 것은 메시지뿐이고, 설명과
-      제출 정보는 아래에 늘 보인다.
+  /*
+    컴파일 에러는 판정 자체가 펼치는 자리다 — 설명이 "결과를 누르면 … 메시지를 볼 수
+    있어요"라고 약속하기 때문이다(AI_FEATURES 10절). 접히는 것은 메시지뿐이고, 설명과
+    제출 정보는 아래에 늘 보인다.
 
-      live region 안에 두므로 펼칠 때 메시지가 함께 안내될 수 있다. 사용자가 직접 연
-      것이라 그대로 둔다 — 판정이 안내되지 않는 쪽이 훨씬 나쁘다.
-    */
-    if (compilerMessage !== null) {
-      return (
-        <div role="status">
-          <details>
-            <summary className="flex min-h-11 cursor-pointer items-center text-xl font-semibold">
-              {label}
-            </summary>
-            <Raw text={compilerMessage} />
-          </details>
-        </div>
-      )
-    }
-    return (
-      <p role="status" className="text-xl font-semibold">
-        {label}
-      </p>
-    )
-  }
+    판정도 함께 본다. 계약은 `compilerMessage`를 "COMPILE_ERROR일 때" 있다고만 적고
+    `runtimeErrorType`처럼 "일 때만"이라고 하지 않아서, 메시지만 보고 가르면 서버가
+    다른 판정에 컴파일 경고를 실어 보낼 때 '맞았습니다!!'가 접히는 토글이 된다.
 
-  const label = STATUS_LABEL[status]
+    live region 안에 두므로 펼칠 때 메시지가 함께 안내될 수 있다. 사용자가 직접 연
+    것이라 그대로 둔다 — 판정이 안내되지 않는 쪽이 훨씬 나쁘다.
+  */
+  const foldable = verdict === 'COMPILE_ERROR' && compilerMessage !== null
+
   return (
-    <p role="status" className="text-muted-foreground text-sm">
-      {/* 진행률은 채점 중일 때만 뜻이 있다. 다른 상태의 0%는 "아직 시작도 안 했다"로 읽혀 오해를 준다 */}
-      {status === 'RUNNING' ? `${label} ${progress}%` : label}
-    </p>
+    <div role="status">
+      {key === null ? (
+        <p className="text-muted-foreground text-sm">
+          {/* 진행률은 채점 중일 때만 뜻이 있다. 다른 상태의 0%는 "아직 시작도 안 했다"로 읽혀 오해를 준다 */}
+          {status === 'RUNNING' ? `${STATUS_LABEL[status]} ${progress}%` : STATUS_LABEL[status]}
+        </p>
+      ) : foldable ? (
+        <details>
+          {/*
+            flex를 걸지 않는다. summary의 기본 display가 list-item이라 브라우저가 ▶ 표식을
+            그려 주는데, flex로 바꾸면 그 표식이 사라져 펼칠 수 있다는 단서가 마우스를
+            올렸을 때의 커서뿐이 된다.
+          */}
+          <summary className="min-h-11 cursor-pointer py-2 text-xl font-semibold">
+            {VERDICT_INFO[key].label}
+          </summary>
+          <Raw text={compilerMessage ?? ''} />
+        </details>
+      ) : (
+        <p className="text-xl font-semibold">{VERDICT_INFO[key].label}</p>
+      )}
+    </div>
   )
 }
 

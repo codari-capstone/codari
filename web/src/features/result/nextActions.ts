@@ -30,7 +30,9 @@ export interface NextAction {
  */
 export function nextActions(result: SubmissionResult): NextAction[] {
   if (result.status === 'JUDGE_ERROR') {
-    return [{ label: '다시 제출하기', to: `/problems/${result.problemId}` }]
+    // [다시 풀기]와 같은 주소를 쓴다. 직접 조립했더니 언어가 빠져, C++로 제출했다가
+    // 채점 불가를 받은 사람이 Python 자리로 돌아갔다 — solvePath를 둔 이유가 이것이다.
+    return [{ label: '다시 제출하기', to: solvePath(result.problemId, result.language) }]
   }
   if (result.verdict === null) return []
 
