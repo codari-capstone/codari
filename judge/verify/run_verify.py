@@ -15,6 +15,7 @@ cases.json의 케이스를 Judge0에 제출하고 status·signal·시간·메모
 
 import argparse
 import datetime as dt
+import http.client
 import json
 import os
 import platform
@@ -86,6 +87,11 @@ def run_control(path):
     return probe_lines(out)
 
 
+def failure(e):
+    """기록용 실패 사유. 예외 메시지에는 제출 토큰이 들어갈 수 있어(PollTimeout) 종류와 HTTP 상태만 남긴다."""
+    return f"HTTP {e.status}" if isinstance(e, Judge0HTTPError) else type(e).__name__
+
+
 def confirmed_targets(sandbox, host):
     """샌드박스에서는 막혔고 호스트에서는 닿은 대상 수. 이것만 차단의 근거가 된다."""
     return sum(1 for name, state in sandbox.items() if state == "BLOCKED" and host.get(name) == "REACHED")
@@ -132,8 +138,8 @@ def main(argv=None):
         try:
             tokens[case["id"]] = client.submit(source, lang_id, case.get("stdin", ""), compiler_options=options,
                                                **case.get("limits", {}))
-        except (Judge0HTTPError, OSError) as e:
-            errors[case["id"]] = f"제출 실패 {e}"
+        except (Judge0HTTPError, http.client.HTTPException, OSError) as e:
+            errors[case["id"]] = f"제출 실패 ({failure(e)})"
 
     rows, records, failed = [], [], 0
     # 케이스가 막혀 기다리는 시간이 케이스 수만큼 쌓이지 않게, 기한은 전체에 한 번 둔다.
@@ -141,9 +147,10 @@ def main(argv=None):
     for case in cases:
         if case["id"] in tokens:
             try:
-                result = client.wait(tokens[case["id"]], deadline_s=max(1.0, deadline - time.monotonic()))
-            except (Judge0HTTPError, PollTimeout, OSError) as e:
-                errors[case["id"]] = f"결과를 받지 못함 {e}"
+                # 기한이 지났으면 기다리지 않고 한 번만 조회한다(이미 끝났으면 결과를 받는다).
+                result = client.wait(tokens[case["id"]], deadline_s=max(0.0, deadline - time.monotonic()))
+            except (Judge0HTTPError, PollTimeout, http.client.HTTPException, OSError) as e:
+                errors[case["id"]] = f"결과를 받지 못함 ({failure(e)})"
         if case["id"] in errors:
             failed += 1
             verdict = "FAIL: " + errors[case["id"]]

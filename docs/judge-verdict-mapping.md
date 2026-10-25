@@ -146,7 +146,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 ## 8. 관찰 근거
 
-아래 케이스 이름은 #66 검증 케이스다. 결과 표는 `judge/verify/results/`, 케이스별 관찰 JSON은 `judge/verify/observed/<환경>/<케이스>.json`에 있다. 판정 규칙 단위 테스트(`CaseJudgeTest`, #133)는 이 JSON의 `result`를 입력으로 쓸 수 있다. 다만 관찰 JSON은 stdout·stderr·compile_output을 2,000자로 자르고 `... (총 N자)`를 붙여 저장한다. 출력 초과 케이스(`ole_*`)는 출력을 그 길이만큼 다시 채워 넣어야 8번 규칙을 시험할 수 있다.
+아래 케이스 이름은 #66 검증 케이스다. 결과 표는 `judge/verify/results/`, 케이스별 관찰 JSON은 `judge/verify/observed/<환경>/<케이스>.json`에 있다. 맥 결과(`mac-rosetta-cgroupv1`, 2026-10-15)는 검증 도구를 고치기 전 형식이라 `verdict` 키가 없고 `case.expect`가 옛 조건이다. 응답(`result`)은 같은 형식이니 테스트 입력에는 `result`만 쓴다. 판정 규칙 단위 테스트(`CaseJudgeTest`, #133)는 이 JSON의 `result`를 입력으로 쓸 수 있다. 다만 관찰 JSON은 stdout·stderr·compile_output을 2,000자로 자르고 `... (총 N자)`를 붙여 저장한다. 출력 초과 케이스(`ole_*`)는 출력을 그 길이만큼 다시 채워 넣어야 8번 규칙을 시험할 수 있다.
 
 | 규칙 | 근거 케이스 | 관찰 |
 |---|---|---|

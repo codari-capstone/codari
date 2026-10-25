@@ -1,5 +1,6 @@
 """verify/run_verify.py·concurrency_check.py의 판정 로직 단위 테스트. Judge0 없이 돈다."""
 
+import http.client
 import os
 import sys
 import time
@@ -49,6 +50,10 @@ class ProbeTest(unittest.TestCase):
         # 호스트도 아무 데도 닿지 않으면 차단의 근거가 없다
         self.assertEqual(rv.confirmed_targets(sandbox, {"dns": "BLOCKED", "tcp": "BLOCKED"}), 0)
 
+    def test_failure_reason_has_no_token(self):
+        self.assertEqual(rv.failure(rv.PollTimeout("0f3c-token: 600초 안에 끝나지 않음")), "PollTimeout")
+        self.assertEqual(rv.failure(rv.Judge0HTTPError(422, {"x": 1})), "HTTP 422")
+
     def test_last_line_skips_blank_lines(self):
         self.assertEqual(rv.last_line("a\nIndexError: x\n \n"), "IndexError: x")
 
@@ -65,7 +70,8 @@ class SamplerTest(unittest.TestCase):
     def test_queue_errors_do_not_stop_sampling(self):
         class Failing:
             def request(self, method, path):
-                raise TimeoutError("timed out")
+                # OSError가 아닌 http.client 예외도 큐 조회 실패로만 센다
+                raise http.client.IncompleteRead(b"")
 
         sampler = cc.Sampler(Failing())
         sampler.start()
