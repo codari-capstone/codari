@@ -8,7 +8,7 @@
       "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
     },
     "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
-    "run_at": "20261025-125752"
+    "run_at": "20261025-160232"
   },
   "case": {
     "id": "mle_badalloc_cpp",
@@ -31,16 +31,17 @@
   "result": {
     "stdout": null,
     "time": "0.004",
-    "memory": 1024,
+    "memory": 1236,
     "stderr": "terminate called after throwing an instance of 'std::bad_alloc'\n  what():  std::bad_alloc\nrun: line 1:     3 Aborted                 (core dumped) LD_LIBRARY_PATH=/usr/local/gcc-9.2.0/lib64 ./a.out\n",
     "compile_output": null,
     "exit_code": 134,
     "exit_signal": null,
     "message": "Exited with error status 134",
-    "wall_time": "0.129",
+    "wall_time": "0.127",
     "status": {
       "id": 11,
       "description": "Runtime Error (NZEC)"
     }
-  }
+  },
+  "verdict": "ok"
 }

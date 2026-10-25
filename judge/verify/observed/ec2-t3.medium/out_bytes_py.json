@@ -8,7 +8,7 @@
       "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
     },
     "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
-    "run_at": "20261025-125752"
+    "run_at": "20261025-160232"
   },
   "case": {
     "id": "out_bytes_py",
@@ -23,17 +23,18 @@
   },
   "result": {
     "stdout": "�� ok\n",
-    "time": "0.023",
-    "memory": 3144,
+    "time": "0.024",
+    "memory": 3120,
     "stderr": null,
     "compile_output": null,
     "exit_code": 0,
     "exit_signal": null,
     "message": null,
-    "wall_time": "0.04",
+    "wall_time": "0.089",
     "status": {
       "id": 3,
       "description": "Accepted"
     }
-  }
+  },
+  "verdict": "ok"
 }

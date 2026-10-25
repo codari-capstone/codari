@@ -8,33 +8,35 @@
       "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
     },
     "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
-    "run_at": "20261025-125752"
+    "run_at": "20261025-160232"
   },
   "case": {
     "id": "mle_list_py",
     "group": "memory",
     "file": "mle_list.py",
     "expect": {
-      "status_not": [
-        3,
-        13,
-        14
+      "status": [
+        11
+      ],
+      "exit_code": [
+        137
       ]
     }
   },
   "result": {
     "stdout": null,
-    "time": "0.2",
+    "time": "0.203",
     "memory": 262144,
     "stderr": "run: line 1:     3 Killed                  /usr/local/python-3.8.1/bin/python3 script.py\n",
     "compile_output": null,
     "exit_code": 137,
     "exit_signal": null,
     "message": "Exited with error status 137",
-    "wall_time": "0.206",
+    "wall_time": "0.21",
     "status": {
       "id": 11,
       "description": "Runtime Error (NZEC)"
     }
-  }
+  },
+  "verdict": "ok"
 }

@@ -62,9 +62,11 @@ def restart_counts():
                              capture_output=True, text=True, timeout=10).stdout.split()
         if not ids:
             return None
-        out = subprocess.run(["docker", "inspect", "-f", "{{.Name}} {{.RestartCount}}", *ids],
-                             capture_output=True, text=True, timeout=10).stdout
-        return dict(line.split() for line in out.splitlines() if line.strip())
+        inspected = subprocess.run(["docker", "inspect", "-f", "{{.Name}} {{.RestartCount}}", *ids],
+                                   capture_output=True, text=True, timeout=10)
+        if inspected.returncode != 0 or not inspected.stdout.strip():
+            return None
+        return dict(line.split() for line in inspected.stdout.splitlines() if line.strip())
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
 
@@ -109,8 +111,8 @@ class Sampler:
                 _, workers = self.client.request("GET", "/workers")
                 for q in workers if isinstance(workers, list) else []:
                     self.max_queue = max(self.max_queue, q.get("size", 0))
-            except OSError:
-                # 연결 오류·타임아웃. 큐 대기는 참고값이라 세기만 한다.
+            except Exception:  # noqa: BLE001
+                # 연결 오류·타임아웃·끊긴 응답(http.client 예외) 모두. 큐 대기는 참고값이라 세기만 하고 측정은 이어 간다.
                 self.queue_errors += 1
             time.sleep(0.1)
 
@@ -176,7 +178,11 @@ def main(argv=None):
         if linux and sampler.samples == 0:
             problems.append(f"{title}: 호스트 메모리 여유를 재지 못함")
     if before is None or after is None:
-        problems.append("judge 폴더에서 띄운 컨테이너를 찾지 못해 재시작 여부를 확인하지 못함")
+        if linux:
+            problems.append("judge 폴더에서 띄운 컨테이너를 찾지 못해 재시작 여부를 확인하지 못함")
+        else:
+            # 맥에서 SSH 터널로 원격 채점 VM을 검사하면 로컬 Docker에는 컨테이너가 없다.
+            print("\n(로컬 Docker에서 judge 컨테이너를 찾지 못해 재시작 검사를 건너뛰었다. 원격 Judge0면 채점 VM에서 다시 실행한다)")
     elif before != after:
         problems.append(f"컨테이너 재시작 발생 {before} → {after}")
     mins = [s.min_available for _, _, _, s in phases if s.min_available is not None]

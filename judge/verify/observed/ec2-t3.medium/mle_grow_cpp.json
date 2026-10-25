@@ -8,17 +8,18 @@
       "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
     },
     "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
-    "run_at": "20261025-125752"
+    "run_at": "20261025-160232"
   },
   "case": {
     "id": "mle_grow_cpp",
     "group": "memory",
     "file": "mle_grow.cpp",
     "expect": {
-      "status_not": [
-        3,
-        13,
-        14
+      "status": [
+        11
+      ],
+      "exit_code": [
+        137
       ]
     }
   },
@@ -36,5 +37,6 @@
       "id": 11,
       "description": "Runtime Error (NZEC)"
     }
-  }
+  },
+  "verdict": "ok"
 }
