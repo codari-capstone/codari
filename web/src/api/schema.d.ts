@@ -409,6 +409,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sample-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 예제 실행 (SOLVE-08)
+         * @description 작성한 코드를 문제의 공개 예제로만 실행하도록 대기(`QUEUED`)로 저장하고 바로 답한다. 결과는 예제 실행 결과(`GET /api/sample-runs/{id}`)로 확인한다.
+         *     시도 횟수·풀이 상태·제출 기록에 들어가지 않는다.
+         *     요청 본문과 오류는 코드 제출(`POST /api/submissions`)과 같다.
+         */
+        post: operations["runSamples"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sample-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 예제 실행 상태·예제별 결과 (SOLVE-08)
+         * @description 화면은 `status`가 `COMPLETED`나 `JUDGE_ERROR`가 될 때까지 주기적으로 부른다(폴링).
+         *     로그인한 본인의 예제 실행만 볼 수 있다. 남의 것·없는 것·채점 제출은 모두 404 `SAMPLE_RUN_NOT_FOUND`다.
+         *     예제의 입력·기대 출력은 담지 않는다. 화면은 문제 상세의 `samples`와 `ordinal`로 짝짓는다.
+         */
+        get: operations["getSampleRunResult"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/concept-tags": {
         parameters: {
             query?: never;
@@ -559,6 +603,57 @@ export interface components {
             submittedAt: string;
             /** Format: date-time */
             judgedAt: string | null;
+        };
+        SampleRunResult: {
+            /**
+             * Format: int64
+             * @description 예제 실행 번호
+             */
+            id: number;
+            /** Format: int64 */
+            problemId: number;
+            language: components["schemas"]["Language"];
+            /**
+             * @description `SubmissionResult.status`와 같다. `RUNNING`이면 `progress` %
+             * @enum {string}
+             */
+            status: "QUEUED" | "COMPILING" | "RUNNING" | "COMPLETED" | "JUDGE_ERROR";
+            progress: number;
+            /**
+             * @description 예제 전체의 판정. 모두 맞으면 `ACCEPTED`, 아니면 처음 틀린 예제의 판정. `COMPLETED`일 때만 있다
+             * @enum {string|null}
+             */
+            verdict: "ACCEPTED" | "PRESENTATION_ERROR" | "WRONG_ANSWER" | "TIME_LIMIT_EXCEEDED" | "MEMORY_LIMIT_EXCEEDED" | "OUTPUT_LIMIT_EXCEEDED" | "RUNTIME_ERROR" | "COMPILE_ERROR" | null;
+            /**
+             * @description `verdict`가 `RUNTIME_ERROR`일 때만 있다. 값은 `docs/judge-verdict-mapping.md` 4절
+             * @enum {string|null}
+             */
+            runtimeErrorType: "INDEX_ERROR" | "ZERO_DIVISION" | "VALUE_ERROR" | "NAME_ERROR" | "TYPE_ERROR" | "RECURSION_ERROR" | "EOF_ERROR" | "OTHER" | null;
+            /** @description `verdict`가 `COMPILE_ERROR`일 때 줄 번호가 든 메시지(RES-05). 이때 예제별 `verdict`는 모두 null이다. 글자 그대로 보여 준다 */
+            compilerMessage: string | null;
+            /** Format: date-time */
+            submittedAt: string;
+            /** Format: date-time */
+            judgedAt: string | null;
+            /** @description 공개 예제 전부. 실행 전인 예제도 있고 결과 값이 null이다 */
+            cases: {
+                /** @description 문제 상세 `samples`의 순서(1부터) */
+                ordinal: number;
+                /** @description 프로그램의 실제 출력. 최대 65,536자이고 깨진 바이트·NUL은 U+FFFD로 바뀐다 */
+                actualOutput: string | null;
+                /**
+                 * @description 이 예제의 판정. 실행 전이거나 컴파일 에러·채점 불가로 끝나 실행되지 않았으면 null
+                 * @enum {string|null}
+                 */
+                verdict: "ACCEPTED" | "PRESENTATION_ERROR" | "WRONG_ANSWER" | "TIME_LIMIT_EXCEEDED" | "MEMORY_LIMIT_EXCEEDED" | "OUTPUT_LIMIT_EXCEEDED" | "RUNTIME_ERROR" | null;
+                /**
+                 * @description 프로그램이 낸 에러 원문(줄 번호 포함, RES-04). 공개 예제라 그대로 준다.
+                 *     C++ Segfault처럼 원문이 없으면 null이다. 학생 코드가 만든 문자열이라 글자 그대로 보여 준다(HTML로 렌더링하지 않는다).
+                 */
+                errorMessage: string | null;
+                executionTimeMs: number | null;
+                memoryUsedKb: number | null;
+            }[];
         };
         AccessTokenResponse: {
             accessToken: string;
@@ -1113,6 +1208,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SubmissionResult"];
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    runSamples: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * Format: int64
+                     * @description 문제 목록·상세의 `id`
+                     */
+                    problemId: number;
+                    language: components["schemas"]["Language"];
+                    sourceCode: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 접수됨 */
+            202: {
+                headers: {
+                    /** @description 이 예제 실행의 결과 조회 경로 */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * Format: int64
+                         * @description 예제 실행 번호
+                         */
+                        id: number;
+                    };
+                };
+            };
+            400: components["responses"]["Problem"];
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["Problem"];
+            /** @description 요청 본문이 512KB를 넘음 */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    getSampleRunResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 예제 실행 응답의 `id` */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 지금 상태. 끝나지 않았으면 판정은 null이다 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SampleRunResult"];
                 };
             };
             400: components["responses"]["Problem"];
