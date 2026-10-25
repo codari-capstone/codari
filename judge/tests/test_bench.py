@@ -46,5 +46,15 @@ class GenInputTest(unittest.TestCase):
                 self.assertTrue(os.path.exists(os.path.join(JUDGE_DIR, "bench", "workloads", workload + ext)), workload + ext)
 
 
+class SummarizeTest(unittest.TestCase):
+    def test_memory_median_is_a_sample(self):
+        # 짝수 개라도 소수가 아닌 실제 표본 값을 쓴다
+        self.assertEqual(rb.summarize([4200, 4300, 4100, 4400], low=True)["median"], 4200)
+
+    def test_max_ratio(self):
+        row = rb.evaluate_row({"time": [0.5, 0.6], "memory": [10]}, {"time": [0.1, 0.12], "memory": [2]})
+        self.assertAlmostEqual(row["max_ratio"], 5.0)
+
+
 if __name__ == "__main__":
     unittest.main()
