@@ -1,0 +1,42 @@
+{
+  "meta": {
+    "label": "ec2-t3.small",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
+    "run_at": "20261025-114718"
+  },
+  "case": {
+    "id": "exc_type_py",
+    "group": "exceptions",
+    "file": "exc_type.py",
+    "expect": {
+      "status": [
+        11
+      ],
+      "stderr_has": [
+        "TypeError"
+      ]
+    },
+    "observe": true
+  },
+  "result": {
+    "stdout": null,
+    "time": "0.023",
+    "memory": 3260,
+    "stderr": "Traceback (most recent call last):\n  File \"script.py\", line 1, in <module>\n    print(\"a\" + 1)\nTypeError: can only concatenate str (not \"int\") to str\n",
+    "compile_output": null,
+    "exit_code": 1,
+    "exit_signal": null,
+    "message": "Exited with error status 1",
+    "wall_time": "0.028",
+    "status": {
+      "id": 11,
+      "description": "Runtime Error (NZEC)"
+    }
+  }
+}

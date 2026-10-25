@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "label": "ec2-t3.small",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
+    "run_at": "20261025-114718"
+  },
+  "case": {
+    "id": "tle_sleep_py",
+    "group": "time",
+    "file": "tle_sleep.py",
+    "expect": {
+      "status": [
+        5
+      ]
+    },
+    "note": "CPU를 쓰지 않아 wall 제한으로 끝나야 함"
+  },
+  "result": {
+    "stdout": null,
+    "time": "0.02",
+    "memory": 3196,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": "Time limit exceeded (wall clock)",
+    "wall_time": "5.101",
+    "status": {
+      "id": 5,
+      "description": "Time Limit Exceeded"
+    }
+  }
+}

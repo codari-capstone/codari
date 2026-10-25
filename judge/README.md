@@ -22,9 +22,44 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 | `verify/` | 격리·자원 제한 검증(#66): 케이스 `cases/`·`cases.json`, 실행기 `run_verify.py`, 동시 실행 `concurrency_check.py`, 결과 `results/`, 케이스별 응답 `observed/` |
 | `tests/` | 클라이언트·smoke·검증 로직 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
 
+## 채점 VM 준비
+
+2026-10-25 서울 리전(ap-northeast-2)에 만든 VM이다. 계획서는 judge 서버를 t3.small로 시작한다고 했지만, t3.small(메모리 2 GB)에서는 실행 슬롯 2개가 동시에 C++를 컴파일하거나 메모리를 많이 쓰면 호스트 여유 메모리가 기준(256 MiB) 아래로 떨어져 같은 날 t3.medium으로 키웠다(아래 "동시 실행" 표).
+
+| 항목 | 값 |
+|---|---|
+| 인스턴스 | t3.medium (2 vCPU, 메모리 4 GB, 스왑 없음), Intel Xeon Platinum 8259CL. CPU 크레딧 `unlimited`라 크레딧이 떨어져도 느려지지 않고 초과분이 과금된다 |
+| OS | Ubuntu 22.04.5 LTS (커널 6.8.0-1066-aws), 루트 gp3 20 GB, IMDSv2만 허용 |
+| Docker | Engine 29.9.2, Compose v5.6.1 (Docker 공식 apt 저장소) |
+| 태그 | `Name=codingmon-judge`, `Project=codingmon` |
+| 보안 그룹 | `codingmon-judge`. 22와 2358을 허용한 IP(/32)에서만 연다. API 서버가 생기면 2358에 API 서버의 보안 그룹을 더한다 |
+
+접속 주소와 SSH 키는 저장소에 두지 않고 팀 비공개 채널로 공유한다. 공인 IP는 인스턴스를 멈췄다 켜면 바뀐다.
+
+1. cgroup v1로 바꾼다. Ubuntu 22.04는 기본이 cgroup v2라 그대로 두면 isolate가 `/box`를 만들지 못한다.
+
+   ```bash
+   sudo sed -i 's/^GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="systemd.unified_cgroup_hierarchy=0 /' /etc/default/grub
+   sudo update-grub && sudo reboot
+   stat -fc %T /sys/fs/cgroup          # tmpfs면 cgroup v1 (cgroup2fs면 v2)
+   ```
+
+2. Docker Engine과 Compose 플러그인을 Docker 공식 apt 저장소에서 설치하고 `ubuntu` 사용자를 `docker` 그룹에 넣는다([설치 안내](https://docs.docker.com/engine/install/ubuntu/)). `docker info --format '{{.CgroupVersion}}'`이 `1`이어야 한다. Docker 29는 cgroup v1 지원을 늦어도 2029년 5월에 없앤다고 경고하지만 이번 운영 기간과는 상관없다.
+3. 아래 "설치·기동"대로 띄운다. `.env`의 `JUDGE0_BIND_ADDR`는 `0.0.0.0`으로 둔다. 2358은 보안 그룹이 막는다.
+4. `judge0.conf`의 `ALLOW_IP`는 비워 둔다. 주소 제한은 보안 그룹 한 곳에서 하고, Judge0에는 토큰 인증(`AUTHN_TOKEN`)만 둔다.
+
+2026-10-25 방화벽 확인:
+
+| 확인 | 결과 |
+|---|---|
+| 허용한 IP → 2358, 토큰 있음 | 200 |
+| 허용한 IP → 2358, 토큰 없음 | 401 |
+| 다른 호스트(VM이 자기 공인 IP로) → 2358 | 연결 안 됨 (8초 타임아웃) |
+| 다른 호스트 → 22 | 연결 안 됨 |
+
 ## 설치·기동
 
-채점 VM(amd64 Ubuntu 22.04, cgroup v1, Docker)을 준비하는 절차는 #63에서 이 문서에 추가한다. 보안 그룹과 함께 `judge0.conf`의 `ALLOW_IP`로 2358 호출을 API 서버 주소로만 제한할지도 그때 정한다(지금은 비어 있어 토큰만 있으면 어느 주소에서든 호출된다). 준비된 VM에서:
+준비된 VM에서:
 
 ```bash
 git clone https://github.com/codari-capstone/codingmon.git ~/codingmon
@@ -143,11 +178,25 @@ python3 verify/concurrency_check.py                                         # �
 - `new`로 4 TB를 요청하는 케이스는 Docker Desktop VM의 `vm.overcommit_memory=1` 때문에 할당이 성공했다. Ubuntu 기본값(0)에서는 `bad_alloc` → abort(134)가 예상된다.
 - `/workers`는 호출할 때마다 워커 등록을 지워 `working`·`available`이 0으로 온다(운영 명령 절). 동시 실행 수는 샌드박스 안 시각으로 잰다.
 
-### 채점 VM에서 다시 할 것
+### 결과: 채점 VM (EC2, Ubuntu 22.04, cgroup v1) — 2026-10-25
 
-맥 결과는 amd64 명령을 Rosetta로 번역해 실행한 것이다. 채점 VM(amd64, Ubuntu 22.04)이 준비되면 같은 명령을 `--label ec2-<타입>`으로 다시 실행해 결과를 이 절에 추가한다.
+케이스 검증은 t3.small에서 돌렸다. 판정 동작은 인스턴스 크기와 상관없다. 전체 표는 `verify/results/2026-10-25-ec2-t3.small.md`, 케이스별 응답은 `verify/observed/ec2-t3.small/`에 있다. 실패 0건이다. 판정 규칙을 바꿀 차이는 없었다([판정 매핑 9절](../docs/judge-verdict-mapping.md#9-채점-vm에서-확인한-것)).
 
-- `concurrency_check.py`의 호스트 메모리 여유(MemAvailable 최소 256 MiB)와 컨테이너 재시작 여부 — 맥에서는 재지 않는다
-- EC2 메타데이터(169.254.169.254) 차단의 대조 실행 — 맥 호스트에는 해당 주소가 없다
-- `mle_badalloc_cpp`가 `bad_alloc`으로 끝나는지
-- 신호가 status 11 + `exit_code` 128+N으로 오는 동작이 같은지
+| 묶음 | 맥과 다른 점 |
+|---|---|
+| 네트워크 | EC2 메타데이터(169.254.169.254:80)도 샌드박스 안에서 막힌다. 같은 코드가 호스트에서는 닿는 것을 대조 실행으로 확인했다 |
+| 메모리 | `new`로 4 TB를 요청하면 할당이 실패해 `std::bad_alloc` → abort(134)로 끝난다. VM은 `vm.overcommit_memory=0`이다 |
+| 신호 | 맥과 같이 status 11 + `exit_code` 128+N으로 온다. bash 줄 끝에 `(core dumped)`가 붙는다 |
+| 시간 | 무한 반복 CPU 2.0초(Python 2.04, C++ 2.01), 무한 `sleep` wall 5.1초 → status 5 |
+
+동시 실행(`concurrency_check.py`):
+
+| 단계 | t3.small (2 GB) | t3.medium (4 GB) |
+|---|---|---|
+| CPU 1.5초 작업 4개 | 모두 정상 종료, 실행 구간 최대 2개 겹침. 호스트 MemAvailable 최소 821 MiB | 같음. 최소 2793 MiB |
+| 450 MiB 작업 2개 | 둘 다 정상 종료했지만 MemAvailable 최소 **32 MiB** (기준 256 MiB, **실패**) | 최소 1899 MiB (통과) |
+| `bits/stdc++.h` C++ 컴파일 2개 | MemAvailable 최소 **119 MiB** | 최소 2437 MiB |
+
+- 샌드박스 실행 구간은 최대 2개만 겹치고 나머지는 큐에서 기다린다. 두 크기 모두 컨테이너 재시작과 호스트 OOM은 없었다(dmesg의 OOM은 메모리 초과 케이스가 샌드박스 cgroup 안에서 죽은 것뿐이다).
+- 평상시 Judge0 컨테이너 메모리는 server 171 MiB, workers 271 MiB, db 53 MiB, redis 7 MiB다. 스왑은 없다.
+- 컴파일 메모리는 Judge0 응답에 없어 cgroup v1의 workers 컨테이너 `memory.max_usage_in_bytes`와 `cc1plus` RSS로 쟀다. 컴파일 하나가 약 210 MiB를 쓴다(2개 합 419 MiB).

@@ -1,0 +1,43 @@
+{
+  "meta": {
+    "label": "ec2-t3.small",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
+    "run_at": "20261025-114718"
+  },
+  "case": {
+    "id": "net_probe_py",
+    "group": "network",
+    "file": "net_probe.py",
+    "expect": {
+      "status": [
+        3
+      ],
+      "stdout_not": [
+        "REACHED"
+      ]
+    },
+    "control": true,
+    "note": "샌드박스 밖(호스트) 대조 실행에서 REACHED인 대상만 차단 근거로 인정"
+  },
+  "result": {
+    "stdout": "dns_example.com BLOCKED gaierror\ntcp_1.1.1.1:53 BLOCKED OSError\ntcp_8.8.8.8:53 BLOCKED OSError\nimds_169.254.169.254:80 BLOCKED OSError\n",
+    "time": "0.049",
+    "memory": 5976,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": null,
+    "wall_time": "0.133",
+    "status": {
+      "id": 3,
+      "description": "Accepted"
+    }
+  }
+}
