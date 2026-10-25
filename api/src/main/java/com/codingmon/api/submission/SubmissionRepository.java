@@ -9,6 +9,8 @@ import java.util.stream.Collectors;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.codingmon.api.Language;
 
@@ -84,6 +86,8 @@ class SubmissionRepository {
     }
 
     // 본인의 SAMPLE_RUN만 찾는다. 남의 것도 비어 있게 답한다(findResult와 같다).
+    // 행을 읽는 중에 예제 결과를 조회하므로 한 연결에서 돌게 묶고, 처리기가 그 사이 결과를 써도 상태와 cases가 같은 시점을 보게 한다.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     Optional<SampleRunResult> findSampleRun(long userId, long submissionId) {
         return jdbc.sql("select s.id, v.problem_id, s.language, s.job_status, s.progress, s.verdict, s.runtime_error_type,"
                 + " s.compiler_message, s.submitted_at, s.judged_at"
