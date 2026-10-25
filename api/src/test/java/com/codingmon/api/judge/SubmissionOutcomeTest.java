@@ -48,13 +48,13 @@ class SubmissionOutcomeTest {
     @Test
     void SAMPLE_컴파일_에러는_남은_케이스를_기다리지_않는다() {
         assertThat(SubmissionOutcome.combine(List.of(
-                sample(new CaseOutcome.CompileError("main.cpp:3:1: error")), sample(PENDING), hidden(PENDING))))
+                sample(new CaseOutcome.CompileError("main.cpp:3:1: error", true)), sample(PENDING), hidden(PENDING))))
                 .isEqualTo(new SubmissionOutcome.CompileError("main.cpp:3:1: error"));
     }
 
     @Test
     void HIDDEN만_컴파일_에러면_SAMPLE_결과를_따른다() {
-        CaseOutcome hiddenCompile = new CaseOutcome.CompileError("error");
+        CaseOutcome hiddenCompile = new CaseOutcome.CompileError("error", true);
         // SAMPLE이 아직이면 기다린다
         assertThat(SubmissionOutcome.combine(List.of(sample(PENDING), hidden(hiddenCompile))))
                 .isEqualTo(new SubmissionOutcome.InProgress(0));
@@ -63,10 +63,18 @@ class SubmissionOutcomeTest {
                 .isInstanceOf(SubmissionOutcome.JudgeError.class);
         // SAMPLE끼리 엇갈려도 학생 코드 탓이 아니다
         assertThat(SubmissionOutcome.combine(List.of(
-                sample(judged(Verdict.ACCEPTED, 10, 9_000)), sample(new CaseOutcome.CompileError("error")), hidden(PENDING))))
+                sample(judged(Verdict.ACCEPTED, 10, 9_000)), sample(new CaseOutcome.CompileError("error", true)), hidden(PENDING))))
                 .isInstanceOf(SubmissionOutcome.JudgeError.class);
+        // Python 문법 오류는 HIDDEN에서 런타임 에러로 와도 컴파일 에러다
+        CaseOutcome pythonSyntax = new CaseOutcome.CompileError("SyntaxError", false);
+        CaseOutcome hiddenRuntime = new CaseOutcome.Judged(Verdict.RUNTIME_ERROR, RuntimeErrorType.OTHER, 20, 9_000);
+        assertThat(SubmissionOutcome.combine(List.of(sample(pythonSyntax), hidden(hiddenRuntime))))
+                .isEqualTo(new SubmissionOutcome.CompileError("SyntaxError"));
+        // 학생이 SAMPLE 하나에서만 문법 오류 모양을 찍어도 채점 불가가 아니라 컴파일 에러다
+        assertThat(SubmissionOutcome.combine(List.of(sample(judged(Verdict.ACCEPTED, 10, 9_000)), sample(pythonSyntax))))
+                .isEqualTo(new SubmissionOutcome.CompileError("SyntaxError"));
         // SAMPLE도 컴파일 에러면 컴파일 에러다
-        assertThat(SubmissionOutcome.combine(List.of(sample(new CaseOutcome.CompileError("error")), hidden(hiddenCompile))))
+        assertThat(SubmissionOutcome.combine(List.of(sample(new CaseOutcome.CompileError("error", true)), hidden(hiddenCompile))))
                 .isEqualTo(new SubmissionOutcome.CompileError("error"));
     }
 

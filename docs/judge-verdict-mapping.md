@@ -59,8 +59,8 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 2 | status 1·2 | 진행 중. 계속 폴링 |
 | 3 | status 13 (Internal Error) | 같은 케이스를 1회 다시 제출한다. 또 13이면 채점 불가 |
 | 4 | status 14 (Exec Format Error) | 채점 불가 |
-| 5 | status 6 (Compilation Error) | SAMPLE 케이스면 `COMPILE_ERROR`. `compile_output` → `compiler_message`. HIDDEN 케이스면 판정을 미루고 SAMPLE 케이스 결과를 따른다([제출 판정 합치기](#제출-판정-합치기) 1번) |
-| 6 | Python, **SAMPLE 케이스**, status 11, stderr에 `Traceback (most recent call last):`가 없고 마지막 줄이 `SyntaxError`·`IndentationError`·`TabError`로 시작 | `COMPILE_ERROR`. stderr(7절대로 정리) → `compiler_message` |
+| 5 | status 6 (Compilation Error) | 컴파일 에러 후보. `compile_output` → `compiler_message`. 다른 SAMPLE 케이스가 이미 컴파일됐으면 채점 불가, HIDDEN 케이스면 판정을 미루고 SAMPLE 케이스 결과를 따른다. 확정은 [제출 판정 합치기](#제출-판정-합치기) 1번이 한다 |
+| 6 | Python, **SAMPLE 케이스**, status 11, stderr에 `Traceback (most recent call last):`가 없고 마지막 줄이 `SyntaxError`·`IndentationError`·`TabError`로 시작 | `COMPILE_ERROR`. stderr(7절대로 정리) → `compiler_message`. 다른 SAMPLE이 판정됐어도 컴파일 에러로 둔다(합치기 1번) |
 | 7 | status 5 | `TIME_LIMIT_EXCEEDED` |
 | 8 | status 3이 아니면서 stdout·stderr 중 하나의 바이트 길이가 `limit_bytes` 이상, 또는 status 8, 또는 신호 25 | `OUTPUT_LIMIT_EXCEEDED` |
 | 9 | 신호 9이고 `memory ≥ memory_limit` | `MEMORY_LIMIT_EXCEEDED` |
@@ -81,7 +81,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 케이스 판정을 제출 하나(`submissions`)의 값으로 합치는 규칙이다. 케이스 순서는 SAMPLE 먼저, 같은 종류 안에서는 `ordinal` 순이다(AI_FEATURES 10절 "공개 예제부터").
 
-1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다. 다만 다른 케이스가 이미 컴파일에 성공해 판정이 났다면, SAMPLE이든 HIDDEN이든 status 6인 케이스는 채점 불가로 보고 2번으로 끝낸다. HIDDEN 케이스의 status 6은 SAMPLE 결과가 아직이면 기다린다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
+1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다. 다만 SAMPLE 케이스 중 하나라도 컴파일에 성공해 판정이 났다면, status 6인 케이스는 SAMPLE이든 HIDDEN이든 채점 불가로 보고 2번으로 끝낸다. HIDDEN 케이스의 판정은 컴파일 성공으로 세지 않는다(Python 문법 오류가 HIDDEN에서는 런타임 에러로 오기 때문이다). HIDDEN 케이스의 status 6은 SAMPLE 결과가 아직이면 기다린다. 6번(Python 문법 오류)은 status 6이 아니라 학생 코드의 stderr로 정한 것이라 이 예외를 쓰지 않고 늘 컴파일 에러로 둔다. 그래야 학생이 SAMPLE 하나에서만 문법 오류 모양을 찍어 채점 불가(시도 횟수 제외)를 만들 수 없다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
 2. 채점 불가인 케이스가 나오면 그 자리에서 제출을 `job_status = 'JUDGE_ERROR'`, `verdict = NULL`로 끝낸다.
 3. 그 밖에는 실행 대상 케이스의 판정이 모두 모인 뒤(`database-schema.md`) 정한다. 모두 `ACCEPTED`면 `ACCEPTED`, 아니면 케이스 순서상 처음으로 `ACCEPTED`가 아닌 케이스의 판정이다.
 4. `runtime_error_type`은 3에서 고른 케이스가 `RUNTIME_ERROR`일 때 그 케이스의 종류(4절)다. 그 밖에는 `NULL`이다. 종류는 케이스 결과를 받을 때 정해 케이스 행에 저장한다. 비공개 케이스는 stderr를 저장하지 않아 나중에 다시 구할 수 없고, 재시작 복구도 판정이 빈 행만 다시 조회하기 때문이다(`database-schema.md`). V1의 `submission_test_results`에는 이 컬럼이 없으므로 #29에서 마이그레이션으로 `runtime_error_type`을 더한다.

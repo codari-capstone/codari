@@ -31,15 +31,16 @@ sealed interface SubmissionOutcome {
         if (cases.isEmpty()) {
             return new JudgeError("실행할 테스트케이스가 없다");
         }
-        // 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 다른 케이스는 컴파일됐는데 어떤 케이스만 컴파일 에러라면
+        // 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, SAMPLE은 컴파일됐는데 어떤 케이스만 컴파일러가 실패했다면
         // (채점 VM 메모리 부족 등) 학생 코드 탓이 아니라 채점 불가다. SAMPLE끼리도, SAMPLE과 HIDDEN 사이도 같다.
-        boolean compiled = cases.stream().anyMatch(c -> c.outcome() instanceof CaseOutcome.Judged);
+        // HIDDEN의 Judged는 컴파일 성공으로 세지 않는다. Python 문법 오류는 HIDDEN에서 런타임 에러로 오기 때문이다.
+        // Python 문법 오류(fromCompiler = false)는 이 규칙에서 뺀다. 학생이 stderr로 채점 불가를 만들 수 없게 한다.
+        boolean sampleCompiled = cases.stream().anyMatch(c -> c.sample() && c.outcome() instanceof CaseOutcome.Judged);
         boolean hasSample = cases.stream().anyMatch(Case::sample);
-        if (!compiled) {
-            for (Case c : cases) {
-                if (c.sample() && c.outcome() instanceof CaseOutcome.CompileError error) {
-                    return new CompileError(error.message());
-                }
+        for (Case c : cases) {
+            if (c.sample() && c.outcome() instanceof CaseOutcome.CompileError error
+                    && !(error.fromCompiler() && sampleCompiled)) {
+                return new CompileError(error.message());
             }
         }
         int judged = 0;
@@ -52,9 +53,9 @@ sealed interface SubmissionOutcome {
                 case CaseOutcome.InternalError error -> {
                     return new JudgeError("Judge0 status 13 (Internal Error): " + error.message());
                 }
-                // SAMPLE이 아직이면 기다린다. SAMPLE이 없는 실행은 컴파일 에러를 확정할 근거가 없다.
-                case CaseOutcome.CompileError error when compiled || !hasSample -> {
-                    return new JudgeError("다른 케이스는 컴파일됐는데 컴파일 에러인 케이스가 있다");
+                // HIDDEN의 컴파일 에러는 SAMPLE 결과가 아직이면 기다린다. SAMPLE이 없는 실행은 컴파일 에러를 확정할 근거가 없다.
+                case CaseOutcome.CompileError error when sampleCompiled || !hasSample -> {
+                    return new JudgeError("SAMPLE은 컴파일됐는데 컴파일러가 실패한 케이스가 있다");
                 }
                 case CaseOutcome.Judged j -> judged++;
                 default -> {
