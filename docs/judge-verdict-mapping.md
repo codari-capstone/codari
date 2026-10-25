@@ -19,7 +19,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 보내지 않는 것 | `enable_network`, `additional_files`, `command_line_arguments`, `callback_url`, `number_of_runs`, `enable_per_process_and_thread_time_limit`, `enable_per_process_and_thread_memory_limit`. 브라우저에서 받은 값은 어떤 것도 Judge0 요청에 넣지 않는다 |
 | 결과 조회 | 토큰으로 폴링한다(채점 서버는 `wait=true`를 400으로 거절). `fields=status,stdout,stderr,compile_output,message,time,wall_time,memory,exit_code,exit_signal`을 명시한다 — 기본 응답에는 `exit_code`가 없다. 응답 필드는 `null`일 수 있다(2절 7번) |
 | 묶음 제출 | 테스트케이스는 `POST /submissions/batch`로 최대 20개씩 보낸다. 응답은 항목별 목록이고 항목마다 `token`이나 오류가 온다(6절) |
-| 삭제 | 결과를 읽은 뒤 `DELETE /submissions/{token}`(`X-Auth-User` 필요)으로 지울 수 있다. 사용 여부는 #29에서 정한다 |
+| 삭제 | 결과를 읽은 뒤 `DELETE /submissions/{token}`(`X-Auth-User` 필요)으로 지울 수 있다. 채점 처리기는 아직 지우지 않는다 |
 
 제한값은 `problem_language_configs`의 언어별 값으로 만든다. Python 보정(계획서 초기값: 시간 ×3 + 2초, 메모리 ×2. #65 실측으로 확정)은 문제를 등록할 때 Python 행의 `time_limit_ms`·`memory_limit_mb`에 반영해 저장하므로, 요청을 만들 때 다시 곱하지 않는다.
 
@@ -84,15 +84,15 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다. HIDDEN 케이스의 status 6은 SAMPLE 케이스 중 하나라도 컴파일에 성공했으면(status 6이 아니면) 채점 불가로 보고 2번으로 끝낸다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
 2. 채점 불가인 케이스가 나오면 그 자리에서 제출을 `job_status = 'JUDGE_ERROR'`, `verdict = NULL`로 끝낸다.
 3. 그 밖에는 실행 대상 케이스의 판정이 모두 모인 뒤(`database-schema.md`) 정한다. 모두 `ACCEPTED`면 `ACCEPTED`, 아니면 케이스 순서상 처음으로 `ACCEPTED`가 아닌 케이스의 판정이다.
-4. `runtime_error_type`은 3에서 고른 케이스가 `RUNTIME_ERROR`일 때 그 케이스의 종류(4절)다. 그 밖에는 `NULL`이다. 종류는 케이스 결과를 받을 때 정해 케이스 행에 저장한다. 비공개 케이스는 stderr를 저장하지 않아 나중에 다시 구할 수 없고, 재시작 복구도 판정이 빈 행만 다시 조회하기 때문이다(`database-schema.md`). V1의 `submission_test_results`에는 이 컬럼이 없으므로 #29에서 마이그레이션으로 `runtime_error_type`을 더한다.
+4. `runtime_error_type`은 3에서 고른 케이스가 `RUNTIME_ERROR`일 때 그 케이스의 종류(4절)다. 그 밖에는 `NULL`이다. 종류는 케이스 결과를 받을 때 정해 케이스 행에 저장한다. 비공개 케이스는 stderr를 저장하지 않아 나중에 다시 구할 수 없고, 재시작 복구도 판정이 빈 행만 다시 조회하기 때문이다(`database-schema.md`). 케이스 행의 `runtime_error_type`은 `V2__judge_case_results.sql`에서 더했다.
 5. `execution_time_ms`·`memory_used_kb`는 판정이 난 케이스 값의 최댓값이다(`time`(초) × 1000 반올림, `memory`(KB)). 1·2로 끝난 제출은 `NULL`이다.
 6. `progress`는 판정이 채워진 케이스 수 ÷ 실행 대상 케이스 수 × 100(내림)이다. 1·2번으로 끝난 제출은 판정이 빈 케이스가 남아도 100으로 둔다.
 
 ## 4. 런타임 에러 종류
 
-`runtime_error_type`에 넣는 값과 화면 표시다. 화면 문구와 설명은 AI_FEATURES 10절 "런타임 에러 종류별 설명" 표를 쓴다. 저장 코드는 제안이며 #29에서 API 계약과 함께 확정한다.
+`runtime_error_type`에 넣는 값과 화면 표시다. 화면 문구와 설명은 AI_FEATURES 10절 "런타임 에러 종류별 설명" 표를 쓴다. 저장 코드는 openapi `runtimeErrorType`과 같다.
 
-| 저장 코드(제안) | 화면 표시 | Python 예외(5절) | C++ (신호, stderr) |
+| 저장 코드 | 화면 표시 | Python 예외(5절) | C++ (신호, stderr) |
 |---|---|---|---|
 | `INDEX_ERROR` | IndexError / Segfault | `IndexError` | 신호 11 (SIGSEGV, `exit_code` 139), 또는 신호 6이고 stderr에 `std::out_of_range` |
 | `ZERO_DIVISION` | ZeroDivisionError / DivisionByZero | `ZeroDivisionError` | 신호 8 (SIGFPE, `exit_code` 136) |
