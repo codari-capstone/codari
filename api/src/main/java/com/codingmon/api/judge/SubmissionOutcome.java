@@ -31,15 +31,17 @@ sealed interface SubmissionOutcome {
         if (cases.isEmpty()) {
             return new JudgeError("실행할 테스트케이스가 없다");
         }
-        for (Case c : cases) {
-            if (c.sample() && c.outcome() instanceof CaseOutcome.CompileError error) {
-                return new CompileError(error.message());
+        // 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 다른 케이스는 컴파일됐는데 어떤 케이스만 컴파일 에러라면
+        // (채점 VM 메모리 부족 등) 학생 코드 탓이 아니라 채점 불가다. SAMPLE끼리도, SAMPLE과 HIDDEN 사이도 같다.
+        boolean compiled = cases.stream().anyMatch(c -> c.outcome() instanceof CaseOutcome.Judged);
+        boolean hasSample = cases.stream().anyMatch(Case::sample);
+        if (!compiled) {
+            for (Case c : cases) {
+                if (c.sample() && c.outcome() instanceof CaseOutcome.CompileError error) {
+                    return new CompileError(error.message());
+                }
             }
         }
-        // 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, SAMPLE은 컴파일됐는데 HIDDEN만 실패했다면
-        // (채점 VM 메모리 부족 등) 학생 코드 탓이 아니다. SAMPLE 결과가 아직이면 기다린다.
-        boolean sampleCompiled = cases.stream().anyMatch(c -> c.sample() && c.outcome() instanceof CaseOutcome.Judged);
-        boolean hasSample = cases.stream().anyMatch(Case::sample);
         int judged = 0;
         for (Case c : cases) {
             switch (c.outcome()) {
@@ -50,8 +52,9 @@ sealed interface SubmissionOutcome {
                 case CaseOutcome.InternalError error -> {
                     return new JudgeError("Judge0 status 13 (Internal Error)");
                 }
-                case CaseOutcome.CompileError error when sampleCompiled || !hasSample -> {
-                    return new JudgeError("SAMPLE은 컴파일됐는데 HIDDEN 케이스가 컴파일 에러다");
+                // SAMPLE이 아직이면 기다린다. SAMPLE이 없는 실행은 컴파일 에러를 확정할 근거가 없다.
+                case CaseOutcome.CompileError error when compiled || !hasSample -> {
+                    return new JudgeError("다른 케이스는 컴파일됐는데 컴파일 에러인 케이스가 있다");
                 }
                 case CaseOutcome.Judged j -> judged++;
                 default -> {
@@ -76,7 +79,14 @@ sealed interface SubmissionOutcome {
                 : new Completed(decisive.verdict(), decisive.errorType(), timeMs, memoryKb);
     }
 
+    // 삼항 연산자로 쓰면 Math.max의 int 때문에 식 전체가 int가 돼 null인 b까지 언박싱한다.
     private static Integer max(Integer a, Integer b) {
-        return a == null ? b : b == null ? a : Math.max(a, b);
+        if (a == null) {
+            return b;
+        }
+        if (b == null) {
+            return a;
+        }
+        return Math.max(a, b);
     }
 }

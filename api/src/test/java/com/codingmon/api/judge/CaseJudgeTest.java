@@ -59,7 +59,9 @@ class CaseJudgeTest {
     void C플러스플러스_컴파일_에러는_메시지를_남긴다() {
         String message = "main.cpp:3:1: error: expected primary-expression before '}' token\n";
         Judge0Result result = new Judge0Result(6, null, null, bytes(message), null, null, null, null);
-        assertThat(CaseJudge.judge(Language.CPP, true, result, bytes(""), LIMITS)).isEqualTo(new CaseOutcome.CompileError(message));
+        // 끝 줄바꿈은 Python 문법 오류 메시지와 같이 지운다
+        assertThat(CaseJudge.judge(Language.CPP, true, result, bytes(""), LIMITS))
+                .isEqualTo(new CaseOutcome.CompileError(message.stripTrailing()));
     }
 
     @Test
