@@ -1,11 +1,11 @@
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '@/api/client'
 import { fail } from '@/api/fail'
 import type { SampleRunResult } from '@/api/types'
 import { forgetSessionIfUnauthorized } from '@/features/auth/session'
-import { pollingInterval } from '@/features/result/resultQuery'
+import { isDeadEnd, isFinished, pollingInterval } from '@/features/result/resultQuery'
 import type { SubmitInput } from './submitQuery'
 
 /**
@@ -58,6 +58,12 @@ export function sampleRunQuery(id: number) {
  *
  * 실행 번호 하나만 들고 있는다. 지난 실행을 쌓지 않는 것은 계약이 "제출 기록에 들어가지
  * 않는다"고 한 것과 같은 선택이다 — 다시 누르면 앞의 결과는 쓸모가 없다.
+ *
+ * **진행·실패·결과를 여기서 다 정해 내려보낸다.** 화면이 `pending`과 응답 상태를 함께
+ * 보고 "실행 중"을 계산하게 두면, 폴링이 더 해 볼 것 없는 실패로 멈춘 뒤에도 마지막
+ * 응답(RUNNING)이 캐시에 남아 버튼이 영원히 잠긴다 — 새로고침밖에 길이 없다. 결과
+ * 화면이 `isDeadEnd` 하나로 "오류를 띄우는 때"와 "폴링을 멈추는 때"를 맞춘 것과 같은
+ * 이유다(그 주석에 세 번 어긋났던 경위가 적혀 있다).
  */
 export function useSampleRun() {
   const queryClient = useQueryClient()
@@ -76,13 +82,44 @@ export function useSampleRun() {
   // 번호가 바뀌면 queryKey가 달라져 data가 undefined부터 시작한다.
   const poll = useQuery({ ...sampleRunQuery(id ?? 0), enabled: id !== null })
 
+  /**
+   * 폴링이 401로 끝났으면 세션을 지운다 — RequireAuth가 로그인 화면으로 보낸다.
+   *
+   * mutation의 onError만으로는 안 된다. 접수가 성공한 뒤 세션이 끊기면 401은 조회에서
+   * 온다. 그러면 캐시의 사용자가 남아 있어 사용자는 에디터에 그대로 머문 채 인증 오류
+   * 문구만 보게 된다. query라 effect로 건다(결과 화면과 같은 처리).
+   */
+  const queryError = poll.error
+  useEffect(() => {
+    forgetSessionIfUnauthorized(queryClient, queryError)
+  }, [queryClient, queryError])
+
+  /**
+   * 더 해 볼 것이 없는 조회 실패만 꺼낸다.
+   *
+   * 일시적 실패(5xx·네트워크)는 폴링이 간격만 늘려 계속한다(pollingInterval). 그것까지
+   * 내보내면 '실행하고 있어요…' 아래에 실패 문구가 떴다 다음 조회에서 사라져, 사용자와
+   * 스크린 리더는 실행이 실패한 줄 알게 된다.
+   */
+  const stuck = isDeadEnd(queryError, poll.data !== undefined) ? queryError : null
+  const failure = start.error ?? stuck
+
+  // 끝났거나 막혔으면 진행 중이 아니다. 실패를 먼저 보는 것이 핵심이다 — 안 그러면
+  // 멈춘 폴링의 마지막 RUNNING 때문에 영원히 '실행 중'이 된다.
+  const running =
+    failure === null &&
+    (start.isPending || (id !== null && (poll.data === undefined || !isFinished(poll.data.status))))
+
   return {
-    start: (input: SubmitInput) => start.mutate(input),
-    /** 접수 중이거나, 접수됐지만 아직 첫 결과가 오지 않았다. */
-    pending: start.isPending || (id !== null && poll.data === undefined && poll.error === null),
+    /** 앞 실행의 결과를 먼저 버린다 — 접수가 오가는 동안 옛 판정이 새 코드의 것으로 읽힌다. */
+    start: (input: SubmitInput) => {
+      setId(null)
+      start.mutate(input)
+    },
+    pending: running,
     result: id === null ? undefined : poll.data,
-    /** 접수 실패와 조회 실패를 한 자리로 모은다 — 사용자에게는 "실행이 안 됐다" 하나다. */
-    error: start.error ?? poll.error,
+    /** 접수 실패와 막힌 조회를 한 자리로 모은다 — 사용자에게는 "실행이 안 됐다" 하나다. */
+    error: failure,
   }
 }
 

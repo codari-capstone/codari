@@ -3,7 +3,6 @@ import { Raw } from '@/components/Raw'
 import { Button } from '@/components/ui/button'
 import { RUNTIME_ERROR_INFO, VERDICT_INFO } from '@/constants/verdicts'
 import { problemMessage } from '@/features/auth/problemCode'
-import { isFinished } from '@/features/result/resultQuery'
 import type { SampleRunState } from './sampleRunQuery'
 
 type Samples = ProblemDetailView['samples']
@@ -29,7 +28,9 @@ function caseLabel(verdict: NonNullable<SampleRunCase['verdict']>): string {
 function Headline({ run }: { run: SampleRunState }) {
   const result = run.result
 
-  if (run.pending || (result !== undefined && !isFinished(result.status))) {
+  // 진행 여부는 훅이 정한다. 여기서 응답 상태를 다시 보면 폴링이 막힌 뒤에도
+  // 마지막 RUNNING 때문에 '실행 중'에 멈춘다(sampleRunQuery 주석).
+  if (run.pending) {
     // 진행률은 RUNNING일 때만 뜻이 있다. 다른 상태의 0%는 "아직 시작도 안 했다"로 읽힌다.
     const percent = result?.status === 'RUNNING' ? ` ${result.progress}%` : ''
     return <p className="text-muted-foreground text-sm">{`예제를 실행하고 있어요…${percent}`}</p>
@@ -79,7 +80,10 @@ function Output({ title, text }: { title: string; text: string | null | undefine
   if (text === null || text === undefined) return null
 
   return (
-    <div>
+    // min-w-0이 없으면 grid 칸이 안쪽 pre의 min-content 폭까지 늘어난다(기본값이
+    // min-width:auto다). 긴 한 줄을 출력하면 pre 안에서 스크롤되는 대신 화면 전체가
+    // 가로로 밀린다 — 좁은 화면에서는 칸이 하나뿐이라 더 그렇다.
+    <div className="min-w-0">
       <h4 className="text-muted-foreground text-xs font-semibold">{title}</h4>
       {/*
         공백과 줄바꿈이 뜻을 가진다. 꺾지 않고 가로 스크롤로 보여 준다(Samples와 같은
@@ -179,7 +183,6 @@ export function SampleRun({
   if (samples.length === 0) return null
 
   const result = run.result
-  const busy = run.pending || (result !== undefined && !isFinished(result.status))
   // 공백뿐인 코드는 서버가 `SOURCE_EMPTY`로 거절한다 (SubmitButton과 같은 편의).
   const empty = code.trim() === ''
 
@@ -192,10 +195,10 @@ export function SampleRun({
           type="button"
           variant="outline"
           className="min-h-11"
-          disabled={empty || busy}
+          disabled={empty || run.pending}
           onClick={() => run.start({ problemId, language, sourceCode: code })}
         >
-          {busy ? '실행 중…' : '실행'}
+          {run.pending ? '실행 중…' : '실행'}
         </Button>
       </div>
 
@@ -219,7 +222,13 @@ export function SampleRun({
         </p>
       ) : null}
 
-      {result !== undefined ? <Cases result={result} samples={samples} /> : null}
+      {/*
+        막혔으면 표를 숨긴다. 그때 남아 있는 것은 멈춘 폴링의 마지막 응답이라, 절반만
+        채워진 표가 끝난 결과처럼 읽힌다.
+      */}
+      {result !== undefined && run.error === null ? (
+        <Cases result={result} samples={samples} />
+      ) : null}
     </section>
   )
 }

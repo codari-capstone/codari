@@ -1,6 +1,7 @@
-import { QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, within } from '@testing-library/react'
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { delay, http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -9,6 +10,7 @@ import { createQueryClient } from '@/app/queryClient'
 import { ThemeProvider } from '@/app/ThemeProvider'
 import { ME_QUERY_KEY } from '@/features/auth/authQuery'
 import { resetSampleRuns } from '@/mocks/handlers'
+import { server } from '@/mocks/server'
 import { SampleRun } from './SampleRun'
 import type { SampleRunState } from './sampleRunQuery'
 import { Component as SolvePage } from './SolvePage'
@@ -91,7 +93,10 @@ describe('SampleRun (SOLVE-08)', () => {
   })
 
   it('채점 중에는 진행률을 함께 알린다', () => {
-    renderRun(fake({ result: result({ status: 'RUNNING', progress: 50, verdict: null }) }))
+    // pending은 훅이 정한다. 끝나지 않은 응답에는 true다 (sampleRunQuery).
+    renderRun(
+      fake({ pending: true, result: result({ status: 'RUNNING', progress: 50, verdict: null }) }),
+    )
 
     expect(liveRegion()).toHaveTextContent('예제를 실행하고 있어요… 50%')
     expect(screen.getByRole('button', { name: '실행 중…' })).toBeDisabled()
@@ -99,7 +104,9 @@ describe('SampleRun (SOLVE-08)', () => {
 
   /** 다른 상태의 0%는 "아직 시작도 안 했다"로 읽혀 오해를 준다 (결과 화면과 같은 규칙). */
   it('대기 중에는 진행률을 적지 않는다', () => {
-    renderRun(fake({ result: result({ status: 'QUEUED', progress: 0, verdict: null }) }))
+    renderRun(
+      fake({ pending: true, result: result({ status: 'QUEUED', progress: 0, verdict: null }) }),
+    )
 
     expect(liveRegion()).toHaveTextContent('예제를 실행하고 있어요…')
     expect(liveRegion()).not.toHaveTextContent('0%')
@@ -227,6 +234,7 @@ describe('SampleRun (SOLVE-08)', () => {
   it('아직 실행되지 않은 예제는 실행 전으로 두고 숫자를 비운다', () => {
     renderRun(
       fake({
+        pending: true,
         result: result({
           status: 'RUNNING',
           progress: 50,
@@ -261,6 +269,42 @@ describe('SampleRun (SOLVE-08)', () => {
     const item = screen.getByRole('listitem')
     expect(within(item).queryByText('기대 출력')).not.toBeInTheDocument()
     expect(within(item).getByText('실제 출력')).toBeInTheDocument()
+  })
+
+  /**
+   * 리뷰 지적(major). 데이터를 받은 뒤 폴링이 비일시적 오류로 멈추면 마지막 응답이
+   * 캐시에 남아 '실행 중'에서 빠져나올 수 없었다 — 새로고침밖에 길이 없었다.
+   */
+  it('폴링이 막히면 버튼이 다시 열리고 절반만 찬 표를 숨긴다', () => {
+    renderRun(
+      fake({
+        // 훅이 이미 정해 내려보내는 값이다: 막혔으므로 pending이 아니다.
+        pending: false,
+        result: result({ status: 'RUNNING', progress: 50, verdict: null, cases: [sampleCase()] }),
+        error: {
+          status: 404,
+          code: 'SAMPLE_RUN_NOT_FOUND',
+          detail: '예제 실행을 찾을 수 없어요',
+        } as never,
+      }),
+    )
+
+    expect(screen.getByRole('button', { name: '실행' })).toBeEnabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('예제 실행을 찾을 수 없어요')
+    expect(screen.queryByRole('list', { name: '예제별 결과' })).not.toBeInTheDocument()
+    expect(liveRegion()).not.toHaveTextContent('실행하고 있어요')
+  })
+
+  /**
+   * 리뷰 지적(minor, Codex). grid 칸의 기본 min-width가 auto라, 안쪽 pre의 min-content
+   * 폭까지 칸이 늘어나 긴 한 줄을 출력하면 화면 전체가 가로로 밀렸다.
+   *
+   * **jsdom에는 CSS가 없어 실제 폭을 잴 수 없다.** 클래스가 사라지는 것만 막는다.
+   */
+  it('출력 칸이 안쪽 내용 폭에 끌려가지 않게 둔다', () => {
+    renderRun(fake({ result: result({ cases: [sampleCase()] }) }))
+
+    expect(screen.getByText('기대 출력').closest('div')).toHaveClass('min-w-0')
   })
 
   it('실패하면 서버 문구를 그대로 보여 준다', () => {
@@ -304,7 +348,7 @@ describe('SampleRun (SOLVE-08)', () => {
 /** 이 화면은 RequireAuth 뒤에 있다. 세션이 없으면 임시 저장이 통째로 건너뛰어진다. */
 const USER = { id: 1, nickname: '코다리', role: 'USER' } as const
 
-function renderSolve() {
+function renderSolve(): QueryClient {
   const router = createMemoryRouter(
     [
       { path: '/problems/:id', Component: SolvePage },
@@ -322,6 +366,31 @@ function renderSolve() {
       </QueryClientProvider>
     </ThemeProvider>,
   )
+
+  return client
+}
+
+/**
+ * 첫 조회는 RUNNING, 두 번째부터는 주어진 응답.
+ *
+ * "데이터를 받은 뒤 실패한다"는 상황을 만든다. 목 핸들러는 조회마다 한 걸음 나아가기만
+ * 하므로 실패는 테스트가 꾸며야 한다.
+ */
+function failAfterFirstPoll(status: number, code: string, detail: string) {
+  let polls = 0
+  server.use(
+    http.get('*/api/sample-runs/:id', ({ params }) => {
+      polls += 1
+      if (polls === 1) {
+        return HttpResponse.json({
+          ...result({ status: 'RUNNING', progress: 50, verdict: null, cases: [] }),
+          id: Number(params.id),
+        })
+      }
+      return HttpResponse.json({ status, code, detail }, { status })
+    }),
+  )
+  return () => polls
 }
 
 /** 풀이 화면에는 지문·안내의 목록이 여럿이다. 예제 결과 목록만 집어낸다. */
@@ -359,6 +428,85 @@ describe('SolvePage에서 예제 실행 (SOLVE-08)', () => {
     expect(within(second!).getByText('통과')).toBeInTheDocument()
     // 통과한 예제는 두 상자의 글자가 같다.
     expect(within(second!).getAllByText('1 2')).toHaveLength(2)
+  })
+
+  /**
+   * 리뷰 지적(major)을 실제 왕복으로 잰다. 막히는 기제가 캐시에 남은 마지막 응답이라
+   * 가짜 상태로는 "화면이 그 값을 어떻게 그리는지"까지만 보인다.
+   */
+  it('폴링이 404로 막히면 다시 실행할 수 있다', { timeout: 15_000 }, async () => {
+    const user = userEvent.setup()
+    failAfterFirstPoll(404, 'SAMPLE_RUN_NOT_FOUND', '예제 실행을 찾을 수 없어요')
+    renderSolve()
+
+    await user.click(await screen.findByRole('button', { name: '실행' }))
+    // 먼저 진행 상태를 받는다 — 그 뒤에 막혀야 지적한 상황이다.
+    expect(await screen.findByText(/50%/)).toBeInTheDocument()
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '실행' })).toBeEnabled(), {
+      timeout: 6000,
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent('예제 실행을 찾을 수 없어요')
+  })
+
+  /**
+   * 리뷰 지적(minor). 접수가 성공한 뒤 세션이 끊기면 401은 **조회**에서 온다. mutation의
+   * onError만 보면 캐시의 사용자가 남아 RequireAuth가 로그인 화면으로 보내지 않는다.
+   */
+  it('폴링이 401이면 세션을 지운다', { timeout: 15_000 }, async () => {
+    const user = userEvent.setup()
+    failAfterFirstPoll(401, 'UNAUTHORIZED', '다시 로그인해 주세요')
+    const client = renderSolve()
+
+    await user.click(await screen.findByRole('button', { name: '실행' }))
+
+    await waitFor(() => expect(client.getQueryData(ME_QUERY_KEY)).toBeNull(), { timeout: 6000 })
+  })
+
+  /**
+   * 리뷰 지적(minor). 일시적 실패는 폴링이 간격만 늘려 계속한다(pollingInterval). 그때
+   * 문구를 띄우면 떴다 사라지는 거짓 실패가 되고, 스크린 리더는 실패했다고 읽는다.
+   */
+  it('일시적 실패 동안에는 실패 문구를 띄우지 않는다', { timeout: 15_000 }, async () => {
+    const user = userEvent.setup()
+    const polls = failAfterFirstPoll(503, 'SERVICE_UNAVAILABLE', '잠시 뒤 다시 시도해 주세요')
+    renderSolve()
+
+    await user.click(await screen.findByRole('button', { name: '실행' }))
+    expect(await screen.findByText(/50%/)).toBeInTheDocument()
+
+    // 503을 실제로 한 번 받은 뒤에 본다. 받기 전에 보면 공짜로 통과한다.
+    await waitFor(() => expect(polls()).toBeGreaterThan(1), { timeout: 6000 })
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText(/실행하고 있어요/)).toBeInTheDocument()
+  })
+
+  /**
+   * 리뷰 지적(minor). 접수가 오가는 동안 id가 아직 이전 값이라, Headline은 '실행 중'인데
+   * 아래 표에는 고치기 전 코드의 판정이 남아 새 코드의 결과처럼 읽혔다.
+   */
+  it('다시 실행하면 앞 실행의 표를 먼저 버린다', { timeout: 15_000 }, async () => {
+    const user = userEvent.setup()
+    renderSolve()
+
+    await user.click(await screen.findByRole('button', { name: '실행' }))
+    await screen.findByText('통과', undefined, { timeout: 6000 })
+    expect(screen.getByRole('list', { name: '예제별 결과' })).toBeInTheDocument()
+
+    // 접수를 늦춰 '오가는 동안'을 넓힌다. 늦추지 않으면 새 번호가 바로 들어와
+    // 표가 돌아오고, 테스트가 무엇을 본 것인지 알 수 없다.
+    server.use(
+      http.post('*/api/sample-runs', async () => {
+        await delay(300)
+        return HttpResponse.json({ id: 99 }, { status: 202 })
+      }),
+    )
+
+    await user.click(screen.getByRole('button', { name: '실행' }))
+
+    expect(screen.queryByRole('list', { name: '예제별 결과' })).not.toBeInTheDocument()
+    expect(screen.getByText(/실행하고 있어요/)).toBeInTheDocument()
   })
 
   /** 실행은 시도 횟수에 들어가지 않는다(계약). 결과 화면으로 가 버리면 안 된다. */
