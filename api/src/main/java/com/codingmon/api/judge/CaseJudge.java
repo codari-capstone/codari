@@ -117,16 +117,27 @@ final class CaseJudge {
         };
     }
 
+    // 트레이스백 머리줄은 끝이 같은지로 찾는다. 학생이 줄바꿈 없이 stderr에 찍은 글자가 머리줄 앞에 붙을 수 있다.
+    private static boolean isTracebackHeader(String line) {
+        return line.endsWith(TRACEBACK);
+    }
+
     static boolean isPythonSyntaxError(String stderr) {
         List<String> lines = stderr.lines().toList();
-        return !lines.isEmpty() && !lines.contains(TRACEBACK) && PYTHON_SYNTAX_ERROR.matcher(lines.getLast()).find();
+        return !lines.isEmpty() && lines.stream().noneMatch(CaseJudge::isTracebackHeader)
+                && PYTHON_SYNTAX_ERROR.matcher(lines.getLast()).find();
     }
 
     // 마지막 트레이스백 머리줄 다음의, 들여쓰지 않은 첫 줄이 예외 줄이다(5절). 머리줄 앞의 디버그 출력은 보지 않는다.
     // stderr의 마지막 줄을 읽으면 메시지에 줄바꿈이 든 예외(ValueError("bad\ninput"))에서 메시지 둘째 줄을 읽게 된다.
     static String pythonExceptionName(String stderr) {
         List<String> lines = stderr.lines().toList();
-        int header = lines.lastIndexOf(TRACEBACK);
+        int header = -1;
+        for (int i = lines.size() - 1; i >= 0 && header < 0; i--) {
+            if (isTracebackHeader(lines.get(i))) {
+                header = i;
+            }
+        }
         if (header < 0) {
             return null;
         }

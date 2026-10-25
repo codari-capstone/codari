@@ -46,10 +46,30 @@ class SubmissionOutcomeTest {
     }
 
     @Test
-    void SAMPLE_컴파일_에러는_남은_케이스를_기다리지_않는다() {
-        assertThat(SubmissionOutcome.combine(List.of(
-                sample(new CaseOutcome.CompileError("main.cpp:3:1: error", true)), sample(PENDING), hidden(PENDING))))
+    void 컴파일러의_컴파일_에러는_SAMPLE을_다_보고_정한다() {
+        CaseOutcome cppError = new CaseOutcome.CompileError("main.cpp:3:1: error", true);
+        // 다른 SAMPLE이 아직이면 기다린다. 도착 순서에 따라 판정이 갈리지 않게 한다
+        assertThat(SubmissionOutcome.combine(List.of(sample(cppError), sample(PENDING), hidden(PENDING))))
+                .isEqualTo(new SubmissionOutcome.InProgress(0));
+        // SAMPLE이 모두 컴파일 에러면 컴파일 에러다. 비공개 케이스는 기다리지 않는다
+        assertThat(SubmissionOutcome.combine(List.of(sample(cppError), sample(cppError), hidden(PENDING))))
                 .isEqualTo(new SubmissionOutcome.CompileError("main.cpp:3:1: error"));
+        // HIDDEN이라도 판정이 났으면 컴파일된 것이라 채점 불가다
+        assertThat(SubmissionOutcome.combine(List.of(sample(cppError), hidden(judged(Verdict.ACCEPTED, 10, 9_000)))))
+                .isInstanceOf(SubmissionOutcome.JudgeError.class);
+    }
+
+    @Test
+    void Python_문법_오류는_다른_SAMPLE을_기다리지_않는다() {
+        assertThat(SubmissionOutcome.combine(List.of(
+                sample(new CaseOutcome.CompileError("SyntaxError", false)), sample(PENDING), hidden(PENDING))))
+                .isEqualTo(new SubmissionOutcome.CompileError("SyntaxError"));
+    }
+
+    @Test
+    void SAMPLE이_없으면_컴파일_에러를_확정하지_않는다() {
+        assertThat(SubmissionOutcome.combine(List.of(hidden(new CaseOutcome.CompileError("error", true)))))
+                .isEqualTo(new SubmissionOutcome.JudgeError("SAMPLE 케이스가 없어 컴파일 에러를 확정할 수 없다"));
     }
 
     @Test
