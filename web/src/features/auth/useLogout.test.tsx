@@ -134,14 +134,16 @@ describe('useLogout', () => {
   })
 
   it('요청이 실패하고 서버 세션이 살아 있으면 로그아웃을 꾸며 내지 않는다', async () => {
-    // 캐시를 비웠으므로 도착한 화면이 /api/me를 다시 묻는다. 세션이 남아 있으면 로그인
+    // 캐시를 비웠으므로 도착한 화면이 /api/users/me를 다시 묻는다. 세션이 남아 있으면 로그인
     // 상태가 그대로 돌아온다. ['me']에 null을 심어 로그아웃된 것처럼 보이게 하지 않는다 —
     // 공용 컴퓨터에서 "로그아웃됐다"고 본 사람의 세션이 실제로는 살아 있는 쪽이 더 위험하다.
     server.use(
       http.post('*/api/auth/logout', () =>
         HttpResponse.json({ status: 500, title: 'Server Error' }, { status: 500 }),
       ),
-      http.get('*/api/me', () => HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' })),
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' }),
+      ),
     )
     const user = userEvent.setup()
     renderLogoutWithSessionLabel()

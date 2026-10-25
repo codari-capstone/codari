@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { parseParams } from '@/features/problems/problemListParams'
 import { problemListQuery } from '@/features/problems/problemsQuery'
 import { problems } from '@/mocks/fixtures/problems'
+import { mockAccessToken } from '@/mocks/fixtures/users'
 import { server } from '@/mocks/server'
 import { logoutRequest, ME_QUERY_KEY } from './authQuery'
 import { Component as LoginPage } from './LoginPage'
@@ -263,7 +264,8 @@ describe('로그인 화면', () => {
         // 응답을 늦춰 요청이 진행 중인 구간을 만든다. 그래야 버튼이 비활성화된 상태를
         // 관찰할 수 있고, 그 사이에 두 번째 클릭을 넣을 수 있다.
         await new Promise((resolve) => setTimeout(resolve, 50))
-        return HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' })
+        // 계약의 로그인 응답에는 토큰만 있다. 사용자는 기본 목의 /api/users/me가 준다.
+        return HttpResponse.json({ accessToken: mockAccessToken(1) })
       }),
     )
     const user = userEvent.setup()
@@ -287,7 +289,7 @@ describe('로그인 화면', () => {
     server.use(
       http.post('*/api/auth/login', () => {
         calls += 1
-        return HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' })
+        return HttpResponse.json({ accessToken: mockAccessToken(1) })
       }),
     )
     const user = userEvent.setup()
@@ -302,7 +304,9 @@ describe('로그인 화면', () => {
 
   it('이미 로그인한 사람은 폼을 보지 않고 바로 이동한다', async () => {
     server.use(
-      http.get('*/api/me', () => HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' })),
+      http.get('*/api/users/me', () =>
+        HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' }),
+      ),
     )
     renderLogin({ from: '/submissions' })
 
@@ -311,14 +315,14 @@ describe('로그인 화면', () => {
   })
 
   it('세션을 모르는 동안에는 폼을 그리지 않는다', async () => {
-    // 폼을 먼저 보여 주면, 이미 로그인한 사람이 입력을 시작한 뒤 /api/me가 도착하면서
+    // 폼을 먼저 보여 주면, 이미 로그인한 사람이 입력을 시작한 뒤 /api/users/me가 도착하면서
     // <Navigate>가 실행돼 입력하던 내용이 사라진 채 이동한다.
     let release = () => {}
     const inFlight = new Promise<void>((resolve) => {
       release = resolve
     })
     server.use(
-      http.get('*/api/me', async () => {
+      http.get('*/api/users/me', async () => {
         await inFlight
         return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
       }),
@@ -335,7 +339,7 @@ describe('로그인 화면', () => {
     }
   })
 
-  it('로그인 전에 나간 /api/me가 늦게 끝나도 로그인 상태를 덮지 않는다', async () => {
+  it('로그인 전에 나간 /api/users/me가 늦게 끝나도 로그인 상태를 덮지 않는다', async () => {
     // 비로그인으로 한 번 받아 둔 뒤(data = null) staleTime(60초)이 지난 상태로 이 화면을 열면,
     // 배경 재조회가 나가면서도 데이터가 있으므로 폼이 바로 보인다. 그 사이에 로그인이
     // 성공하면, 로그인 전 쿠키로 나간 그 요청이 401로 끝나며 null로 사용자를 덮는다.
@@ -343,8 +347,13 @@ describe('로그인 화면', () => {
     const inFlight = new Promise<void>((resolve) => {
       release = resolve
     })
+    // 로그인 자체가 /api/users/me를 부른다(두 걸음) — 전부 매달면 로그인이 끝나지 않는다.
+    // 로그인 **전에** 나간 첫 요청만 매달아 두고, 그 뒤 요청은 정상으로 답한다.
+    let meCalls = 0
     server.use(
-      http.get('*/api/me', async () => {
+      http.get('*/api/users/me', async () => {
+        meCalls += 1
+        if (meCalls > 1) return HttpResponse.json({ id: 1, nickname: '코다리', role: 'USER' })
         await inFlight
         return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
       }),

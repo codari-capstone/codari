@@ -497,38 +497,18 @@ describe('ProblemListPage', () => {
     expect(router.state.location.state).toEqual({ from: '/problems?difficulty=EASY' })
   })
 
-  it('세션 확인 중에 목록이 실패하면 오류만 보여 준다', async () => {
-    // 스켈레톤 조건에 세션 확인이 들어오면서 isPending과 error의 배타성이 깨졌다.
-    // 두 블록이 나란히 그려지면 "불러오는 중"과 "실패했다"가 같은 화면에 있게 된다.
-    vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: true,
-    })
-    server.use(
-      http.get('*/api/problems', () =>
-        HttpResponse.json({ status: 500, title: 'Server Error' }, { status: 500 }),
-      ),
-    )
-    renderPage()
-
-    // 앱 기본값이 retry: 1이라 두 번째 응답까지 기다려야 오류 상태가 된다.
-    expect(
-      await screen.findByRole('button', { name: '다시 시도' }, { timeout: 3000 }),
-    ).toBeInTheDocument()
-    expect(within(screen.getByRole('main')).queryByRole('status')).not.toBeInTheDocument()
-  })
-
-  it('비로그인이면 풀이 상태 열이 표에 없다', async () => {
-    renderPage()
-
-    await screen.findByRole('link', { name: '두 수의 합' })
-    expect(screen.queryByRole('columnheader', { name: '풀이 상태' })).not.toBeInTheDocument()
-  })
-
-  it('세션을 모르는 동안에는 안내도 표도 그리지 않는다', async () => {
-    // 비로그인으로 먼저 그리면, 로그인한 사람이 '로그인하면 …' 안내를 봤다가 풀이 상태
-    // 열이 뒤늦게 생기며 표가 움직인다. 세션을 알 때까지는 스켈레톤에 머문다.
+  /**
+   * 세션을 알기 전에는 **요청 자체를 보내지 않는다** (ProblemListPage의 enabled 주석).
+   *
+   * 전에는 보냈다. 이 경로는 permitAll이라 토큰 없이도 200이고, 그러면 401이 없어 갱신도
+   * 일어나지 않는다 — 새로고침하면 access token이 메모리에서 사라지므로, 세션을 알기 전에
+   * 받아 둔 비로그인 목록이 staleTime 동안 남아 '풀이 상태' 열이 전부 '—'로 보였다.
+   *
+   * 그래서 "세션 확인 중에 목록이 실패하면", "세션을 모르는 동안 표를 그리지 않는다" 같은
+   * 상태는 이제 일어나지 않는다. 그 상태를 보던 테스트 둘을 이 하나로 바꿨다 — 조건을
+   * 지우면 요청이 나가므로 이 단언이 그 구조를 붙들고 있다.
+   */
+  it('세션을 모르는 동안에는 목록을 요청하지 않는다', async () => {
     vi.spyOn(useAuthModule, 'useAuth').mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -543,14 +523,14 @@ describe('ProblemListPage', () => {
     )
     renderPage()
 
-    // 목록 응답이 도착한 뒤에도 표가 없어야 한다. 도착 전에 단언하면 아무것도 증명하지 못한다.
-    await waitFor(() => expect(listCalls).toBe(1))
-    await act(async () => {})
+    // 매크로태스크를 한 번 보낸 뒤에 센다 — 없으면 이 단언이 공짜로 통과한다.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    })
 
-    const main = screen.getByRole('main')
-    expect(within(main).getByRole('status')).toBeInTheDocument()
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(within(main).queryByRole('link', { name: /로그인/ })).not.toBeInTheDocument()
+    expect(listCalls).toBe(0)
+    // 기다리는 중임이 모양으로 보여야 한다. 빈 화면을 두면 고장으로 읽힌다.
+    expect(within(screen.getByRole('main')).getByRole('status')).toBeInTheDocument()
   })
 
   it('로그인하면 안내가 사라지고 풀이 상태 열이 보인다', async () => {
