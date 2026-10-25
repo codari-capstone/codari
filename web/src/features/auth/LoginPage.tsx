@@ -6,9 +6,11 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { loginRequest, ME_QUERY_KEY } from './authQuery'
+import { loginRequest } from './authQuery'
+import { startGitHubLogin } from './githubQuery'
 import { loginErrorMessage, loginSchema, type LoginForm } from './loginSchema'
 import { safeRedirect } from './safeRedirect'
+import { adoptSession } from './session'
 import { useAuth } from './useAuth'
 
 /** 이메일 로그인 (COM-07). */
@@ -18,10 +20,13 @@ export function Component() {
   const queryClient = useQueryClient()
   const { isAuthenticated, isLoading } = useAuth()
 
-  const state = location.state as { from?: unknown; notice?: unknown } | null
+  const state = location.state as { from?: unknown; notice?: unknown; error?: unknown } | null
   const target = safeRedirect(state?.from)
   // 가입·재설정이 넘긴 한 줄. state는 사용자가 심을 수 있으니 문자열만 받는다.
   const notice = typeof state?.notice === 'string' ? state.notice : null
+  // GitHub 로그인(COM-02)이 실패해 되돌려 보낸 한 줄. 같은 자리에 쓰지 않는다 — 안내는
+  // role="status"로 지나가고 실패는 role="alert"로 읽혀야 한다.
+  const failure = typeof state?.error === 'string' ? state.error : null
 
   const {
     register,
@@ -32,21 +37,8 @@ export function Component() {
   const login = useMutation({
     mutationFn: loginRequest,
     onSuccess: async (user) => {
-      // 로그인 전 쿠키로 나간 /api/users/me가 아직 떠 있을 수 있다. 그게 늦게 401로 끝나면
-      // queryFn이 돌려주는 null이 바로 아래에서 넣은 사용자를 덮어써, 방금 로그인한
-      // 사람이 RequireAuth에 걸려 로그인 화면으로 되돌아온다. 먼저 취소한다.
-      await queryClient.cancelQueries({ queryKey: ME_QUERY_KEY })
-      // 무효화만 하면 /api/users/me 왕복을 한 번 더 기다리며 헤더가 비로그인으로 한 번 더 그려진다.
-      queryClient.setQueryData(ME_QUERY_KEY, user)
-      // 비로그인으로 받아 둔 문제 목록에는 이 사람의 풀이 상태가 없다. 지우지 않으면
-      // staleTime(30초) 안에는 그 응답을 다시 써서, 열은 생겼는데 값이 전부 '—'로 보인다
-      // (ProblemTable.tsx). 무효화가 아니라 제거다 — 무효화는 다시 받아 오는 동안 그
-      // 틀린 값을 화면에 남긴다. 사용자별 응답을 캐시하는 키가 늘면 여기도 늘어난다.
-      queryClient.removeQueries({ queryKey: ['problems'] })
-      // 제출 결과는 본인 것만 볼 수 있다(계약). 지우지 않으면 공용 PC에서 A의 세션이
-      // 끊긴 뒤 B가 로그인해 기록으로 A의 /submissions/5를 열 때, gcTime 안에서는 A의
-      // 판정이 그대로 그려진다.
-      queryClient.removeQueries({ queryKey: ['submission'] })
+      // 캐시에 세션을 들이는 네 걸음은 GitHub 로그인과 똑같아 session.ts가 들고 있다.
+      await adoptSession(queryClient, user)
       // 아래의 <Navigate> 분기도 setQueryData로 isAuthenticated가 바뀌면 같은 곳으로 보내므로
       // 이 호출이 없어도 도착한다. 그래도 두는 이유는 재렌더에 기대지 않고 바로 이동하기 위해서다.
       // replace를 빼면 /login이 기록에 남는다. LoginPage.test.tsx가 PUSH 여부로 이를 지킨다.
@@ -70,6 +62,12 @@ export function Component() {
       {notice ? (
         <p role="status" className="text-sm">
           {notice}
+        </p>
+      ) : null}
+
+      {failure ? (
+        <p role="alert" className="text-destructive text-sm">
+          {failure}
         </p>
       ) : null}
 
@@ -129,6 +127,21 @@ export function Component() {
           {login.isPending ? '로그인 중…' : '로그인'}
         </Button>
       </form>
+
+      {/*
+        GitHub 로그인 (COM-02). fetch가 아니라 브라우저 이동이라 form도 Link도 아니다 —
+        이동 전에 돌아갈 주소를 적어 두어야 해서 그 일을 startGitHubLogin이 함께 한다.
+        넘기는 값은 이미 safeRedirect를 통과한 target이다.
+      */}
+      <Button
+        type="button"
+        variant="outline"
+        size="lg"
+        className="min-h-11"
+        onClick={() => startGitHubLogin(target)}
+      >
+        GitHub로 로그인
+      </Button>
 
       {/*
         원래 가려던 화면을 두 화면에 넘긴다. 둘 다 끝나면 로그인 화면으로 되돌려 보내므로,

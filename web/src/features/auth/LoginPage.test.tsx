@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { parseParams } from '@/features/problems/problemListParams'
 import { problemListQuery } from '@/features/problems/problemsQuery'
@@ -11,8 +11,19 @@ import { problems } from '@/mocks/fixtures/problems'
 import { mockAccessToken } from '@/mocks/fixtures/users'
 import { server } from '@/mocks/server'
 import { logoutRequest, ME_QUERY_KEY } from './authQuery'
+import { startGitHubLogin } from './githubQuery'
 import { Component as LoginPage } from './LoginPage'
 import { safeRedirect } from './safeRedirect'
+
+/**
+ * GitHub 로그인 시작은 브라우저 이동이라(계약) jsdom에서 실행할 수 없다. 버튼이 **어떤
+ * 주소를 기억하라고 넘기는지**가 이 화면의 몫이고, 기억하고 이동하는 일 자체는
+ * githubQuery.test.ts가 본다.
+ */
+vi.mock('./githubQuery', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./githubQuery')>()),
+  startGitHubLogin: vi.fn(),
+}))
 
 // MSW의 쿠키 저장소는 테스트 사이에 비워지지 않는다. 앞 테스트의 로그인이 남으면
 // 다음 테스트가 이미 로그인한 상태로 시작해 폼 대신 이동 화면을 만난다.
@@ -275,7 +286,8 @@ describe('로그인 화면', () => {
     await user.type(screen.getByLabelText('이메일'), 'user@codari.test')
     await user.type(screen.getByLabelText('비밀번호'), 'Codari!test1')
 
-    const button = screen.getByRole('button', { name: /로그인/ })
+    // GitHub 버튼(COM-02)도 "로그인"을 품는다. 제출 버튼은 그 말로 시작하는 쪽이다.
+    const button = screen.getByRole('button', { name: /^로그인/ })
     await user.click(button)
     await waitFor(() => expect(button).toBeDisabled())
     await user.click(button)
@@ -471,5 +483,41 @@ describe('로그인 화면', () => {
 
     await waitForLoginForm()
     expect(screen.getByRole('form', { name: '로그인' })).toBeInTheDocument()
+  })
+
+  it('GitHub 로그인 실패는 안내가 아니라 경고로 읽힌다 (COM-02)', async () => {
+    // 같은 자리에 쓰면 실패가 지나가는 안내처럼 읽힌다. role이 갈려야 한다.
+    renderLogin({ error: 'GitHub 로그인에 실패했어요. 다시 시도해 주세요' })
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('GitHub 로그인에 실패했어요. 다시 시도해 주세요')
+  })
+
+  it('실패 안내가 아닌 state는 무시한다', async () => {
+    renderLogin({ error: { evil: true } })
+
+    await waitForLoginForm()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('[GitHub로 로그인]은 원래 가려던 화면을 기억하라고 넘긴다 (COM-02)', async () => {
+    const user = userEvent.setup()
+    renderLogin({ from: '/submissions' })
+
+    await waitForLoginForm()
+    await user.click(screen.getByRole('button', { name: 'GitHub로 로그인' }))
+
+    // 안 넘기면 GitHub를 다녀온 사람이 제출 기록이 아니라 문제 목록으로 떨어진다.
+    expect(startGitHubLogin).toHaveBeenCalledWith('/submissions')
+  })
+
+  it('사이트 밖 주소는 넘기지 않는다 (COM-02)', async () => {
+    const user = userEvent.setup()
+    renderLogin({ from: 'https://evil.test/' })
+
+    await waitForLoginForm()
+    await user.click(screen.getByRole('button', { name: 'GitHub로 로그인' }))
+
+    expect(startGitHubLogin).toHaveBeenCalledWith('/problems')
   })
 })

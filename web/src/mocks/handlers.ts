@@ -82,6 +82,23 @@ export function resetSessions(): void {
   issued.clear()
 }
 
+/**
+ * 콜백이 심어 주는 가입 증명서 쿠키. 이름·path를 실제 서버와 같게 맞춘다
+ * (GitHubLoginController.SIGNUP_COOKIE).
+ */
+const GITHUB_SIGNUP_COOKIE = 'github_signup'
+
+/** 목의 증명서 값. 서버는 서명한 JWT를 주지만 목이 볼 것은 "있나 없나"뿐이다. */
+const GITHUB_CERTIFICATE = 'mock-github-signup'
+
+/** 목의 GitHub 계정이 가입을 마쳤는지. 가입 전에는 signup, 뒤에는 success로 갈린다. */
+let githubRegistered = false
+
+/** 테스트 사이에 GitHub 가입 여부가 새지 않게 되돌린다. */
+export function resetGitHub(): void {
+  githubRegistered = false
+}
+
 /** 비로그인·인증 실패 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
 function unauthorized() {
   return HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 })
@@ -519,5 +536,81 @@ export const handlers: RequestHandler[] = [
     // 필드 오류에서는 토큰이 남는다. 성공해야 닳는다(서버는 token_version을 올린다).
     invalidateToken(resetToken)
     return new HttpResponse(null, { status: 204 })
+  }),
+  // --- GitHub 로그인 (COM-02) ---
+
+  /**
+   * GitHub 로그인 시작. **화면은 이 핸들러에 닿지 않는다.**
+   *
+   * 계약이 "브라우저를 이 주소로 이동시킨다(fetch가 아님)"고 정했고, MSW의 서비스 워커는
+   * 네비게이션 요청을 그냥 통과시킨다(public/mockServiceWorker.js의 "Bypass navigation
+   * requests"). 그래서 브라우저에서 이 왕복은 목으로 흉내 낼 수 없다 — 손으로 확인할 때는
+   * /login/github?result=... 를 직접 연다.
+   *
+   * 그래도 핸들러를 두는 이유: **테스트가 증명서를 얻는 자리**다. GitHub를 다녀온 것처럼
+   * 한 번 fetch하면 콜백이 심어 줄 쿠키가 msw의 쿠키 항아리에 들어간다. 지어낸 값을
+   * 테스트가 직접 심는 것보다 실제 흐름에 가깝다.
+   */
+  http.get('*/api/auth/github', () => {
+    if (githubRegistered) {
+      // 이미 가입한 계정이다. 계약대로 refresh 쿠키만 심고 토큰은 주지 않는다 —
+      // 웹이 돌아와서 /api/auth/refresh로 받는다.
+      const id = mockAccounts[0]!.user.id
+      issued.set(id, 1)
+      return new HttpResponse(null, {
+        status: 302,
+        headers: {
+          Location: '/login/github?result=success',
+          'Set-Cookie': `${REFRESH_COOKIE}=${id}; Path=/; SameSite=Lax`,
+        },
+      })
+    }
+    return new HttpResponse(null, {
+      status: 302,
+      headers: {
+        Location: '/login/github?result=signup',
+        'Set-Cookie': `${GITHUB_SIGNUP_COOKIE}=${GITHUB_CERTIFICATE}; Path=/api/auth/github; SameSite=Lax`,
+      },
+    })
+  }),
+
+  /**
+   * GitHub 가입 완료. 검사 순서를 실제 서버와 같게 맞춘다
+   * (GitHubLoginService.signUp: 증명서 → 닉네임 규칙 → 이미 가입 → 닉네임 선점).
+   *
+   * 순서가 중요하다 — 증명서가 죽은 사람에게 닉네임 오류를 먼저 보여 주면, 고쳐 봐야
+   * 안 되는 칸을 고치게 한다.
+   */
+  http.post('*/api/auth/github/signup', async ({ request, cookies }) => {
+    const certificate = cookies[GITHUB_SIGNUP_COOKIE]
+    if (certificate !== GITHUB_CERTIFICATE) {
+      return problem(
+        400,
+        'VERIFICATION_EXPIRED',
+        '인증 시간이 지났어요. GitHub 로그인을 다시 해 주세요',
+      )
+    }
+    const nickname = ((await request.json()) as { nickname?: string }).nickname ?? ''
+    if (!isValidNickname(nickname)) {
+      return problem(400, 'INVALID_NICKNAME', '닉네임은 2~16자의 한글·영문·숫자만 쓸 수 있어요')
+    }
+    if (githubRegistered) {
+      return problem(
+        409,
+        'ALREADY_REGISTERED',
+        '이미 가입한 GitHub 계정이에요. GitHub 로그인을 다시 해 주세요',
+      )
+    }
+    // 대소문자를 구분하지 않는다 (닉네임 확인과 같은 규칙).
+    if (mockAccounts.some((item) => item.user.nickname.toLowerCase() === nickname.toLowerCase())) {
+      return problem(409, 'NICKNAME_TAKEN', '이미 사용 중인 닉네임이에요')
+    }
+    githubRegistered = true
+    // 목은 계정을 늘리지 않는다 — 이메일 가입(/api/auth/signup)과 같은 선택이다. 다음
+    // GitHub 로그인이 mockAccounts[0]으로 들어간다.
+    return new HttpResponse(null, {
+      status: 204,
+      headers: { 'Set-Cookie': `${GITHUB_SIGNUP_COOKIE}=; Path=/api/auth/github; Max-Age=0` },
+    })
   }),
 ]

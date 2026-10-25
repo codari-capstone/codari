@@ -5,14 +5,16 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { isValidNickname, isValidPassword } from './accountRules'
+import { isValidPassword } from './accountRules'
 import { EmailCodeStep } from './EmailCodeStep'
+import { NicknameField } from './NicknameField'
 import { problemCode, problemMessage } from './problemCode'
-import { checkNickname, sendSignupCode, signUp, verifySignupCode } from './signupQuery'
+import { sendSignupCode, signUp, verifySignupCode } from './signupQuery'
 import { useAuth } from './useAuth'
+import { useNicknameCheck } from './useNicknameCheck'
 
 /** 가입 뒤 로그인 화면에 띄우는 안내. 명세 COM-06이 이 문구로 정했다 (#113). */
-const SIGNUP_NOTICE = '가입이 완료됐어요. 로그인해 주세요'
+export const SIGNUP_NOTICE = '가입이 완료됐어요. 로그인해 주세요'
 
 /**
  * 이메일 회원가입 (COM-06).
@@ -36,22 +38,16 @@ export function Component() {
 
   const [verificationToken, setVerificationToken] = useState<string | null>(null)
   const [emailStepKey, setEmailStepKey] = useState(0)
-  const [nickname, setNickname] = useState('')
-  const [nicknameOk, setNicknameOk] = useState<string | null>(null)
-  const [nicknameTaken, setNicknameTaken] = useState(false)
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
-
-  // 응답이 올 때 입력칸에 있는 값. 렌더에 갇힌 nickname은 요청을 보낸 시점의 값이다.
-  const nicknameRef = useRef(nickname)
-  // 입력칸 요소. 위의 값 ref와 다르다. 가입 때 선점되면 여기로 포커스를 옮긴다.
-  const nicknameInputRef = useRef<HTMLInputElement>(null)
+  // 닉네임 입력칸. 선점됐을 때 거기로 포커스를 옮긴다 (useNicknameCheck.release).
+  const nicknameInput = useRef<HTMLInputElement>(null)
 
   const submit = useMutation({
     mutationFn: () =>
       signUp({
         verificationToken: verificationToken ?? '',
-        nickname,
+        nickname: nickname.value,
         password,
         passwordConfirm,
       }),
@@ -62,10 +58,7 @@ export function Component() {
     onError: (error) => {
       const failed = problemCode(error)
       // 그 사이 누가 그 닉네임을 가져갔다. 명세가 "닉네임만 다시 입력"으로 정했다.
-      if (failed === 'NICKNAME_TAKEN') {
-        setNicknameOk(null)
-        nicknameInputRef.current?.focus()
-      }
+      if (failed === 'NICKNAME_TAKEN') nickname.release()
       // 증명서가 죽었거나 그 사이 같은 이메일로 가입됐다. 이메일부터 다시 인증해야 한다.
       // 나머지 입력값 오류는 계약이 "`EMAIL_TAKEN`을 뺀 입력값 오류는 verificationToken을
       // 쓰지 않으므로 인증 후 30분 안에는 값만 고쳐 같은 verificationToken으로 다시 보낼 수
@@ -82,20 +75,14 @@ export function Component() {
     },
   })
 
-  // submit 뒤에 선언한다 — 이 변이의 onSuccess가 submit을 읽는다.
-  const nicknameCheck = useMutation({
-    mutationFn: (value: string) => checkNickname(value),
-    onSuccess: (available, checked) => {
-      // 확인하는 사이 칸을 고쳤다면 그 응답은 지금 값에 대한 것이 아니다.
-      if (checked !== nicknameRef.current) return
-      setNicknameOk(available ? checked : null)
-      setNicknameTaken(!available)
-      // 가입 실패 문구(닉네임 선점)는 방금 다시 확인한 값에 대한 것이 아니다. 다만 가입
-      // 요청이 오가는 중이면 지우지 않는다 — reset()은 문구만이 아니라 '진행 중'까지
-      // 지워 [가입 완료]를 다시 켠다. 그 상태로 한 번 더 누르면 두 번째 POST가 나가고,
-      // 첫 요청으로 이미 가입된 사람이 두 번째 응답의 409를 실패 문구로 본다.
-      if (!submit.isPending) submit.reset()
-    },
+  // submit 뒤에 선언한다 — 확인이 끝나면 이 변이의 실패 문구를 지운다.
+  //
+  // 가입 실패 문구(닉네임 선점)는 방금 다시 확인한 값에 대한 것이 아니다. 다만 가입 요청이
+  // 오가는 중이면 지우지 않는다 — reset()은 문구만이 아니라 '진행 중'까지 지워 [가입 완료]를
+  // 다시 켠다. 그 상태로 한 번 더 누르면 두 번째 POST가 나가고, 첫 요청으로 이미 가입된
+  // 사람이 두 번째 응답의 409를 실패 문구로 본다.
+  const nickname = useNicknameCheck(nicknameInput, () => {
+    if (!submit.isPending) submit.reset()
   })
 
   // 세션을 모르는 동안 폼을 보여 주면, 이미 로그인한 사람이 입력을 시작한 뒤 아래
@@ -104,7 +91,7 @@ export function Component() {
   if (isAuthenticated) return <Navigate to="/problems" replace />
 
   const passwordOk = isValidPassword(password) && password === passwordConfirm
-  const ready = verificationToken !== null && nicknameOk === nickname && passwordOk
+  const ready = verificationToken !== null && nickname.ok && passwordOk
 
   return (
     <section className="mx-auto flex w-full max-w-sm flex-col gap-6 py-10">
@@ -123,7 +110,7 @@ export function Component() {
           // 다만 가입 요청이 오가는 중이면 지우지 않는다 — reset()은 문구만이 아니라
           // '진행 중'까지 지워 [가입 완료]를 다시 켠다. 그 상태로 한 번 더 누르면 두 번째
           // POST가 나가고, 첫 요청으로 이미 가입된 사람이 두 번째 응답의 409를 본다.
-          // busy로 이 단계를 잠그는 것과 두 겹이다 (nicknameCheck의 가드와 같은 이유).
+          // busy로 이 단계를 잠그는 것과 두 겹이다 (useNicknameCheck의 가드와 같은 이유).
           if (token && !submit.isPending) submit.reset()
         }}
         sendErrorAction={(code) =>
@@ -137,47 +124,7 @@ export function Component() {
         }
       />
 
-      <div className="flex flex-col gap-1.5">
-        <label htmlFor="nickname" className="text-sm font-medium">
-          닉네임
-        </label>
-        <div className="flex gap-2">
-          <Input
-            id="nickname"
-            ref={nicknameInputRef}
-            value={nickname}
-            onChange={(event) => {
-              setNickname(event.target.value)
-              nicknameRef.current = event.target.value
-              nicknameCheck.reset()
-              // 확인한 값과 달라지면 nicknameOk === nickname이 깨져 자동으로 풀린다.
-              // 안내 문구만 직접 지운다.
-              setNicknameTaken(false)
-            }}
-          />
-          <Button
-            type="button"
-            className="shrink-0"
-            // 가입 중에도 끈다. 가입 요청과 겹치면 응답 순서에 따라 화면이 모순된 상태가 된다.
-            disabled={!isValidNickname(nickname) || nicknameCheck.isPending || submit.isPending}
-            onClick={() => nicknameCheck.mutate(nickname)}
-          >
-            중복 확인
-          </Button>
-        </div>
-        <p className="text-muted-foreground text-sm">2~16자, 한글·영문·숫자</p>
-        {nicknameOk === nickname ? <p className="text-sm">쓸 수 있어요</p> : null}
-        {nicknameTaken ? (
-          <p role="alert" className="text-destructive text-sm">
-            이미 사용 중인 닉네임이에요
-          </p>
-        ) : null}
-        {nicknameCheck.isError ? (
-          <p role="alert" className="text-destructive text-sm">
-            {problemMessage(nicknameCheck.error)}
-          </p>
-        ) : null}
-      </div>
+      <NicknameField check={nickname} inputRef={nicknameInput} busy={submit.isPending} />
 
       <div className="flex flex-col gap-1.5">
         <label htmlFor="password" className="text-sm font-medium">
