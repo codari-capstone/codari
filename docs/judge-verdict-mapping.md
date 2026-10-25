@@ -81,7 +81,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 케이스 판정을 제출 하나(`submissions`)의 값으로 합치는 규칙이다. 케이스 순서는 SAMPLE 먼저, 같은 종류 안에서는 `ordinal` 순이다(AI_FEATURES 10절 "공개 예제부터").
 
-1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다. HIDDEN 케이스의 status 6은 SAMPLE 케이스 중 하나라도 컴파일에 성공했으면(status 6이 아니면) 채점 불가로 보고 2번으로 끝낸다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
+1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다. 다만 다른 케이스가 이미 컴파일에 성공해 판정이 났다면, SAMPLE이든 HIDDEN이든 status 6인 케이스는 채점 불가로 보고 2번으로 끝낸다. HIDDEN 케이스의 status 6은 SAMPLE 결과가 아직이면 기다린다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
 2. 채점 불가인 케이스가 나오면 그 자리에서 제출을 `job_status = 'JUDGE_ERROR'`, `verdict = NULL`로 끝낸다.
 3. 그 밖에는 실행 대상 케이스의 판정이 모두 모인 뒤(`database-schema.md`) 정한다. 모두 `ACCEPTED`면 `ACCEPTED`, 아니면 케이스 순서상 처음으로 `ACCEPTED`가 아닌 케이스의 판정이다.
 4. `runtime_error_type`은 3에서 고른 케이스가 `RUNTIME_ERROR`일 때 그 케이스의 종류(4절)다. 그 밖에는 `NULL`이다. 종류는 케이스 결과를 받을 때 정해 케이스 행에 저장한다. 비공개 케이스는 stderr를 저장하지 않아 나중에 다시 구할 수 없고, 재시작 복구도 판정이 빈 행만 다시 조회하기 때문이다(`database-schema.md`). V1의 `submission_test_results`에는 이 컬럼이 없으므로 #29에서 마이그레이션으로 `runtime_error_type`을 더한다.

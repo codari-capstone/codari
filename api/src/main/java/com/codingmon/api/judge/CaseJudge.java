@@ -54,7 +54,8 @@ final class CaseJudge {
             return new CaseOutcome.JudgeError("Judge0 status 14 (Exec Format Error)");
         }
         if (status == 6) {
-            return new CaseOutcome.CompileError(StoredText.of(result.compileOutput()));
+            // Python 문법 오류(아래)와 같이 끝 줄바꿈을 지워, 언어와 상관없이 메시지 모양을 맞춘다.
+            return new CaseOutcome.CompileError(StoredText.of(StoredText.decode(result.compileOutput()).stripTrailing()));
         }
         String stderr = StoredText.withoutJudgeLines(StoredText.decode(result.stderr()));
         // Python은 컴파일 단계가 없어 문법 오류도 실행 중 status 11로 온다. 진짜 문법 오류는 입력과 상관없이
