@@ -6,6 +6,9 @@
 cases.json의 케이스를 Judge0에 제출하고 status·signal·시간·메모리·stderr를 기대값과 대조해 표로 출력한다.
 - observe 케이스(예외 모음)는 기대와 달라도 실패로 세지 않고 "다름"으로 표시한다. 매핑표의 근거로 쓴다.
 - control 케이스(네트워크)는 같은 코드를 호스트에서도 실행해, 샌드박스 밖에서는 닿는 대상만 차단 근거로 인정한다.
+- control 케이스에서 호스트도 닿지 않아 대조할 대상이 하나도 없으면 실패로 센다(차단의 근거가 없다).
+- 케이스 하나의 제출·조회가 실패해도 나머지는 계속 돌리고, 그 케이스를 실패로 기록한다.
+- 접속 주소와 토큰은 smoke와 같이 JUDGE0_URL·JUDGE0_AUTHN_TOKEN, 없으면 judge/.env에서 읽는다.
 - 종료 코드는 observe가 아닌 케이스의 실패 수다.
 - 전체 결과는 verify/out/(git 무시)에, --observed를 주면 토큰을 뺀 응답을 케이스별 JSON으로 저장한다.
 """
@@ -20,7 +23,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
-from judge0_client import CPP_COMPILER_OPTIONS, CPP_ID, PYTHON_ID, Judge0Client  # noqa: E402
+from judge0_client import CPP_COMPILER_OPTIONS, CPP_ID, PYTHON_ID, Judge0HTTPError, PollTimeout  # noqa: E402
+from smoke import client_from_env  # noqa: E402
 
 DROP_FIELDS = ("token", "created_at", "finished_at")
 
@@ -81,6 +85,11 @@ def run_control(path):
     return probe_lines(out)
 
 
+def confirmed_targets(sandbox, host):
+    """샌드박스에서는 막혔고 호스트에서는 닿은 대상 수. 이것만 차단의 근거가 된다."""
+    return sum(1 for name, state in sandbox.items() if state == "BLOCKED" and host.get(name) == "REACHED")
+
+
 def control_summary(sandbox, host):
     notes = []
     for name, state in sorted(sandbox.items()):
@@ -107,25 +116,42 @@ def main(argv=None):
     parser.add_argument("--deadline", type=float, default=600.0, help="전체 폴링 기한(초)")
     args = parser.parse_args(argv)
 
-    client = Judge0Client()
+    client = client_from_env()
     cases = [c for c in load_cases(args.cases) if not args.group or c["group"] in args.group]
     _, about = client.request("GET", "/about")
+    # 앞단 프록시가 HTML 오류 페이지를 주면 문자열이 온다.
+    about = about if isinstance(about, dict) else {}
 
-    tokens = {}
+    tokens, errors = {}, {}
     for case in cases:
         with open(os.path.join(HERE, "cases", case["file"]), encoding="utf-8") as f:
             source = f.read()
         lang_id, options = language_of(case["file"])
-        tokens[case["id"]] = client.submit(source, lang_id, case.get("stdin", ""), compiler_options=options,
-                                           **case.get("limits", {}))
+        try:
+            tokens[case["id"]] = client.submit(source, lang_id, case.get("stdin", ""), compiler_options=options,
+                                               **case.get("limits", {}))
+        except (Judge0HTTPError, OSError) as e:
+            errors[case["id"]] = f"제출 실패 {e}"
 
     rows, records, failed = [], [], 0
     for case in cases:
-        result = client.wait(tokens[case["id"]], deadline_s=args.deadline)
+        if case["id"] in tokens:
+            try:
+                result = client.wait(tokens[case["id"]], deadline_s=args.deadline)
+            except (Judge0HTTPError, PollTimeout, OSError) as e:
+                errors[case["id"]] = f"결과를 받지 못함 {e}"
+        if case["id"] in errors:
+            failed += 1
+            rows.append([case["id"], case["group"], "", None, None, None, None, None, "FAIL: " + errors[case["id"]], ""])
+            continue
         ok, reasons = evaluate(case, result)
         note = last_line(result.get("stderr")) or last_line(result.get("compile_output")) or last_line(result.get("stdout"))
         if case.get("control"):
-            note = control_summary(probe_lines(result.get("stdout")), run_control(os.path.join(HERE, "cases", case["file"])))
+            sandbox = probe_lines(result.get("stdout"))
+            host = run_control(os.path.join(HERE, "cases", case["file"]))
+            note = control_summary(sandbox, host)
+            if confirmed_targets(sandbox, host) == 0:
+                ok, reasons = False, reasons + ["호스트에서도 닿는 대상이 없어 차단을 대조하지 못함"]
         if ok:
             verdict = "ok"
         elif case.get("observe"):
@@ -139,7 +165,7 @@ def main(argv=None):
                      verdict, note[:120]])
         records.append({"case": case, "result": sanitize(result), "verdict": verdict})
 
-    print(f"# 검증 결과 — {args.label} · Judge0 {(about or {}).get('version')} · "
+    print(f"# 검증 결과 — {args.label} · Judge0 {about.get('version')} · "
           f"{dt.datetime.now().astimezone().isoformat(timespec='seconds')}\n")
     print("| 케이스 | 묶음 | status | signal | exit | time | wall | memory(KB) | 판정 | 비고 |")
     print("|---|---|---|---|---|---|---|---|---|---|")

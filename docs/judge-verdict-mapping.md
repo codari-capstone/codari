@@ -5,7 +5,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 - 화면 문구·출력 비교·공개 범위의 기준은 [`AI_FEATURES.md` 10절](AI_FEATURES.md#10-채점-결과와-쉬운-설명-ai-없이-표시)이다. 이 문서는 Judge0 응답을 그 판정으로 옮기는 방법만 정한다.
 - 저장 형식은 `V1__initial_schema.sql`의 `submissions`·`submission_test_results`를 따른다. 판정은 `verdict` 8종이고, '채점 불가'는 `job_status = 'JUDGE_ERROR'`에 `verdict = NULL`이다. 런타임 에러 종류는 `runtime_error_type`에 넣는다. 케이스 행의 `verdict`에는 `COMPILE_ERROR`가 없다([제출 판정 합치기](#제출-판정-합치기)).
 - 채점 서버의 기본값·상한은 [`judge/judge0.conf`](../judge/judge0.conf)와 [`judge/README.md`](../judge/README.md)를 따른다. 상한은 #65 실측 뒤 바뀔 수 있어 이 문서는 숫자 대신 설정 이름(`MAX_CPU_TIME_LIMIT` 등)으로 적는다.
-- 규칙의 근거는 격리·자원 제한 검증(#66) 케이스를 맥 Docker Desktop(cgroup v1, Rosetta)과 채점 VM(EC2 t3.small)에서 돌려 관찰한 결과다. 케이스와 관찰 JSON은 `judge/verify/`에 있다. 채점 VM에서 다시 확인한 결과는 [9절](#9-채점-vm에서-확인한-것)에 있다.
+- 규칙의 근거는 격리·자원 제한 검증(#66) 케이스를 맥 Docker Desktop(cgroup v1, Rosetta)과 채점 VM(EC2 t3.medium)에서 돌려 관찰한 결과다. 케이스와 관찰 JSON은 `judge/verify/`에 있다. 채점 VM에서 다시 확인한 결과는 [9절](#9-채점-vm에서-확인한-것)에 있다.
 
 ## 1. 요청 규약
 
@@ -146,7 +146,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 ## 8. 관찰 근거
 
-아래 케이스 이름은 #66 검증 케이스다. 결과 표는 `judge/verify/results/`, 케이스별 관찰 JSON은 `judge/verify/observed/<환경>/<케이스>.json`에 있다. 판정 규칙 단위 테스트(`CaseJudgeTest`)는 이 JSON의 `result`를 입력으로 쓸 수 있다. 다만 관찰 JSON은 stdout·stderr·compile_output을 2,000자로 자르고 `... (총 N자)`를 붙여 저장한다. 출력 초과 케이스(`ole_*`)는 출력을 그 길이만큼 다시 채워 넣어야 8번 규칙을 시험할 수 있다.
+아래 케이스 이름은 #66 검증 케이스다. 결과 표는 `judge/verify/results/`, 케이스별 관찰 JSON은 `judge/verify/observed/<환경>/<케이스>.json`에 있다. 판정 규칙 단위 테스트(`CaseJudgeTest`, #133)는 이 JSON의 `result`를 입력으로 쓸 수 있다. 다만 관찰 JSON은 stdout·stderr·compile_output을 2,000자로 자르고 `... (총 N자)`를 붙여 저장한다. 출력 초과 케이스(`ole_*`)는 출력을 그 길이만큼 다시 채워 넣어야 8번 규칙을 시험할 수 있다.
 
 | 규칙 | 근거 케이스 | 관찰 |
 |---|---|---|
@@ -163,7 +163,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 ## 9. 채점 VM에서 확인한 것
 
-맥 결과는 amd64 명령을 Rosetta로 번역해 실행한 것이다. 2026-10-25 채점 VM(EC2 t3.small, Ubuntu 22.04, cgroup v1)에서 같은 케이스를 다시 돌렸다(`judge/verify/results/2026-10-25-ec2-t3.small.md`). 규칙을 바꿀 차이는 없었다.
+맥 결과는 amd64 명령을 Rosetta로 번역해 실행한 것이다. 2026-10-25 채점 VM(EC2 t3.medium, Ubuntu 22.04, cgroup v1)에서 같은 케이스를 다시 돌렸다(`judge/verify/results/2026-10-25-ec2-t3.medium.md`). 규칙을 바꿀 차이는 없었다.
 
 | 확인할 것 | 채점 VM 결과 |
 |---|---|

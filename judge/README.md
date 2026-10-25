@@ -32,7 +32,7 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 | OS | Ubuntu 22.04.5 LTS (커널 6.8.0-1066-aws), 루트 gp3 20 GB, IMDSv2만 허용 |
 | Docker | Engine 29.9.2, Compose v5.6.1 (Docker 공식 apt 저장소) |
 | 태그 | `Name=codingmon-judge`, `Project=codingmon` |
-| 보안 그룹 | `codingmon-judge`. 22와 2358을 허용한 IP(/32)에서만 연다. API 서버가 생기면 2358에 API 서버의 보안 그룹을 더한다 |
+| 보안 그룹 | `codingmon-judge`. 22만 허용한 IP(/32)에서 연다. 2358은 열지 않는다. API 서버가 생기면 2358에 API 서버의 보안 그룹만 더한다 |
 
 접속 주소와 SSH 키는 저장소에 두지 않고 팀 비공개 채널로 공유한다. 공인 IP는 인스턴스를 멈췄다 켜면 바뀐다.
 
@@ -45,17 +45,17 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
    ```
 
 2. Docker Engine과 Compose 플러그인을 Docker 공식 apt 저장소에서 설치하고 `ubuntu` 사용자를 `docker` 그룹에 넣는다([설치 안내](https://docs.docker.com/engine/install/ubuntu/)). `docker info --format '{{.CgroupVersion}}'`이 `1`이어야 한다. Docker 29는 cgroup v1 지원을 늦어도 2029년 5월에 없앤다고 경고하지만 이번 운영 기간과는 상관없다.
-3. 아래 "설치·기동"대로 띄운다. `.env`의 `JUDGE0_BIND_ADDR`는 `0.0.0.0`으로 둔다. 2358은 보안 그룹이 막는다.
+3. 아래 "설치·기동"대로 띄운다. `.env`의 `JUDGE0_BIND_ADDR`는 VM의 사설 IP(`hostname -I`의 첫 값)로 둔다. 2358이 공인 IP에는 아예 게시되지 않아, 보안 그룹 규칙을 잘못 넓혀도 인터넷에 열리지 않는다. 같은 VPC의 API 서버는 사설 IP로 붙고, 개발 중인 맥은 SSH 터널로 붙는다: `ssh -i <키> -N -L 2358:<사설 IP>:2358 ubuntu@<공인 IP>` 뒤 `JUDGE0_URL=http://127.0.0.1:2358`.
 4. `judge0.conf`의 `ALLOW_IP`는 비워 둔다. 주소 제한은 보안 그룹 한 곳에서 하고, Judge0에는 토큰 인증(`AUTHN_TOKEN`)만 둔다.
 
 2026-10-25 방화벽 확인:
 
 | 확인 | 결과 |
 |---|---|
-| 허용한 IP → 2358, 토큰 있음 | 200 |
-| 허용한 IP → 2358, 토큰 없음 | 401 |
-| 다른 호스트(VM이 자기 공인 IP로) → 2358 | 연결 안 됨 (8초 타임아웃) |
-| 다른 호스트 → 22 | 연결 안 됨 |
+| 허용한 IP → 공인 IP:2358 | 연결 안 됨 (게시하지 않음) |
+| 허용한 IP → SSH 터널 → 사설 IP:2358, 토큰 있음 | 200 |
+| SSH 터널, 토큰 없음 | 401 |
+| 다른 호스트(VM이 자기 공인 IP로) → 22 · 2358 | 둘 다 연결 안 됨 |
 
 ## 설치·기동
 
@@ -151,8 +151,10 @@ Judge0 1.13.1에는 Python 3.10 이상이 없다. `match` 문 같은 3.10+ 문�
 ```bash
 cd judge
 python3 verify/run_verify.py --label <환경 이름> --observed verify/observed   # 종료 코드 = 실패 수
-python3 verify/concurrency_check.py                                         # 실행 슬롯 2개
+python3 verify/concurrency_check.py                                         # 실행 슬롯(COUNT)
 ```
+
+접속 주소와 토큰은 smoke와 같이 `JUDGE0_URL`·`JUDGE0_AUTHN_TOKEN`, 없으면 `.env`에서 읽는다. 채점 VM에서는 그대로 실행하면 된다.
 
 `run_verify.py`는 `verify/cases.json`의 케이스 45개(네트워크·파일·프로세스·시간·메모리·재귀·출력·예외)를 제출해 기대값과 대조한다. 네트워크 케이스는 같은 코드를 호스트에서도 실행해, 샌드박스 밖에서는 닿는 대상만 차단 근거로 인정한다. 예외 케이스는 판정 매핑의 근거로 기록만 한다(`observe`). 제한값은 `judge0.conf` 기본값(CPU 2초, wall 5초, 메모리 256 MB, 출력 1024 KB)이다.
 
@@ -167,7 +169,7 @@ python3 verify/concurrency_check.py                                         # �
 | 프로세스 | uid 60000번대로 실행. `/proc`에는 샌드박스 안 프로세스만 보임. fork는 58개에서 막힘(`-p 60`) |
 | 시간 | 무한 반복(Python·C++) → status 5, CPU 2.1초. 무한 `sleep` → status 5, wall 5.0초 |
 | 메모리 | 큰 리스트·배열·벡터 → status 11, exit_code 137(SIGKILL), `memory` = 제한값(262144 KB) |
-| 재귀 | Python 기본 한도 → `RecursionError`. 깊이 10⁵(Python)·10⁶(C++)은 통과. 끝없는 재귀는 스택이 메모리에 포함되어 메모리 제한에서 SIGKILL |
+| 재귀 | Python 기본 한도 → `RecursionError`. 깊이 10⁵(Python)은 통과. 끝없는 재귀는 스택이 메모리에 포함되어 메모리 제한에서 SIGKILL. C++ 깊이 10⁶ 케이스는 이때 `-O2`가 반복문으로 바꿔 스택을 쓰지 않았다(856 KB). 고친 케이스의 결과는 아래 채점 VM 결과에 있다 |
 | 출력 | C++ 무한 출력 → status 11, exit_code 153(SIGXFSZ). Python 무한 출력 → `OSError: [Errno 27] File too large`, exit_code 1. stderr 무한 출력 → exit_code 120. 제한 바로 아래 출력(900 KB)과 비UTF-8 출력은 정상 |
 | 동시 실행 | CPU 1.5초 작업 4개 → 샌드박스 실행 구간 최대 2개 겹침, 나머지는 큐 대기. 450 MiB 작업 2개 동시 실행 정상 |
 
@@ -180,14 +182,15 @@ python3 verify/concurrency_check.py                                         # �
 
 ### 결과: 채점 VM (EC2, Ubuntu 22.04, cgroup v1) — 2026-10-25
 
-케이스 검증은 t3.small에서 돌렸다. 판정 동작은 인스턴스 크기와 상관없다. 전체 표는 `verify/results/2026-10-25-ec2-t3.small.md`, 케이스별 응답은 `verify/observed/ec2-t3.small/`에 있다. 실패 0건이다. 판정 규칙을 바꿀 차이는 없었다([판정 매핑 9절](../docs/judge-verdict-mapping.md#9-채점-vm에서-확인한-것)).
+전체 표는 `verify/results/2026-10-25-ec2-t3.medium.md`, 케이스별 응답은 `verify/observed/ec2-t3.medium/`에 있다. 키우기 전 t3.small에서도 같은 결과였다(판정 동작은 인스턴스 크기와 상관없다). 실패 0건이다. 판정 규칙을 바꿀 차이는 없었다([판정 매핑 9절](../docs/judge-verdict-mapping.md#9-채점-vm에서-확인한-것)).
 
 | 묶음 | 맥과 다른 점 |
 |---|---|
 | 네트워크 | EC2 메타데이터(169.254.169.254:80)도 샌드박스 안에서 막힌다. 같은 코드가 호스트에서는 닿는 것을 대조 실행으로 확인했다 |
 | 메모리 | `new`로 4 TB를 요청하면 할당이 실패해 `std::bad_alloc` → abort(134)로 끝난다. VM은 `vm.overcommit_memory=0`이다 |
 | 신호 | 맥과 같이 status 11 + `exit_code` 128+N으로 온다. bash 줄 끝에 `(core dumped)`가 붙는다 |
-| 시간 | 무한 반복 CPU 2.0초(Python 2.04, C++ 2.01), 무한 `sleep` wall 5.1초 → status 5 |
+| 시간 | 무한 반복 CPU 2.1초(Python 2.057, C++ 2.068), 무한 `sleep` wall 5.1초 → status 5 |
+| 재귀 | C++ 깊이 10⁶(호출 뒤에도 프레임을 쓰게 고친 `rec_ok_cpp`)이 메모리 32 MB를 쓰며 정상 종료한다. 스택 한도(메모리 한도와 같은 256 MB) 안이다 |
 
 동시 실행(`concurrency_check.py`):
 
