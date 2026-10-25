@@ -1,6 +1,6 @@
 import { http, HttpResponse, type RequestHandler } from 'msw'
 
-import type { LoginRequest } from '@/api/types'
+import type { Language, LoginRequest } from '@/api/types'
 import { DIFFICULTY_RANK, type Difficulty, type SolveStatus } from '@/api/types'
 import { EMAIL_PATTERN, isValidNickname, isValidPassword } from '@/features/auth/accountRules'
 import {
@@ -64,6 +64,120 @@ export function resetSubmissions(): void {
   nextSubmissionId = 1
 }
 
+/** 예제 실행 번호. 제출과 따로 센다 — 계약이 서로 404로 가리는 다른 자원이다. */
+let nextSampleRunId = 1
+
+interface MockSampleRun {
+  problemId: number
+  language: 'PYTHON' | 'CPP'
+  submittedAt: string
+  /** 몇 번 조회됐는지. 조회할 때마다 한 걸음 나아간다 — 아래 핸들러 주석. */
+  polls: number
+  /** 이 문제의 공개 예제 기대 출력. 실제 출력을 만들 때 쓴다. */
+  expected: string[]
+  /** 전부 통과시킬지. 접수할 때 정해 둔다 — 아래 핸들러 주석. */
+  allPass: boolean
+}
+
+const mockSampleRuns = new Map<number, MockSampleRun>()
+
+/** 테스트 사이에 실행 진행이 새지 않게 비운다 (resetSubmissions와 같은 쓰임). */
+export function resetSampleRuns(): void {
+  mockSampleRuns.clear()
+  nextSampleRunId = 1
+}
+
+/**
+ * 제출·예제 실행의 공용 요청 검사.
+ *
+ * 계약이 "예제 실행의 요청 본문과 오류는 코드 제출과 같다"고 정했다. 그래서 검사도 한
+ * 벌만 둔다 — 두 벌이 되면 한쪽만 고쳐지는 날이 오고, 화면은 목에만 있는 분기를 믿게 된다.
+ *
+ * 순서를 `SubmissionController.submit`과 똑같이 맞춘다: 빈 코드 → 길이 →
+ * (NUL·problemId·language) → 없는 문제 → 미지원 언어. 순서가 어긋나면 같은 요청에
+ * 목과 서버가 다른 code를 준다.
+ *
+ * 통과하면 풀린 값을, 아니면 그대로 돌려줄 오류 응답을 준다.
+ */
+async function checkSourceBody(request: Request) {
+  const body = (await request.json()) as {
+    problemId?: number
+    language?: string
+    sourceCode?: string
+  }
+
+  const raw = body.language
+  // 아는 언어만 추려 둔다. 타입을 적어 두는 것은 추론에 맡기면 돌려줄 때 string으로
+  // 넓어지기 때문이다 — 함수 밖에서는 아래 검사들의 조합을 TS가 따라오지 못한다.
+  const language: Language | undefined = raw === 'PYTHON' || raw === 'CPP' ? raw : undefined
+  // 모르는 언어는 서버가 JSON을 읽는 단계에서 걸러 code 없는 400이 된다
+  // (SubmissionController.SubmitRequest 주석). null은 여기 걸리지 않는다 — 서버에서도
+  // 역직렬화는 되고 아래 빈 코드·길이 검사 뒤에 걸린다.
+  if (raw != null && language === undefined) {
+    return badRequest('language는 PYTHON 또는 CPP여야 한다')
+  }
+
+  const source = body.sourceCode
+  // 서버는 빈 코드와 길이를 **먼저** 본다. NUL이 섞이고 64KB를 넘는 코드에 서버는
+  // SOURCE_TOO_LONG을 주므로, NUL을 먼저 보면 목만 code 없는 400을 준다.
+  if (source == null || source.trim() === '') {
+    return problem(400, 'SOURCE_EMPTY', '코드를 입력해 주세요')
+  }
+  // 64KB는 UTF-8 바이트 기준이다(계약). 글자 수로 재면 한글이 섞인 주석에서 어긋난다.
+  if (new TextEncoder().encode(source).length > MAX_SOURCE_BYTES) {
+    return problem(400, 'SOURCE_TOO_LONG', '코드는 64KB까지 제출할 수 있어요')
+  }
+  // 화면이 정상적으로는 보낼 수 없는 값이라 서버도 code 없이 답한다. problemId가 없는
+  // 요청도 여기서 끝난다 — 아래 find로 흘려보내면 목만 404 PROBLEM_NOT_FOUND를 준다.
+  if (source.includes('\0') || body.problemId == null || language == null) {
+    return badRequest('problemId·language·sourceCode를 확인해 주세요')
+  }
+
+  const detail = problemDetails.find((item) => item.id === body.problemId)
+  if (!detail) return problem(404, 'PROBLEM_NOT_FOUND', '문제를 찾을 수 없어요')
+  // 지금 fixture의 문제는 모두 두 언어를 지원해서 이 분기에 닿을 수 없다. 그래도
+  // 남겨 둔다 — 서버에 있는 분기를 목에서 빼면 목이 계약을 덜 지키게 된다. 화면 쪽
+  // 테스트는 이 응답을 server.use로 직접 돌려준다.
+  if (!detail.languages.some((it) => it.language === language)) {
+    return problem(
+      400,
+      'LANGUAGE_NOT_SUPPORTED',
+      '이 문제는 그 언어를 지원하지 않아요. 새로고침하고 언어를 다시 골라 주세요',
+    )
+  }
+
+  return { detail, language, source }
+}
+
+/**
+ * 예제 하나의 결과 한 칸.
+ *
+ * 아직 실행되지 않은 예제는 결과 값이 모두 null이다(계약: "실행 전인 예제도 있고 결과
+ * 값이 null이다").
+ */
+function sampleCase(ordinal: number, expected: string, state: 'pending' | 'pass' | 'fail') {
+  if (state === 'pending') {
+    return {
+      ordinal,
+      actualOutput: null,
+      verdict: null,
+      errorMessage: null,
+      executionTimeMs: null,
+      memoryUsedKb: null,
+    }
+  }
+  return {
+    ordinal,
+    // 틀린 출력은 기대와 **다르기만** 하면 된다. 사람이 두 상자를 나란히 보고 다르다는
+    // 것을 알 수 있어야 해서 눈에 띄는 값을 쓴다.
+    actualOutput: state === 'pass' ? expected : '0\n',
+    verdict: state === 'pass' ? 'ACCEPTED' : 'WRONG_ANSWER',
+    errorMessage: null,
+    executionTimeMs: 8 + ordinal,
+    memoryUsedKb: 3_200 + ordinal,
+  }
+}
+
 /** `Authorization: Bearer <token>`에서 토큰만. 없으면 undefined. */
 function bearer(request: Request): string | undefined {
   const header = request.headers.get('Authorization')
@@ -80,6 +194,23 @@ const issued = new Map<number, number>()
 /** 테스트 사이에 세션 상태가 새지 않게 비운다. */
 export function resetSessions(): void {
   issued.clear()
+}
+
+/**
+ * 콜백이 심어 주는 가입 증명서 쿠키. 이름·path를 실제 서버와 같게 맞춘다
+ * (GitHubLoginController.SIGNUP_COOKIE).
+ */
+const GITHUB_SIGNUP_COOKIE = 'github_signup'
+
+/** 목의 증명서 값. 서버는 서명한 JWT를 주지만 목이 볼 것은 "있나 없나"뿐이다. */
+const GITHUB_CERTIFICATE = 'mock-github-signup'
+
+/** 목의 GitHub 계정이 가입을 마쳤는지. 가입 전에는 signup, 뒤에는 success로 갈린다. */
+let githubRegistered = false
+
+/** 테스트 사이에 GitHub 가입 여부가 새지 않게 되돌린다. */
+export function resetGitHub(): void {
+  githubRegistered = false
 }
 
 /** 비로그인·인증 실패 응답. ErrorState가 읽는 RFC 9457 모양으로 맞춘다. */
@@ -187,48 +318,9 @@ export const handlers: RequestHandler[] = [
    * 세션을 보지 않는 것은 목록·상세 핸들러와 같은 선택이다 — 화면이 RequireAuth 뒤에 있다.
    */
   http.post('*/api/submissions', async ({ request }) => {
-    const body = (await request.json()) as {
-      problemId?: number
-      language?: string
-      sourceCode?: string
-    }
-
-    const language = body.language
-    // 모르는 언어는 서버가 JSON을 읽는 단계에서 걸러 code 없는 400이 된다
-    // (SubmissionController.SubmitRequest 주석). null은 여기 걸리지 않는다 — 서버에서도
-    // 역직렬화는 되고 아래 빈 코드·길이 검사 뒤에 걸린다.
-    if (language != null && language !== 'PYTHON' && language !== 'CPP') {
-      return badRequest('language는 PYTHON 또는 CPP여야 한다')
-    }
-
-    const source = body.sourceCode
-    // 서버는 빈 코드와 길이를 **먼저** 본다. NUL이 섞이고 64KB를 넘는 코드에 서버는
-    // SOURCE_TOO_LONG을 주므로, NUL을 먼저 보면 목만 code 없는 400을 준다.
-    if (source == null || source.trim() === '') {
-      return problem(400, 'SOURCE_EMPTY', '코드를 입력해 주세요')
-    }
-    // 64KB는 UTF-8 바이트 기준이다(계약). 글자 수로 재면 한글이 섞인 주석에서 어긋난다.
-    if (new TextEncoder().encode(source).length > MAX_SOURCE_BYTES) {
-      return problem(400, 'SOURCE_TOO_LONG', '코드는 64KB까지 제출할 수 있어요')
-    }
-    // 화면이 정상적으로는 보낼 수 없는 값이라 서버도 code 없이 답한다. problemId가 없는
-    // 요청도 여기서 끝난다 — 아래 find로 흘려보내면 목만 404 PROBLEM_NOT_FOUND를 준다.
-    if (source.includes('\0') || body.problemId == null || language == null) {
-      return badRequest('problemId·language·sourceCode를 확인해 주세요')
-    }
-
-    const detail = problemDetails.find((item) => item.id === body.problemId)
-    if (!detail) return problem(404, 'PROBLEM_NOT_FOUND', '문제를 찾을 수 없어요')
-    // 지금 fixture의 문제는 모두 두 언어를 지원해서 이 분기에 닿을 수 없다. 그래도
-    // 남겨 둔다 — 서버에 있는 분기를 목에서 빼면 목이 계약을 덜 지키게 된다. 화면 쪽
-    // 테스트는 이 응답을 server.use로 직접 돌려준다.
-    if (!detail.languages.some((it) => it.language === language)) {
-      return problem(
-        400,
-        'LANGUAGE_NOT_SUPPORTED',
-        '이 문제는 그 언어를 지원하지 않아요. 새로고침하고 언어를 다시 골라 주세요',
-      )
-    }
+    const checked = await checkSourceBody(request)
+    if (checked instanceof HttpResponse) return checked
+    const { detail, language, source } = checked
 
     const id = nextSubmissionId++
     const starter = detail.languages.find((it) => it.language === language)?.starterCode ?? ''
@@ -519,5 +611,177 @@ export const handlers: RequestHandler[] = [
     // 필드 오류에서는 토큰이 남는다. 성공해야 닳는다(서버는 token_version을 올린다).
     invalidateToken(resetToken)
     return new HttpResponse(null, { status: 204 })
+  }),
+  // --- GitHub 로그인 (COM-02) ---
+
+  /**
+   * GitHub 로그인 시작. **화면은 이 핸들러에 닿지 않는다.**
+   *
+   * 계약이 "브라우저를 이 주소로 이동시킨다(fetch가 아님)"고 정했고, MSW의 서비스 워커는
+   * 네비게이션 요청을 그냥 통과시킨다(public/mockServiceWorker.js의 "Bypass navigation
+   * requests"). 그래서 브라우저에서 이 왕복은 목으로 흉내 낼 수 없다 — 손으로 확인할 때는
+   * /login/github?result=... 를 직접 연다.
+   *
+   * 그래도 핸들러를 두는 이유: **테스트가 증명서를 얻는 자리**다. GitHub를 다녀온 것처럼
+   * 한 번 fetch하면 콜백이 심어 줄 쿠키가 msw의 쿠키 항아리에 들어간다. 지어낸 값을
+   * 테스트가 직접 심는 것보다 실제 흐름에 가깝다.
+   */
+  http.get('*/api/auth/github', () => {
+    if (githubRegistered) {
+      // 이미 가입한 계정이다. 계약대로 refresh 쿠키만 심고 토큰은 주지 않는다 —
+      // 웹이 돌아와서 /api/auth/refresh로 받는다.
+      const id = mockAccounts[0]!.user.id
+      issued.set(id, 1)
+      return new HttpResponse(null, {
+        status: 302,
+        headers: {
+          Location: '/login/github?result=success',
+          'Set-Cookie': `${REFRESH_COOKIE}=${id}; Path=/; SameSite=Lax`,
+        },
+      })
+    }
+    return new HttpResponse(null, {
+      status: 302,
+      headers: {
+        Location: '/login/github?result=signup',
+        'Set-Cookie': `${GITHUB_SIGNUP_COOKIE}=${GITHUB_CERTIFICATE}; Path=/api/auth/github; SameSite=Lax`,
+      },
+    })
+  }),
+
+  /**
+   * GitHub 가입 완료. 검사 순서를 실제 서버와 같게 맞춘다
+   * (GitHubLoginService.signUp: 증명서 → 닉네임 규칙 → 이미 가입 → 닉네임 선점).
+   *
+   * 순서가 중요하다 — 증명서가 죽은 사람에게 닉네임 오류를 먼저 보여 주면, 고쳐 봐야
+   * 안 되는 칸을 고치게 한다.
+   */
+  http.post('*/api/auth/github/signup', async ({ request, cookies }) => {
+    const certificate = cookies[GITHUB_SIGNUP_COOKIE]
+    if (certificate !== GITHUB_CERTIFICATE) {
+      return problem(
+        400,
+        'VERIFICATION_EXPIRED',
+        '인증 시간이 지났어요. GitHub 로그인을 다시 해 주세요',
+      )
+    }
+    const nickname = ((await request.json()) as { nickname?: string }).nickname ?? ''
+    if (!isValidNickname(nickname)) {
+      return problem(400, 'INVALID_NICKNAME', '닉네임은 2~16자의 한글·영문·숫자만 쓸 수 있어요')
+    }
+    if (githubRegistered) {
+      return problem(
+        409,
+        'ALREADY_REGISTERED',
+        '이미 가입한 GitHub 계정이에요. GitHub 로그인을 다시 해 주세요',
+      )
+    }
+    // 대소문자를 구분하지 않는다 (닉네임 확인과 같은 규칙).
+    if (mockAccounts.some((item) => item.user.nickname.toLowerCase() === nickname.toLowerCase())) {
+      return problem(409, 'NICKNAME_TAKEN', '이미 사용 중인 닉네임이에요')
+    }
+    githubRegistered = true
+    // 목은 계정을 늘리지 않는다 — 이메일 가입(/api/auth/signup)과 같은 선택이다. 다음
+    // GitHub 로그인이 mockAccounts[0]으로 들어간다.
+    return new HttpResponse(null, {
+      status: 204,
+      headers: { 'Set-Cookie': `${GITHUB_SIGNUP_COOKIE}=; Path=/api/auth/github; Max-Age=0` },
+    })
+  }),
+  /**
+   * 예제 실행 접수 (SOLVE-08).
+   *
+   * 요청 검사는 제출과 **같은 함수**가 한다(계약: "요청 본문과 오류는 코드 제출과 같다").
+   *
+   * 접수만 하고 실행하지 않는다 — 계약도 202로 접수만 답한다. 시작 코드를 그대로 돌린
+   * 실행은 첫 예제를 틀리고, 손을 댔으면 전부 통과한다. 목이 실제로 실행할 수는 없고,
+   * **통과·실패가 섞인 표**가 사람이 손으로 확인해야 하는 화면이라 그렇게 정했다
+   * (제출 목의 판정 규칙과 같은 선택이다). 다른 판정은 테스트가 server.use로 돌려준다.
+   */
+  http.post('*/api/sample-runs', async ({ request }) => {
+    const checked = await checkSourceBody(request)
+    if (checked instanceof HttpResponse) return checked
+    const { detail, language, source } = checked
+
+    const id = nextSampleRunId++
+    const starter = detail.languages.find((it) => it.language === language)?.starterCode ?? ''
+    mockSampleRuns.set(id, {
+      problemId: detail.id,
+      language,
+      submittedAt: new Date().toISOString(),
+      polls: 0,
+      expected: detail.samples.map((it) => it.output),
+      allPass: source.trim() !== starter.trim(),
+    })
+    return HttpResponse.json(
+      { id },
+      { status: 202, headers: { Location: `/api/sample-runs/${id}` } },
+    )
+  }),
+
+  /**
+   * 예제 실행 상태·예제별 결과 (SOLVE-08).
+   *
+   * **조회할 때마다 한 걸음 나아간다.** 한 번에 COMPLETED를 주면 폴링 화면을 사람도
+   * 테스트도 볼 수 없다. 시간이 아니라 횟수로 진행시키는 이유는 테스트가 시계에 매이지
+   * 않게 하려는 것이다(제출 핸들러와 같다).
+   *
+   * 중간 단계에서 첫 예제만 채워 보낸다 — 계약이 "실행 전인 예제도 있고 결과 값이
+   * null이다"라고 한 그 상태를 화면이 실제로 받아 보게 한다.
+   *
+   * 없는 실행은 404 `SAMPLE_RUN_NOT_FOUND`다. 계약은 남의 실행·채점 제출도 같은 404로
+   * 답하라고 정했는데, 목은 세션을 보지 않아(다른 핸들러와 같은 선택) 그 둘을 구분하지 않는다.
+   */
+  http.get('*/api/sample-runs/:id', ({ params }) => {
+    const id = Number(params.id)
+    if (!Number.isSafeInteger(id)) return badRequest('id는 정수여야 한다')
+
+    const found = mockSampleRuns.get(id)
+    if (!found) return problem(404, 'SAMPLE_RUN_NOT_FOUND', '예제 실행을 찾을 수 없어요')
+
+    const step = found.polls++
+    const base = {
+      id,
+      problemId: found.problemId,
+      language: found.language,
+      submittedAt: found.submittedAt,
+      runtimeErrorType: null,
+      compilerMessage: null,
+    }
+    // 이 실행에서 각 예제가 어떻게 끝날지. 시작 코드 그대로면 첫 예제만 틀린다.
+    const outcome = (ordinal: number): 'pass' | 'fail' =>
+      found.allPass || ordinal > 1 ? 'pass' : 'fail'
+
+    if (step === 0) {
+      return HttpResponse.json({
+        ...base,
+        status: 'QUEUED',
+        progress: 0,
+        verdict: null,
+        judgedAt: null,
+        cases: found.expected.map((it, index) => sampleCase(index + 1, it, 'pending')),
+      })
+    }
+    if (step === 1) {
+      return HttpResponse.json({
+        ...base,
+        status: 'RUNNING',
+        progress: Math.round(100 / Math.max(found.expected.length, 1)),
+        verdict: null,
+        judgedAt: null,
+        cases: found.expected.map((it, index) =>
+          sampleCase(index + 1, it, index === 0 ? outcome(1) : 'pending'),
+        ),
+      })
+    }
+    return HttpResponse.json({
+      ...base,
+      status: 'COMPLETED',
+      progress: 100,
+      // 계약: 모두 맞으면 ACCEPTED, 아니면 처음 틀린 예제의 판정.
+      verdict: found.allPass ? 'ACCEPTED' : 'WRONG_ANSWER',
+      judgedAt: new Date().toISOString(),
+      cases: found.expected.map((it, index) => sampleCase(index + 1, it, outcome(index + 1))),
+    })
   }),
 ]

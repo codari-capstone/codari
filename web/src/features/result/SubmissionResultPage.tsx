@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router'
 
 import type { SubmissionResult } from '@/api/types'
 import { ErrorState } from '@/components/ErrorState'
+import { Raw } from '@/components/Raw'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
 import { RUNTIME_ERROR_INFO, STATUS_LABEL, VERDICT_INFO } from '@/constants/verdicts'
@@ -87,22 +88,6 @@ function Meta({ result }: { result: SubmissionResult }) {
       {executionTimeMs !== null ? <span>{executionTimeMs}ms</span> : null}
       {memoryUsedKb !== null ? <span>{memoryUsedKb.toLocaleString('ko-KR')}KB</span> : null}
     </div>
-  )
-}
-
-/**
- * 학생 코드가 만든 원문 (RES-04·05).
- *
- * **글자 그대로 그린다.** 계약이 `runtimeErrorMessage`·`compilerMessage`에 "학생 코드가
- * 만든 문자열이라 글자 그대로 보여 준다(HTML로 렌더링하지 않는다)"고 적어 뒀다. 지문과
- * 정반대다 — 여기에 Markdown을 물리면 학생이 쓴 `*`이나 `<`가 해석되어 원문이 달라지고,
- * 무엇이 틀렸는지 알아볼 수 없게 된다.
- */
-function Raw({ text }: { text: string }) {
-  return (
-    <pre className="bg-muted mt-2 overflow-x-auto rounded-lg p-3 text-xs leading-relaxed whitespace-pre-wrap">
-      {text}
-    </pre>
   )
 }
 

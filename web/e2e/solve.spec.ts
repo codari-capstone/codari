@@ -104,6 +104,32 @@ test.describe('문제 풀이 화면', () => {
   })
 
   /**
+   * 예제 실행이 접수되고 결과가 돌아오는지 (SOLVE-08).
+   *
+   * 단위 테스트가 표를 글자까지 재므로 여기서는 왕복 하나만 본다 — 실제 브라우저에서
+   * 폴링이 돌고(간격은 VITE_POLL_INTERVAL_MS) 결과가 남는지다. 실행은 시도 횟수에
+   * 들어가지 않으니(계약) 제출과 달리 화면을 떠나서는 안 된다.
+   */
+  test('예제를 실행하면 결과가 화면에 남는다', async ({ page }) => {
+    await login(page)
+    await page.goto('/problems/1')
+
+    const editor = page.getByRole('textbox', { name: '코드 편집기' })
+    await editor.click()
+    await page.keyboard.type('print(1)')
+
+    // exact를 켠다 — 켜지 않으면 실행 중 라벨('실행 중…')에도 걸린다.
+    await page.getByRole('button', { name: '실행', exact: true }).click()
+
+    // 목은 시작 코드를 고친 실행을 전부 통과시킨다 (handlers.ts).
+    await expect(page.getByText('공개 예제를 모두 통과했어요')).toBeVisible()
+    await expect(page.getByRole('list', { name: '예제별 결과' }).getByRole('listitem')).toHaveCount(
+      2,
+    )
+    await expect(page).toHaveURL(/\/problems\/1$/)
+  })
+
+  /**
    * 코드를 쓰고 제출하면 결과 화면 주소에 닿는지 (SOLVE-09).
    *
    * 결과 화면 자체는 #31이 채운다 — 여기서 보는 것은 "제출이 접수되고 그 번호로 만든

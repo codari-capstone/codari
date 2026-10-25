@@ -20,6 +20,8 @@ export const router = createBrowserRouter([
         children: [
           { index: true, loader: () => redirect('/problems') },
           { path: 'login', lazy: () => import('@/features/auth/LoginPage') },
+          // GitHub 로그인이 돌아오는 자리 (COM-02). 주소는 계약이 정했다.
+          { path: 'login/github', lazy: () => import('@/features/auth/GitHubCallbackPage') },
           { path: 'signup', lazy: () => import('@/features/auth/SignupPage') },
           { path: 'password-reset', lazy: () => import('@/features/auth/PasswordResetPage') },
           { path: 'forbidden', lazy: () => import('@/app/ForbiddenPage') },

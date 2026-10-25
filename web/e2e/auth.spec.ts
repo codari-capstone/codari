@@ -7,7 +7,7 @@ const ADMIN = { email: 'admin@codari.test', password: 'Codari!admin1' }
 async function login(page: Page, account: { email: string; password: string }) {
   await page.getByLabel('이메일').fill(account.email)
   await page.getByLabel('비밀번호').fill(account.password)
-  await page.getByRole('button', { name: '로그인' }).click()
+  await page.getByRole('button', { name: '로그인', exact: true }).click()
 }
 
 // 로그인 폼은 lazy 라우트라 goto 직후엔 아직 없을 수 있다. 폼이 보인 뒤에야 입력한다.
