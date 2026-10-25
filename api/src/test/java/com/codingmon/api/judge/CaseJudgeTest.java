@@ -61,14 +61,14 @@ class CaseJudgeTest {
         Judge0Result result = new Judge0Result(6, null, null, bytes(message), null, null, null, null, null);
         // 끝 줄바꿈은 Python 문법 오류 메시지와 같이 지운다
         assertThat(CaseJudge.judge(Language.CPP, true, result, bytes(""), LIMITS))
-                .isEqualTo(new CaseOutcome.CompileError(message.stripTrailing()));
+                .isEqualTo(new CaseOutcome.CompileError(message.stripTrailing(), true));
     }
 
     @Test
     void Python_문법_오류는_SAMPLE에서만_컴파일_에러다() {
         String stderr = "  File \"script.py\", line 2\n    \n           ^\nSyntaxError: unexpected EOF while parsing\n";
         assertThat(python(true, result(11, null, stderr, 1, 9_268))).isEqualTo(new CaseOutcome.CompileError(
-                "  File \"script.py\", line 2\n    \n           ^\nSyntaxError: unexpected EOF while parsing"));
+                "  File \"script.py\", line 2\n    \n           ^\nSyntaxError: unexpected EOF while parsing", false));
         // HIDDEN에서 같은 모양이면 학생 코드가 꾸민 stderr로 보고 원문을 메시지로 내보내지 않는다
         assertThat(python(false, result(11, null, stderr, 1, 9_268)))
                 .isEqualTo(new CaseOutcome.Judged(Verdict.RUNTIME_ERROR, RuntimeErrorType.OTHER, null, 9_268));

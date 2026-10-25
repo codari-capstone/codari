@@ -6,7 +6,7 @@ import java.util.stream.Collectors;
 
 // DB에 저장할 출력·메시지 변환(database-schema.md). PostgreSQL 문자열은 NUL과 잘못된 UTF-8을 받지 못해,
 // 그대로 넣으면 저장이 실패하고 제출이 진행 중에 멈춘다. 깨진 바이트와 NUL을 U+FFFD로 바꾸고 65,536자로 자른다.
-final class StoredText {
+public final class StoredText {
 
     // VARCHAR(65536)는 코드 포인트 단위로 센다.
     static final int MAX_CHARS = 65_536;
@@ -36,7 +36,8 @@ final class StoredText {
         return bytes == null ? "" : new String(bytes, StandardCharsets.UTF_8);
     }
 
-    static String withoutJudgeLines(String stderr) {
+    // 조회 API(SubmissionRepository)도 학생에게 보여 줄 stderr를 이걸로 정리한다.
+    public static String withoutJudgeLines(String stderr) {
         return stderr.lines().filter(line -> !JUDGE_RUN_LINE.matcher(line).find())
                 .collect(Collectors.joining("\n")).stripTrailing();
     }

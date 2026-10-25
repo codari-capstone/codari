@@ -51,18 +51,18 @@ final class CaseJudge {
             return new CaseOutcome.InternalError(result.message());
         }
         if (status == 14) {
-            return new CaseOutcome.JudgeError("Judge0 status 14 (Exec Format Error): " + result.message());
+            return new CaseOutcome.JudgeError(withMessage("Judge0 status 14 (Exec Format Error)", result.message()));
         }
         if (status == 6) {
             // Python 문법 오류(아래)와 같이 끝 줄바꿈을 지워, 언어와 상관없이 메시지 모양을 맞춘다.
-            return new CaseOutcome.CompileError(StoredText.of(StoredText.decode(result.compileOutput()).stripTrailing()));
+            return new CaseOutcome.CompileError(StoredText.of(StoredText.decode(result.compileOutput()).stripTrailing()), true);
         }
         String stderr = StoredText.withoutJudgeLines(StoredText.decode(result.stderr()));
         // Python은 컴파일 단계가 없어 문법 오류도 실행 중 status 11로 온다. 진짜 문법 오류는 입력과 상관없이
         // 모든 케이스에서 나므로 SAMPLE에서 확정한다. HIDDEN에서 같은 모양이면 학생 코드가 stderr를 꾸민 것이라
         // 컴파일 메시지로 공개하지 않는다. 공개하면 비공개 입력을 메시지에 실어 빼낼 수 있다(6번).
         if (language == Language.PYTHON && sample && status == 11 && isPythonSyntaxError(stderr)) {
-            return new CaseOutcome.CompileError(StoredText.of(stderr));
+            return new CaseOutcome.CompileError(StoredText.of(stderr), false);
         }
         if (status == 5) {
             return judged(Verdict.TIME_LIMIT_EXCEEDED, null, result);
@@ -96,7 +96,12 @@ final class CaseJudge {
             }
             return judged(OutputComparator.compare(result.stdout(), expectedOutput), null, result);
         }
-        return new CaseOutcome.JudgeError("알 수 없는 Judge0 status " + status + ": " + result.message());
+        return new CaseOutcome.JudgeError(withMessage("알 수 없는 Judge0 status " + status, result.message()));
+    }
+
+    // 채점 불가 사유에 Judge0가 준 원인 문구를 붙인다. 문구가 없으면 사유만 둔다.
+    static String withMessage(String reason, String message) {
+        return message == null || message.isBlank() ? reason : reason + ": " + message;
     }
 
     // 신호는 status가 아니라 exit_code(128 + 신호 번호)로 온다. Judge0가 프로그램을 bash 스크립트로 감싸 실행하기 때문이다.

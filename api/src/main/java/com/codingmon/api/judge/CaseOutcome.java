@@ -16,8 +16,10 @@ sealed interface CaseOutcome {
     record JudgeError(String reason) implements CaseOutcome {
     }
 
-    // message는 저장용으로 변환한 컴파일러 메시지다. HIDDEN 케이스에서 나오면 SubmissionOutcome이 SAMPLE 결과에 맞춰 처리한다(5번).
-    record CompileError(String message) implements CaseOutcome {
+    // message는 저장용으로 변환한 컴파일러 메시지다. fromCompiler는 Judge0 status 6(컴파일러가 낸 결과)이면 true,
+    // Python 문법 오류를 SAMPLE stderr로 알아본 경우(6번)면 false다. 컴파일 에러로 확정할지는 SubmissionOutcome이
+    // 다른 케이스 결과와 함께 정한다(제출 판정 합치기 1번). HIDDEN에서는 status 6만 나온다.
+    record CompileError(String message, boolean fromCompiler) implements CaseOutcome {
     }
 
     // errorType은 RUNTIME_ERROR일 때만 있다. timeMs·memoryKb는 Judge0가 값을 주지 않았으면 null이다.

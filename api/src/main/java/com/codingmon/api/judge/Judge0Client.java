@@ -199,6 +199,7 @@ class Judge0Client {
     private <T> T call(String what, boolean idempotent, Supplier<T> request) {
         Duration backoff = initialBackoff;
         for (int attempt = 1;; attempt++) {
+            String retryReason;
             try {
                 return request.get();
             } catch (RestClientResponseException e) {
@@ -212,18 +213,23 @@ class Judge0Client {
                 if (!(status == 503 || (idempotent && status >= 500)) || attempt >= limit) {
                     throw new Judge0Exception("Judge0 " + what + " " + status + " (" + attempt + "회 시도)", e);
                 }
+                retryReason = "HTTP " + status;
             } catch (ResourceAccessException e) {
                 // 연결 거부는 요청이 서버에 닿지 않은 것이라 제출도 다시 보낼 수 있다. 읽기 타임아웃은 이미 들어갔을 수 있다.
                 if (!(idempotent || e.getCause() instanceof ConnectException) || attempt >= MAX_ATTEMPTS) {
                     throw new Judge0Exception("Judge0 " + what + " 연결 실패 (" + attempt + "회 시도)", e);
                 }
+                retryReason = "연결 실패 " + e.getMostSpecificCause();
             } catch (RestClientException e) {
                 // 응답 본문을 읽다 끊기거나 형식이 다르면 Spring이 일반 RestClientException으로 감싼다.
                 // 결과 조회의 I/O 오류만 다시 묻고, 그 밖에는 채점 불가로 알린다.
                 if (!(idempotent && causedByIo(e)) || attempt >= MAX_ATTEMPTS) {
                     throw new Judge0Exception("Judge0 " + what + " 응답을 읽지 못했다 (" + attempt + "회 시도)", e);
                 }
+                retryReason = "응답 읽기 실패 " + e.getMostSpecificCause();
             }
+            // 큐가 차서 늦어지거나 끝내 채점 불가가 됐을 때, 중간에 무엇을 몇 번 받았는지 남긴다.
+            log.warn("Judge0 {}: {} — {}회째 실패, {} 뒤 다시 시도한다", what, retryReason, attempt, backoff);
             sleep(backoff);
             backoff = backoff.multipliedBy(2).compareTo(MAX_BACKOFF) > 0 ? MAX_BACKOFF : backoff.multipliedBy(2);
         }
@@ -256,16 +262,9 @@ class Judge0Client {
         return false;
     }
 
-    // message도 base64로 온다. 풀리지 않으면 받은 그대로 둔다.
+    // base64_encoded=true면 Judge0는 message도 base64로 준다.
     private static String text(Object value) {
-        if (value == null) {
-            return null;
-        }
-        try {
-            return new String(decode(value), StandardCharsets.UTF_8);
-        } catch (IllegalArgumentException e) {
-            return value.toString();
-        }
+        return value == null ? null : new String(decode(value), StandardCharsets.UTF_8);
     }
 
     private static Integer integer(Object value) {
