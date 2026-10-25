@@ -49,6 +49,9 @@ class JudgeWorker {
 
     private static final CaseOutcome PENDING = new CaseOutcome.Pending();
 
+    // Judge0 오류가 아닌 예외(DB 쓰기 실패 등)는 판정을 이어서 낼 수 있어 이만큼 다음 확인 때 다시 맡고, 그래도 안 되면 채점 불가다.
+    private static final int MAX_ERROR_RETRIES = 3;
+
     private final JudgeRepository jobs;
     private final Judge0Client judge0;
     private final Semaphore slots = new Semaphore(SLOTS);
@@ -58,6 +61,8 @@ class JudgeWorker {
     private final Queue<Long> retryLater = new ConcurrentLinkedQueue<>();
     // 지금 슬롯이 맡고 있는 제출. 같은 제출을 두 슬롯이 함께 돌리지 않게 한다.
     private final Set<Long> inFlight = ConcurrentHashMap.newKeySet();
+    // 제출별로 Judge0 오류가 아닌 예외를 몇 번 다시 맡았는지.
+    private final Map<Long, Integer> errorRetries = new ConcurrentHashMap<>();
     // 선점은 이 스레드에서만 한다. 커밋 뒤 이벤트 리스너에서 바로 DB를 쓰면 끝난 트랜잭션의 연결에 묶여 커밋되지 않는다.
     private final ExecutorService dispatcher =
             Executors.newSingleThreadExecutor(Thread.ofPlatform().name("judge-dispatch").daemon(true).factory());
@@ -131,6 +136,8 @@ class JudgeWorker {
                 return;
             }
             if (!inFlight.add(id)) {
+                // 다른 슬롯이 아직 끝맺는 중이다. 버리면 어느 큐에도 남지 않으니 다음 확인 때 다시 본다.
+                retryLater.add(id);
                 slots.release();
                 continue;
             }
@@ -156,6 +163,7 @@ class JudgeWorker {
                 return;
             }
             run(job);
+            errorRetries.remove(id);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         } catch (RuntimeException e) {
@@ -164,9 +172,18 @@ class JudgeWorker {
             }
             if (e instanceof Judge0Exception) {
                 log.warn("제출 {}을 채점하지 못했다: {}", id, e.getMessage());
-            } else {
-                log.error("제출 {}을 채점하다 오류가 났다", id, e);
+                failOrRetryLater(id);
+                return;
             }
+            // DB 쓰기가 끊긴 경우 등이다. 저장된 토큰·판정으로 이어서 낼 수 있으니 바로 채점 불가로 끝내지 않는다.
+            int tries = errorRetries.merge(id, 1, Integer::sum);
+            if (tries <= MAX_ERROR_RETRIES) {
+                log.error("제출 {}을 채점하다 오류가 났다. 다음 확인 때 다시 맡는다({}/{})", id, tries, MAX_ERROR_RETRIES, e);
+                retryLater.add(id);
+                return;
+            }
+            log.error("제출 {}을 채점하다 오류가 {}번 났다. 채점 불가로 끝낸다", id, tries, e);
+            errorRetries.remove(id);
             failOrRetryLater(id);
         }
     }
@@ -284,9 +301,11 @@ class JudgeWorker {
                 case CaseOutcome.InternalError error -> {
                     if (resubmitted.add(c.testCaseId())) {
                         // Judge0 내부 오류는 같은 케이스를 한 번만 다시 보낸다(3절 3번). 또 나오면 채점 불가다.
+                        // 보내기 전에 표시부터 남긴다. 보낸 뒤 저장하기 전에 멈춰도 재시작 뒤 한 번 더 보내지 않는다.
+                        jobs.markRetried(job.id(), c.testCaseId());
                         String token = judge0.submit(job.language(), job.sourceCode(), job.timeLimitMs(), job.memoryLimitMb(),
                                 List.of(c.input())).getFirst();
-                        jobs.saveRetryToken(job.id(), c.testCaseId(), token);
+                        jobs.saveToken(job.id(), c.testCaseId(), token);
                         tokens.put(c.testCaseId(), token);
                     } else {
                         outcomes.put(c.testCaseId(), error);

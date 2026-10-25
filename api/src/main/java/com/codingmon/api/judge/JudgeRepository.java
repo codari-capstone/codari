@@ -111,11 +111,10 @@ class JudgeRepository {
                 .update();
     }
 
-    // status 13으로 다시 보낸 케이스의 새 토큰. 재시작해도 한 번만 다시 보내도록 표시를 함께 남긴다.
-    void saveRetryToken(long submissionId, long testCaseId, String token) {
-        jdbc.sql("update submission_test_results set judge_token = :token, internal_error_retried = true"
+    // status 13으로 이 케이스를 다시 보낸다는 표시. 보내기 전에 남겨, 재시작해도 한 번만 다시 보낸다.
+    void markRetried(long submissionId, long testCaseId) {
+        jdbc.sql("update submission_test_results set internal_error_retried = true"
                 + " where submission_id = :submissionId and test_case_id = :testCaseId")
-                .param("token", token)
                 .param("submissionId", submissionId)
                 .param("testCaseId", testCaseId)
                 .update();
