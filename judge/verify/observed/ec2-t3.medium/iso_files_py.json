@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "label": "ec2-t3.medium",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
+    "run_at": "20261025-125752"
+  },
+  "case": {
+    "id": "iso_files_py",
+    "group": "files",
+    "file": "iso_files.py",
+    "expect": {
+      "status": [
+        3
+      ],
+      "stdout_not": [
+        "REACHED"
+      ]
+    }
+  },
+  "result": {
+    "stdout": "docker_sock BLOCKED FileNotFoundError\netc_shadow_read BLOCKED PermissionError\njudge0_conf_read BLOCKED FileNotFoundError\napi_environment_read BLOCKED FileNotFoundError\nisolate_boxes_list BLOCKED FileNotFoundError\nwrite_etc BLOCKED OSError\nwrite_usr BLOCKED OSError\nproc_other_processes BLOCKED []\nuid 60557 BLOCKED\n",
+    "time": "0.024",
+    "memory": 3304,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": null,
+    "wall_time": "0.029",
+    "status": {
+      "id": 3,
+      "description": "Accepted"
+    }
+  }
+}

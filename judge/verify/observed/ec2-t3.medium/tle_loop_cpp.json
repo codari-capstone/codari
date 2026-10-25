@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "label": "ec2-t3.medium",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
+    "run_at": "20261025-125752"
+  },
+  "case": {
+    "id": "tle_loop_cpp",
+    "group": "time",
+    "file": "tle_loop.cpp",
+    "expect": {
+      "status": [
+        5
+      ]
+    }
+  },
+  "result": {
+    "stdout": null,
+    "time": "2.068",
+    "memory": 728,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": "Time limit exceeded",
+    "wall_time": "2.1",
+    "status": {
+      "id": 5,
+      "description": "Time Limit Exceeded"
+    }
+  }
+}

@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 import unittest
 
 JUDGE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -42,6 +43,12 @@ class ProbeTest(unittest.TestCase):
         self.assertIn("dns: 차단 확인", summary)
         self.assertIn("tcp: 호스트도 닿지 않아 대조 불가", summary)
 
+    def test_control_needs_a_target_the_host_reaches(self):
+        sandbox = {"dns": "BLOCKED", "tcp": "BLOCKED"}
+        self.assertEqual(rv.confirmed_targets(sandbox, {"dns": "REACHED", "tcp": "BLOCKED"}), 1)
+        # 호스트도 아무 데도 닿지 않으면 차단의 근거가 없다
+        self.assertEqual(rv.confirmed_targets(sandbox, {"dns": "BLOCKED", "tcp": "BLOCKED"}), 0)
+
     def test_last_line_skips_blank_lines(self):
         self.assertEqual(rv.last_line("a\nIndexError: x\n \n"), "IndexError: x")
 
@@ -52,6 +59,20 @@ class OverlapTest(unittest.TestCase):
 
     def test_touching_intervals_do_not_overlap(self):
         self.assertEqual(cc.max_overlap([(0, 1), (1, 2)]), 1)
+
+
+class SamplerTest(unittest.TestCase):
+    def test_queue_errors_do_not_stop_sampling(self):
+        class Failing:
+            def request(self, method, path):
+                raise TimeoutError("timed out")
+
+        sampler = cc.Sampler(Failing())
+        sampler.start()
+        time.sleep(0.25)
+        sampler.join()
+        self.assertIsNone(sampler.error)
+        self.assertGreater(sampler.queue_errors, 0)
 
 
 if __name__ == "__main__":
