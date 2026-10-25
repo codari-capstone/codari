@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -53,6 +54,10 @@ class JudgeWorker {
     private final Semaphore slots = new Semaphore(SLOTS);
     // 재시작 전에 진행 중이던 제출. 새 제출보다 먼저 맡는다.
     private final Queue<Long> resumable = new ConcurrentLinkedQueue<>();
+    // 채점 불가로 끝내는 것까지 실패한 제출(DB 장애 등). 다음 확인 때 resumable로 옮긴다. 바로 다시 맡으면 DB가 돌아올 때까지 헛돈다.
+    private final Queue<Long> retryLater = new ConcurrentLinkedQueue<>();
+    // 지금 슬롯이 맡고 있는 제출. 같은 제출을 두 슬롯이 함께 돌리지 않게 한다.
+    private final Set<Long> inFlight = ConcurrentHashMap.newKeySet();
     // 선점은 이 스레드에서만 한다. 커밋 뒤 이벤트 리스너에서 바로 DB를 쓰면 끝난 트랜잭션의 연결에 묶여 커밋되지 않는다.
     private final ExecutorService dispatcher =
             Executors.newSingleThreadExecutor(Thread.ofPlatform().name("judge-dispatch").daemon(true).factory());
@@ -72,6 +77,7 @@ class JudgeWorker {
             return;
         }
         // 선점을 시작하기 전에 모은다. 그래야 이번에 선점한 제출을 재시작 전 것으로 보고 두 번 돌리지 않는다.
+        // 다시 불려도 슬롯이 맡고 있는 제출은 dispatch가 건너뛴다.
         resumable.addAll(jobs.findInProgress());
         started = true;
         wake();
@@ -82,9 +88,12 @@ class JudgeWorker {
         wake();
     }
 
-    // 슬롯이 꽉 찼을 때 들어온 제출을 줍는다.
+    // 슬롯이 꽉 찼을 때 들어온 제출과, 끝맺지 못해 미뤄 둔 제출을 줍는다.
     @Scheduled(fixedDelay = 5_000)
     void sweep() {
+        for (Long id = retryLater.poll(); id != null; id = retryLater.poll()) {
+            resumable.add(id);
+        }
         wake();
     }
 
@@ -121,11 +130,16 @@ class JudgeWorker {
                 slots.release();
                 return;
             }
+            if (!inFlight.add(id)) {
+                slots.release();
+                continue;
+            }
             long claimed = id;
             workers.execute(() -> {
                 try {
                     judge(claimed);
                 } finally {
+                    inFlight.remove(claimed);
                     slots.release();
                     wake();
                 }
@@ -138,7 +152,7 @@ class JudgeWorker {
             Job job = jobs.load(id).orElse(null);
             if (job == null) {
                 log.warn("제출 {}의 언어 설정이 없어 채점할 수 없다", id);
-                jobs.fail(id);
+                failOrRetryLater(id);
                 return;
             }
             run(job);
@@ -153,7 +167,18 @@ class JudgeWorker {
             } else {
                 log.error("제출 {}을 채점하다 오류가 났다", id, e);
             }
+            failOrRetryLater(id);
+        }
+    }
+
+    // 채점 불가로 끝내는 것까지 실패하면 진행 중으로 남지 않게 다음 확인 때 다시 맡는다.
+    // 다시 맡으면 저장된 토큰과 판정으로 이어서 처리한다(재시작 복구와 같다).
+    private void failOrRetryLater(long id) {
+        try {
             jobs.fail(id);
+        } catch (RuntimeException e) {
+            log.error("제출 {}을 채점 불가로 끝내지 못했다. 다음 확인 때 다시 맡는다", id, e);
+            retryLater.add(id);
         }
     }
 
@@ -180,10 +205,19 @@ class JudgeWorker {
         }
         boolean hasSample = job.cases().stream().anyMatch(CaseRow::sample);
         CaseJudge.Limits limits = Judge0Client.judgeLimits(job.memoryLimitMb());
+        // 재시작해도 status 13 재제출이 케이스당 한 번을 넘지 않게 DB에 남긴 값에서 시작한다.
         Set<Long> resubmitted = new HashSet<>();
+        job.cases().stream().filter(CaseRow::retried).forEach(c -> resubmitted.add(c.testCaseId()));
         Instant deadline = Instant.now().plus(POLL_DEADLINE);
         int shownProgress = -1;
         while (true) {
+            // 보낼 케이스가 남았어도 이미 끝난 결과(컴파일 에러 등)인지 먼저 본다.
+            SubmissionOutcome decision = SubmissionOutcome.combine(job.cases().stream()
+                    .map(c -> new SubmissionOutcome.Case(c.sample(), outcomes.get(c.testCaseId()))).toList());
+            if (!(decision instanceof SubmissionOutcome.InProgress progress)) {
+                finish(id, decision);
+                return;
+            }
             // 공개 예제를 먼저 보내고, 예제가 하나라도 컴파일된 뒤 나머지를 보낸다. 컴파일 에러인 코드가
             // 비공개 케이스마다 컴파일하며 채점 서버를 붙잡지 않게 하고, 예제에서 난 에러를 먼저 보여 준다.
             if (!unsent.isEmpty()) {
@@ -192,12 +226,6 @@ class JudgeWorker {
                 List<CaseRow> batch = compiled ? List.copyOf(unsent) : unsent.stream().filter(CaseRow::sample).toList();
                 send(job, batch, tokens);
                 unsent.removeAll(batch);
-            }
-            SubmissionOutcome decision = SubmissionOutcome.combine(job.cases().stream()
-                    .map(c -> new SubmissionOutcome.Case(c.sample(), outcomes.get(c.testCaseId()))).toList());
-            if (!(decision instanceof SubmissionOutcome.InProgress progress)) {
-                finish(id, decision);
-                return;
             }
             // 첫 케이스 결과가 나오기 전까지는 '채점 준비 중'(COMPILING)으로 둔다.
             boolean anyJudged = outcomes.values().stream().anyMatch(o -> o instanceof CaseOutcome.Judged);
@@ -258,7 +286,7 @@ class JudgeWorker {
                         // Judge0 내부 오류는 같은 케이스를 한 번만 다시 보낸다(3절 3번). 또 나오면 채점 불가다.
                         String token = judge0.submit(job.language(), job.sourceCode(), job.timeLimitMs(), job.memoryLimitMb(),
                                 List.of(c.input())).getFirst();
-                        jobs.saveToken(job.id(), c.testCaseId(), token);
+                        jobs.saveRetryToken(job.id(), c.testCaseId(), token);
                         tokens.put(c.testCaseId(), token);
                     } else {
                         outcomes.put(c.testCaseId(), error);

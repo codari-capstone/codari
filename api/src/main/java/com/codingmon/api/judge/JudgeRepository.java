@@ -21,8 +21,9 @@ class JudgeRepository {
     }
 
     // resultId가 null이면 아직 채점 서버에 보내지 않은 케이스다. token이 null이면 보내다 끊긴 케이스다.
+    // retried는 Judge0 내부 오류(status 13)로 이미 한 번 다시 보낸 케이스다.
     record CaseRow(long testCaseId, boolean sample, String input, String expectedOutput, Long resultId, String token,
-            Verdict verdict, RuntimeErrorType errorType, Integer timeMs, Integer memoryKb) {
+            Verdict verdict, RuntimeErrorType errorType, Integer timeMs, Integer memoryKb, boolean retried) {
     }
 
     private static final String ACTIVE = "('QUEUED', 'COMPILING', 'RUNNING')";
@@ -72,7 +73,8 @@ class JudgeRepository {
 
     private List<CaseRow> findCases(long submissionId, long versionId, boolean sampleOnly) {
         return jdbc.sql("select t.id, t.case_type, t.input_data, t.expected_output, r.id as result_id, r.judge_token,"
-                + " r.verdict, r.runtime_error_type, r.execution_time_ms, r.memory_used_kb"
+                + " r.verdict, r.runtime_error_type, r.execution_time_ms, r.memory_used_kb,"
+                + " coalesce(r.internal_error_retried, false) as retried"
                 + " from test_cases t left join submission_test_results r"
                 + "   on r.test_case_id = t.id and r.submission_id = :submissionId"
                 + " where t.problem_version_id = :versionId and (not :sampleOnly or t.case_type = 'SAMPLE')"
@@ -84,24 +86,34 @@ class JudgeRepository {
                         rs.getString("input_data"), rs.getString("expected_output"), rs.getObject("result_id", Long.class),
                         rs.getString("judge_token"), enumOrNull(Verdict.class, rs.getString("verdict")),
                         enumOrNull(RuntimeErrorType.class, rs.getString("runtime_error_type")),
-                        rs.getObject("execution_time_ms", Integer.class), rs.getObject("memory_used_kb", Integer.class)))
+                        rs.getObject("execution_time_ms", Integer.class), rs.getObject("memory_used_kb", Integer.class),
+                        rs.getBoolean("retried")))
                 .list();
     }
 
     // 채점 서버에 보내기 전에 판정 없는 행을 만든다. 보낸 뒤 끊기면 토큰이 빈 행이 남아 재시작 때 알아볼 수 있다.
+    // 묶음(최대 20개)을 한 문장으로 넣는다.
     void insertCaseRows(long submissionId, long versionId, List<Long> testCaseIds) {
-        for (long testCaseId : testCaseIds) {
-            jdbc.sql("insert into submission_test_results (submission_id, problem_version_id, test_case_id)"
-                    + " values (:submissionId, :versionId, :testCaseId)")
-                    .param("submissionId", submissionId)
-                    .param("versionId", versionId)
-                    .param("testCaseId", testCaseId)
-                    .update();
-        }
+        jdbc.sql("insert into submission_test_results (submission_id, problem_version_id, test_case_id)"
+                + " select :submissionId, :versionId, t.id from test_cases t where t.id in (:testCaseIds)")
+                .param("submissionId", submissionId)
+                .param("versionId", versionId)
+                .param("testCaseIds", testCaseIds)
+                .update();
     }
 
     void saveToken(long submissionId, long testCaseId, String token) {
         jdbc.sql("update submission_test_results set judge_token = :token"
+                + " where submission_id = :submissionId and test_case_id = :testCaseId")
+                .param("token", token)
+                .param("submissionId", submissionId)
+                .param("testCaseId", testCaseId)
+                .update();
+    }
+
+    // status 13으로 다시 보낸 케이스의 새 토큰. 재시작해도 한 번만 다시 보내도록 표시를 함께 남긴다.
+    void saveRetryToken(long submissionId, long testCaseId, String token) {
+        jdbc.sql("update submission_test_results set judge_token = :token, internal_error_retried = true"
                 + " where submission_id = :submissionId and test_case_id = :testCaseId")
                 .param("token", token)
                 .param("submissionId", submissionId)
