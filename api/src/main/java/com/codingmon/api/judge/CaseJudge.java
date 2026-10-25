@@ -55,14 +55,14 @@ final class CaseJudge {
         }
         if (status == 6) {
             // Python 문법 오류(아래)와 같이 끝 줄바꿈을 지워, 언어와 상관없이 메시지 모양을 맞춘다.
-            return new CaseOutcome.CompileError(StoredText.of(StoredText.decode(result.compileOutput()).stripTrailing()));
+            return new CaseOutcome.CompileError(StoredText.of(StoredText.decode(result.compileOutput()).stripTrailing()), true);
         }
         String stderr = StoredText.withoutJudgeLines(StoredText.decode(result.stderr()));
         // Python은 컴파일 단계가 없어 문법 오류도 실행 중 status 11로 온다. 진짜 문법 오류는 입력과 상관없이
         // 모든 케이스에서 나므로 SAMPLE에서 확정한다. HIDDEN에서 같은 모양이면 학생 코드가 stderr를 꾸민 것이라
         // 컴파일 메시지로 공개하지 않는다. 공개하면 비공개 입력을 메시지에 실어 빼낼 수 있다(6번).
         if (language == Language.PYTHON && sample && status == 11 && isPythonSyntaxError(stderr)) {
-            return new CaseOutcome.CompileError(StoredText.of(stderr));
+            return new CaseOutcome.CompileError(StoredText.of(stderr), false);
         }
         if (status == 5) {
             return judged(Verdict.TIME_LIMIT_EXCEEDED, null, result);
