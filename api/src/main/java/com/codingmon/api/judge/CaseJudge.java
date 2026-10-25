@@ -48,13 +48,14 @@ final class CaseJudge {
             return new CaseOutcome.Pending();
         }
         if (status == 13) {
-            return new CaseOutcome.InternalError();
+            return new CaseOutcome.InternalError(result.message());
         }
         if (status == 14) {
-            return new CaseOutcome.JudgeError("Judge0 status 14 (Exec Format Error)");
+            return new CaseOutcome.JudgeError("Judge0 status 14 (Exec Format Error): " + result.message());
         }
         if (status == 6) {
-            return new CaseOutcome.CompileError(StoredText.of(result.compileOutput()));
+            // Python 문법 오류(아래)와 같이 끝 줄바꿈을 지워, 언어와 상관없이 메시지 모양을 맞춘다.
+            return new CaseOutcome.CompileError(StoredText.of(StoredText.decode(result.compileOutput()).stripTrailing()));
         }
         String stderr = StoredText.withoutJudgeLines(StoredText.decode(result.stderr()));
         // Python은 컴파일 단계가 없어 문법 오류도 실행 중 status 11로 온다. 진짜 문법 오류는 입력과 상관없이
@@ -95,7 +96,7 @@ final class CaseJudge {
             }
             return judged(OutputComparator.compare(result.stdout(), expectedOutput), null, result);
         }
-        return new CaseOutcome.JudgeError("알 수 없는 Judge0 status " + status);
+        return new CaseOutcome.JudgeError("알 수 없는 Judge0 status " + status + ": " + result.message());
     }
 
     // 신호는 status가 아니라 exit_code(128 + 신호 번호)로 온다. Judge0가 프로그램을 bash 스크립트로 감싸 실행하기 때문이다.

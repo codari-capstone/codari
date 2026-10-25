@@ -81,7 +81,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 케이스 판정을 제출 하나(`submissions`)의 값으로 합치는 규칙이다. 케이스 순서는 SAMPLE 먼저, 같은 종류 안에서는 `ordinal` 순이다(AI_FEATURES 10절 "공개 예제부터").
 
-1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다. HIDDEN 케이스의 status 6은 SAMPLE 케이스 중 하나라도 컴파일에 성공했으면(status 6이 아니면) 채점 불가로 보고 2번으로 끝낸다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
+1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다. 다만 다른 케이스가 이미 컴파일에 성공해 판정이 났다면, SAMPLE이든 HIDDEN이든 status 6인 케이스는 채점 불가로 보고 2번으로 끝낸다. HIDDEN 케이스의 status 6은 SAMPLE 결과가 아직이면 기다린다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
 2. 채점 불가인 케이스가 나오면 그 자리에서 제출을 `job_status = 'JUDGE_ERROR'`, `verdict = NULL`로 끝낸다.
 3. 그 밖에는 실행 대상 케이스의 판정이 모두 모인 뒤(`database-schema.md`) 정한다. 모두 `ACCEPTED`면 `ACCEPTED`, 아니면 케이스 순서상 처음으로 `ACCEPTED`가 아닌 케이스의 판정이다.
 4. `runtime_error_type`은 3에서 고른 케이스가 `RUNTIME_ERROR`일 때 그 케이스의 종류(4절)다. 그 밖에는 `NULL`이다. 종류는 케이스 결과를 받을 때 정해 케이스 행에 저장한다. 비공개 케이스는 stderr를 저장하지 않아 나중에 다시 구할 수 없고, 재시작 복구도 판정이 빈 행만 다시 조회하기 때문이다(`database-schema.md`). 케이스 행의 `runtime_error_type`은 `V2__judge_case_results.sql`에서 더했다.
@@ -129,10 +129,10 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 401·403 | 설정 오류(토큰). 재시도하지 않고 `JUDGE_ERROR`, 운영 알림 |
 | 422 | 요청 값 오류. 재시도하지 않고 `JUDGE_ERROR`, 운영 알림. 제한값이 서버가 받는 범위를 벗어나도 422가 나므로 문제 등록 때 막는다(1절) |
 | 묶음 제출의 항목 오류 | 일부 항목만 잘못되면 201, 모두 잘못되면 422로 오고 둘 다 항목별 목록이다. `token`이 없는 항목이 하나라도 있으면 422와 같이 재시도하지 않고 제출을 `JUDGE_ERROR`로 끝낸다. 토큰을 받은 다른 항목의 결과는 쓰지 않는다 |
-| 503 (`queue is full`) | 지수 백오프로 재시도. 한도를 넘기면 `JUDGE_ERROR` |
+| 503 (`queue is full`) | 지수 백오프로 재시도(0.5초부터 두 배씩, 8초에서 멈춰 최대 7번, 합쳐 약 23초). 한도를 넘기면 `JUDGE_ERROR` |
 | 연결 오류·타임아웃·5xx (결과 조회) | 같은 GET을 백오프로 재시도 |
 | 404 (결과 조회) | 토큰이 채점 서버에 없다(Judge0 DB를 새로 만든 경우 등). 다시 물어도 같으므로 재시도하지 않고 `JUDGE_ERROR`, 오류 로그 |
-| 연결 오류·타임아웃·5xx (제출 POST) | 응답(토큰)을 받지 못하면 같은 요청을 자동으로 다시 보내지 않고 `JUDGE_ERROR`로 끝낸다. 제출이 이미 들어갔을 수 있어, 다시 보내면 같은 코드가 두 번 실행된다. 재시작 복구에서 행은 있는데 토큰이 빈 케이스도 같은 이유로 다시 보내지 않는다(`database-schema.md`) |
+| 연결 오류·타임아웃·5xx (제출 POST) | 응답(토큰)을 받지 못하면 같은 요청을 자동으로 다시 보내지 않고 `JUDGE_ERROR`로 끝낸다. 제출이 이미 들어갔을 수 있어, 다시 보내면 같은 코드가 두 번 실행된다. 연결 거부(`ConnectException`)만은 요청이 서버에 닿지 않은 것이라 결과 조회처럼 다시 보낸다. 재시작 복구에서 행은 있는데 토큰이 빈 케이스도 같은 이유로 다시 보내지 않는다(`database-schema.md`) |
 | 폴링 기한 초과 | `cpu_time_limit`가 아니라 큐 대기까지 고려한 기한이다. 넘기면 `JUDGE_ERROR` |
 | status 13·14, 14번 행 | 3절 |
 

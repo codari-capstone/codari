@@ -1,5 +1,6 @@
 package com.codingmon.api.judge;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.net.ConnectException;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +24,7 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 
 import com.codingmon.api.Language;
@@ -49,10 +51,15 @@ class Judge0Client {
     // GCC 9.2 기본 표준이 gnu++14라 C++17을 쓰려면 옵션이 필요하다. Python에 보내면 422다.
     private static final String CPP_COMPILER_OPTIONS = "-O2 -std=c++17";
 
-    // 기본 응답에는 exit_code가 없어 필드를 명시한다.
-    private static final String RESULT_FIELDS = "token,status,stdout,stderr,compile_output,time,memory,exit_code,exit_signal";
+    // 기본 응답에는 exit_code가 없어 필드를 명시한다. message는 채점 불가의 원인을 로그에 남기려고 받는다.
+    private static final String RESULT_FIELDS =
+            "token,status,stdout,stderr,compile_output,message,time,memory,exit_code,exit_signal";
 
     private static final int MAX_ATTEMPTS = 4;
+
+    // 큐가 찼을 때(503)는 슬롯 2개가 큐를 비울 때까지 더 오래 기다린다. 간격은 0.5초부터 두 배씩, 8초에서 멈춰 합쳐 약 23초다.
+    private static final int QUEUE_FULL_ATTEMPTS = 7;
+    private static final Duration MAX_BACKOFF = Duration.ofSeconds(8);
 
     private static final ParameterizedTypeReference<List<Map<String, Object>>> ITEMS = new ParameterizedTypeReference<>() {
     };
@@ -186,7 +193,7 @@ class Judge0Client {
         }
         return new Judge0Result(statusId.intValue(), decode(item.get("stdout")), decode(item.get("stderr")),
                 decode(item.get("compile_output")), item.get("time") == null ? null : new BigDecimal(item.get("time").toString()),
-                integer(item.get("memory")), integer(item.get("exit_code")), integer(item.get("exit_signal")));
+                integer(item.get("memory")), integer(item.get("exit_code")), integer(item.get("exit_signal")), text(item.get("message")));
     }
 
     private <T> T call(String what, boolean idempotent, Supplier<T> request) {
@@ -201,16 +208,24 @@ class Judge0Client {
                     log.error("Judge0 {} 요청이 {}로 거절됐다: {}", what, status, e.getResponseBodyAsString());
                     throw new Judge0Exception("Judge0 " + what + " " + status, e);
                 }
-                if (!(status == 503 || (idempotent && status >= 500)) || attempt >= MAX_ATTEMPTS) {
+                int limit = status == 503 ? QUEUE_FULL_ATTEMPTS : MAX_ATTEMPTS;
+                if (!(status == 503 || (idempotent && status >= 500)) || attempt >= limit) {
                     throw new Judge0Exception("Judge0 " + what + " " + status + " (" + attempt + "회 시도)", e);
                 }
             } catch (ResourceAccessException e) {
+                // 연결 거부는 요청이 서버에 닿지 않은 것이라 제출도 다시 보낼 수 있다. 읽기 타임아웃은 이미 들어갔을 수 있다.
                 if (!(idempotent || e.getCause() instanceof ConnectException) || attempt >= MAX_ATTEMPTS) {
                     throw new Judge0Exception("Judge0 " + what + " 연결 실패 (" + attempt + "회 시도)", e);
                 }
+            } catch (RestClientException e) {
+                // 응답 본문을 읽다 끊기거나 형식이 다르면 Spring이 일반 RestClientException으로 감싼다.
+                // 결과 조회의 I/O 오류만 다시 묻고, 그 밖에는 채점 불가로 알린다.
+                if (!(idempotent && causedByIo(e)) || attempt >= MAX_ATTEMPTS) {
+                    throw new Judge0Exception("Judge0 " + what + " 응답을 읽지 못했다 (" + attempt + "회 시도)", e);
+                }
             }
             sleep(backoff);
-            backoff = backoff.multipliedBy(2);
+            backoff = backoff.multipliedBy(2).compareTo(MAX_BACKOFF) > 0 ? MAX_BACKOFF : backoff.multipliedBy(2);
         }
     }
 
@@ -230,6 +245,27 @@ class Judge0Client {
     // Judge0(Ruby)는 base64를 60자마다 줄바꿈해 준다. MIME 디코더는 줄바꿈을 건너뛴다.
     private static byte[] decode(Object value) {
         return value == null ? null : Base64.getMimeDecoder().decode(value.toString());
+    }
+
+    private static boolean causedByIo(Throwable e) {
+        for (Throwable cause = e.getCause(); cause != null; cause = cause.getCause()) {
+            if (cause instanceof IOException) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // message도 base64로 온다. 풀리지 않으면 받은 그대로 둔다.
+    private static String text(Object value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return new String(decode(value), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return value.toString();
+        }
     }
 
     private static Integer integer(Object value) {

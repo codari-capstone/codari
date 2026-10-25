@@ -20,6 +20,16 @@ class SubmissionOutcomeTest {
     }
 
     @Test
+    void 시간이나_메모리가_빈_케이스가_먼저_와도_합친다() {
+        assertThat(SubmissionOutcome.combine(List.of(
+                sample(new CaseOutcome.Judged(Verdict.ACCEPTED, null, null, null)),
+                hidden(judged(Verdict.ACCEPTED, 30, 9_000)))))
+                .isEqualTo(new SubmissionOutcome.Completed(Verdict.ACCEPTED, null, 30, 9_000));
+        assertThat(SubmissionOutcome.combine(List.of(sample(new CaseOutcome.Judged(Verdict.ACCEPTED, null, null, null)))))
+                .isEqualTo(new SubmissionOutcome.Completed(Verdict.ACCEPTED, null, null, null));
+    }
+
+    @Test
     void 채점_순서상_처음_틀린_케이스가_판정을_낸다() {
         assertThat(SubmissionOutcome.combine(List.of(
                 sample(judged(Verdict.ACCEPTED, 10, 9_000)),
@@ -51,6 +61,10 @@ class SubmissionOutcomeTest {
         // SAMPLE은 컴파일됐으면 학생 코드 탓이 아니다
         assertThat(SubmissionOutcome.combine(List.of(sample(judged(Verdict.ACCEPTED, 10, 9_000)), hidden(hiddenCompile))))
                 .isInstanceOf(SubmissionOutcome.JudgeError.class);
+        // SAMPLE끼리 엇갈려도 학생 코드 탓이 아니다
+        assertThat(SubmissionOutcome.combine(List.of(
+                sample(judged(Verdict.ACCEPTED, 10, 9_000)), sample(new CaseOutcome.CompileError("error")), hidden(PENDING))))
+                .isInstanceOf(SubmissionOutcome.JudgeError.class);
         // SAMPLE도 컴파일 에러면 컴파일 에러다
         assertThat(SubmissionOutcome.combine(List.of(sample(new CaseOutcome.CompileError("error")), hidden(hiddenCompile))))
                 .isEqualTo(new SubmissionOutcome.CompileError("error"));
@@ -61,7 +75,7 @@ class SubmissionOutcomeTest {
         assertThat(SubmissionOutcome.combine(List.of(
                 sample(judged(Verdict.ACCEPTED, 10, 9_000)), hidden(new CaseOutcome.JudgeError("status 14")), hidden(PENDING))))
                 .isEqualTo(new SubmissionOutcome.JudgeError("status 14"));
-        assertThat(SubmissionOutcome.combine(List.of(sample(new CaseOutcome.InternalError()))))
+        assertThat(SubmissionOutcome.combine(List.of(sample(new CaseOutcome.InternalError(null)))))
                 .isInstanceOf(SubmissionOutcome.JudgeError.class);
         assertThat(SubmissionOutcome.combine(List.of())).isInstanceOf(SubmissionOutcome.JudgeError.class);
     }
