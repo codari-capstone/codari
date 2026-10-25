@@ -15,6 +15,6 @@ export async function login(page: Page) {
   await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
   await page.getByLabel('이메일').fill(USER.email)
   await page.getByLabel('비밀번호').fill(USER.password)
-  await page.getByRole('button', { name: '로그인' }).click()
+  await page.getByRole('button', { name: '로그인', exact: true }).click()
   await expect(page).toHaveURL(/\/problems$/)
 }
