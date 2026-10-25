@@ -626,6 +626,93 @@ paths:
         '404':
           $ref: '#/components/responses/Problem'
 
+  /api/sample-runs:
+    post:
+      operationId: runSamples
+      summary: 예제 실행 (SOLVE-08)
+      description: |
+        작성한 코드를 문제의 공개 예제로만 실행하도록 대기(`QUEUED`)로 저장하고 바로 답한다. 결과는 예제 실행 결과(`GET /api/sample-runs/{id}`)로 확인한다.
+        시도 횟수·풀이 상태·제출 기록에 들어가지 않는다.
+        요청 본문과 오류는 코드 제출(`POST /api/submissions`)과 같다.
+      tags: [submissions]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [problemId, language, sourceCode]
+              properties:
+                problemId:
+                  type: integer
+                  format: int64
+                  description: 문제 목록·상세의 `id`
+                language:
+                  $ref: '#/components/schemas/Language'
+                sourceCode:
+                  type: string
+      responses:
+        '202':
+          description: 접수됨
+          headers:
+            Location:
+              description: 이 예제 실행의 결과 조회 경로
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+                    description: 예제 실행 번호
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '413':
+          description: 요청 본문이 512KB를 넘음
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /api/sample-runs/{id}:
+    get:
+      operationId: getSampleRunResult
+      summary: 예제 실행 상태·예제별 결과 (SOLVE-08)
+      description: |
+        화면은 `status`가 `COMPLETED`나 `JUDGE_ERROR`가 될 때까지 주기적으로 부른다(폴링).
+        로그인한 본인의 예제 실행만 볼 수 있다. 남의 것·없는 것·채점 제출은 모두 404 `SAMPLE_RUN_NOT_FOUND`다.
+        예제의 입력·기대 출력은 담지 않는다. 화면은 문제 상세의 `samples`와 `ordinal`로 짝짓는다.
+      tags: [submissions]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 예제 실행 응답의 `id`
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 지금 상태. 끝나지 않았으면 판정은 null이다
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SampleRunResult'
+        '400':
+          $ref: '#/components/responses/Problem'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Problem'
+
   /api/concept-tags:
     get:
       operationId: listConceptTags
@@ -863,6 +950,75 @@ components:
         judgedAt:
           type: [string, 'null']
           format: date-time
+
+    SampleRunResult:
+      type: object
+      required: [id, problemId, language, status, progress, verdict, runtimeErrorType, compilerMessage,
+        submittedAt, judgedAt, cases]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 예제 실행 번호
+        problemId:
+          type: integer
+          format: int64
+        language:
+          $ref: '#/components/schemas/Language'
+        status:
+          type: string
+          enum: [QUEUED, COMPILING, RUNNING, COMPLETED, JUDGE_ERROR]
+          description: '`SubmissionResult.status`와 같다. `RUNNING`이면 `progress` %'
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        verdict:
+          type: [string, 'null']
+          enum: [ACCEPTED, PRESENTATION_ERROR, WRONG_ANSWER, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED,
+            OUTPUT_LIMIT_EXCEEDED, RUNTIME_ERROR, COMPILE_ERROR, null]
+          description: 예제 전체의 판정. 모두 맞으면 `ACCEPTED`, 아니면 처음 틀린 예제의 판정. `COMPLETED`일 때만 있다
+        runtimeErrorType:
+          type: [string, 'null']
+          enum: [INDEX_ERROR, ZERO_DIVISION, VALUE_ERROR, NAME_ERROR, TYPE_ERROR, RECURSION_ERROR, EOF_ERROR, OTHER, null]
+          description: '`verdict`가 `RUNTIME_ERROR`일 때만 있다. 값은 `docs/judge-verdict-mapping.md` 4절'
+        compilerMessage:
+          type: [string, 'null']
+          description: '`verdict`가 `COMPILE_ERROR`일 때 줄 번호가 든 메시지(RES-05). 이때 예제별 `verdict`는 모두 null이다. 글자 그대로 보여 준다'
+        submittedAt:
+          type: string
+          format: date-time
+        judgedAt:
+          type: [string, 'null']
+          format: date-time
+        cases:
+          type: array
+          description: 공개 예제 전부. 실행 전인 예제도 있고 결과 값이 null이다
+          items:
+            type: object
+            required: [ordinal, actualOutput, verdict, errorMessage, executionTimeMs, memoryUsedKb]
+            properties:
+              ordinal:
+                type: integer
+                minimum: 1
+                description: 문제 상세 `samples`의 순서(1부터)
+              actualOutput:
+                type: [string, 'null']
+                description: 프로그램의 실제 출력. 최대 65,536자이고 깨진 바이트·NUL은 U+FFFD로 바뀐다
+              verdict:
+                type: [string, 'null']
+                enum: [ACCEPTED, PRESENTATION_ERROR, WRONG_ANSWER, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED,
+                  OUTPUT_LIMIT_EXCEEDED, RUNTIME_ERROR, null]
+                description: 이 예제의 판정. 실행 전이거나 컴파일 에러·채점 불가로 끝나 실행되지 않았으면 null
+              errorMessage:
+                type: [string, 'null']
+                description: |
+                  프로그램이 낸 에러 원문(줄 번호 포함, RES-04). 공개 예제라 그대로 준다.
+                  C++ Segfault처럼 원문이 없으면 null이다. 학생 코드가 만든 문자열이라 글자 그대로 보여 준다(HTML로 렌더링하지 않는다).
+              executionTimeMs:
+                type: [integer, 'null']
+              memoryUsedKb:
+                type: [integer, 'null']
 
     AccessTokenResponse:
       type: object
