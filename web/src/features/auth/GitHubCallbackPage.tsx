@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useCallback, useEffect, useRef } from 'react'
+import { Navigate, useNavigate, useSearchParams } from 'react-router'
 
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
@@ -9,7 +9,7 @@ import { NicknameField } from './NicknameField'
 import { problemCode, problemMessage } from './problemCode'
 import { safeRedirect } from './safeRedirect'
 import { adoptSession } from './session'
-import { SIGNUP_NOTICE } from './SignupPage'
+import { useAuth } from './useAuth'
 import { useNicknameCheck } from './useNicknameCheck'
 
 /**
@@ -19,6 +19,14 @@ import { useNicknameCheck } from './useNicknameCheck'
  * 응답 오류·서버 오류가 다 여기다. 그래서 화면도 이유를 말하지 않고 다시 해 보라고만 한다.
  */
 const GITHUB_FAILED = 'GitHub 로그인에 실패했어요. 다시 시도해 주세요'
+
+/**
+ * 가입 뒤 로그인 화면에 띄우는 안내.
+ *
+ * 이메일 가입(COM-06)의 문구를 쓰지 않는다. 이 계정에는 **비밀번호가 없어서**(명세 COM-02)
+ * "로그인해 주세요"라고만 하면 이메일·비밀번호 폼을 채우다 반드시 실패한다.
+ */
+const GITHUB_SIGNED_UP = '가입이 완료됐어요. GitHub로 다시 로그인해 주세요'
 
 /**
  * GitHub 로그인이 돌아오는 자리 (COM-02).
@@ -33,29 +41,37 @@ export function Component() {
   const queryClient = useQueryClient()
   const [params] = useSearchParams()
   const result = params.get('result')
+  const { isAuthenticated } = useAuth()
 
   // 닉네임 입력칸. 선점됐을 때 거기로 포커스를 옮긴다 (useNicknameCheck.release).
   const nicknameInput = useRef<HTMLInputElement>(null)
 
-  // 딱 한 번 읽는다 — takeGitHubReturnPath가 읽으면서 지운다. 지우지 않으면 다음 로그인이
-  // 옛 주소로 끌려간다. 값은 믿지 않는다(safeRedirect) — sessionStorage는 사용자가 고칠 수 있다.
-  const [from] = useState(() => safeRedirect(takeGitHubReturnPath()))
+  /**
+   * 기억해 둔 돌아갈 주소. **렌더가 아니라 아래 효과에서 한 번 읽는다.**
+   *
+   * takeGitHubReturnPath는 읽으면서 지우므로 순수하지 않다. useState 초기화 함수에 두면
+   * 버려졌다 다시 도는 렌더(동시성 중단·에러 경계 재시도·lazy 라우트 재마운트)가 이미 빈
+   * 자리를 읽어, 아무 말 없이 /problems로 떨어진다. 효과는 커밋된 렌더에만 돈다.
+   *
+   * 값은 믿지 않는다(safeRedirect) — sessionStorage는 사용자가 고칠 수 있다.
+   */
+  const from = useRef('/problems')
 
   const toLogin = useCallback(
     (error?: unknown) => {
       const message = error === undefined ? GITHUB_FAILED : problemMessage(error)
       // 원래 가려던 화면을 그대로 싣는다. 안 실으면 /problems/42에서 시작한 사람이 로그인에
       // 성공해도 문제 목록으로 간다 (값 검사는 로그인 화면이 다시 한다).
-      void navigate('/login', { replace: true, state: { error: message, from } })
+      void navigate('/login', { replace: true, state: { error: message, from: from.current } })
     },
-    [navigate, from],
+    [navigate],
   )
 
   const resume = useMutation({
     mutationFn: resumeGitHubSession,
     onSuccess: async (user) => {
       await adoptSession(queryClient, user)
-      void navigate(from, { replace: true })
+      void navigate(from.current, { replace: true })
     },
     // 성공이라고 돌아왔는데 세션이 없다. 이유를 말할 수 없으니 일반 문구다.
     onError: () => toLogin(),
@@ -65,7 +81,10 @@ export function Component() {
     mutationFn: () => gitHubSignUp(nickname.value),
     onSuccess: () => {
       // 계약이 가입 응답에 토큰을 주지 않는다. 사용자는 GitHub 로그인을 다시 누른다.
-      void navigate('/login', { replace: true, state: { notice: SIGNUP_NOTICE, from } })
+      void navigate('/login', {
+        replace: true,
+        state: { notice: GITHUB_SIGNED_UP, from: from.current },
+      })
     },
     onError: (error) => {
       const failed = problemCode(error)
@@ -88,6 +107,7 @@ export function Component() {
   useEffect(() => {
     if (started.current) return
     started.current = true
+    from.current = safeRedirect(takeGitHubReturnPath())
     if (result === 'success') resume.mutate()
     else if (result !== 'signup') toLogin()
   }, [result, resume, toLogin])
@@ -104,6 +124,14 @@ export function Component() {
     )
   }
 
+  // 이미 로그인한 사람에게 닉네임 폼을 보여 주면 [가입 완료]가 VERIFICATION_EXPIRED를 받고,
+  // 로그인 화면은 로그인 상태라 그 문구를 그냥 넘겨 버려 설명 없이 떠내려간다.
+  //
+  // isLoading은 보지 않는다. 그 동안은 isAuthenticated가 false라 폼이 그대로 보인다 —
+  // 세션을 모르는 동안 스켈레톤을 그리면 **처음 가입하는 모든 사람**이 깜빡임을 보게 된다
+  // (LoginPage·SignupPage는 입력할 칸이 여러 개라 그 대가를 치를 값이 있다. 여기는 하나다).
+  if (isAuthenticated) return <Navigate to="/problems" replace />
+
   return (
     <section className="mx-auto flex w-full max-w-sm flex-col gap-6 py-10">
       <h1 className="text-2xl font-semibold">닉네임 정하기</h1>
@@ -111,24 +139,39 @@ export function Component() {
         GitHub 계정으로 처음 오셨어요. 쓸 닉네임만 정하면 가입이 끝나요.
       </p>
 
-      <NicknameField check={nickname} inputRef={nicknameInput} busy={signUp.isPending} />
-
-      {signUp.isError ? (
-        <p role="alert" className="text-destructive text-sm">
-          {problemMessage(signUp.error)}
-        </p>
-      ) : null}
-
-      {/* isPending 동안 끈다. 두 번 누르면 두 번째는 409 ALREADY_REGISTERED를 받아, 가입된 사람에게 실패 문구가 뜬다. */}
-      <Button
-        type="button"
-        size="lg"
-        className="min-h-11"
-        disabled={!nickname.ok || signUp.isPending}
-        onClick={() => signUp.mutate()}
+      {/*
+        칸이 하나뿐인 화면이라 form으로 감싼다. 감싸지 않으면 닉네임을 치고 Enter를 눌러도
+        아무 일이 없어, 키보드만 쓰는 사람은 [중복 확인]을 지나 [가입 완료]까지 Tab으로 가야 한다.
+        제출 조건은 핸들러에서 한 번 더 본다 — 브라우저마다 비활성 버튼과 암묵적 제출의
+        조합이 달라, 버튼이 꺼져 있다는 것만으로는 Enter를 막았다고 할 수 없다.
+      */}
+      <form
+        aria-label="GitHub 가입"
+        noValidate
+        className="flex flex-col gap-6"
+        onSubmit={(event) => {
+          event.preventDefault()
+          if (nickname.ok && !signUp.isPending) signUp.mutate()
+        }}
       >
-        {signUp.isPending ? '가입 중…' : '가입 완료'}
-      </Button>
+        <NicknameField check={nickname} inputRef={nicknameInput} busy={signUp.isPending} />
+
+        {signUp.isError ? (
+          <p role="alert" className="text-destructive text-sm">
+            {problemMessage(signUp.error)}
+          </p>
+        ) : null}
+
+        {/* isPending 동안 끈다. 두 번 누르면 두 번째는 409 ALREADY_REGISTERED를 받아, 가입된 사람에게 실패 문구가 뜬다. */}
+        <Button
+          type="submit"
+          size="lg"
+          className="min-h-11"
+          disabled={!nickname.ok || signUp.isPending}
+        >
+          {signUp.isPending ? '가입 중…' : '가입 완료'}
+        </Button>
+      </form>
     </section>
   )
 }

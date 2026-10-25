@@ -116,6 +116,14 @@ describe('safeRedirect', () => {
     expect(safeRedirect('/login?from=%2Fsubmissions')).toBe('/problems')
   })
 
+  it("'/login' 아래의 콜백 화면도 거부한다 (COM-02)", () => {
+    // COM-02가 '/login/github'를 형제로 더했다. 받아 주면 로그인에 성공해도 그 콜백
+    // 화면으로 되돌아가고, 거기서 받는 VERIFICATION_EXPIRED는 이미 로그인 상태라
+    // 로그인 화면이 보여 주기 전에 다시 넘겨 버린다 — 설명 없는 왕복이 된다.
+    expect(safeRedirect('/login/github')).toBe('/problems')
+    expect(safeRedirect('/login/github?result=signup')).toBe('/problems')
+  })
+
   it('경로가 아니거나 없으면 문제 목록으로 보낸다', () => {
     expect(safeRedirect(undefined)).toBe('/problems')
     expect(safeRedirect(42)).toBe('/problems')
@@ -498,6 +506,22 @@ describe('로그인 화면', () => {
 
     await waitForLoginForm()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('지나간 GitHub 실패는 방금 로그인 실패와 겹쳐 보이지 않는다 (COM-02)', async () => {
+    const user = userEvent.setup()
+    // state의 실패 문구는 history 항목에 남는다. 지우지 않으면 경고가 둘이 되고 그중
+    // 하나는 이미 지나간 일을 설명한다.
+    renderLogin({ error: 'GitHub 로그인에 실패했어요. 다시 시도해 주세요' })
+
+    await waitForLoginForm()
+    await user.type(screen.getByLabelText('이메일'), 'user@codari.test')
+    await user.type(screen.getByLabelText('비밀번호'), 'Codari!wrong9')
+    await user.click(screen.getByRole('button', { name: /^로그인/ }))
+
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0]).toHaveTextContent(CREDENTIAL_MESSAGE)
   })
 
   it('[GitHub로 로그인]은 원래 가려던 화면을 기억하라고 넘긴다 (COM-02)', async () => {

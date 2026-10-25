@@ -14,7 +14,7 @@ import { useAuth } from './useAuth'
 import { useNicknameCheck } from './useNicknameCheck'
 
 /** 가입 뒤 로그인 화면에 띄우는 안내. 명세 COM-06이 이 문구로 정했다 (#113). */
-export const SIGNUP_NOTICE = '가입이 완료됐어요. 로그인해 주세요'
+const SIGNUP_NOTICE = '가입이 완료됐어요. 로그인해 주세요'
 
 /**
  * 이메일 회원가입 (COM-06).

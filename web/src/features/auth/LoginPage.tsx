@@ -24,8 +24,8 @@ export function Component() {
   const target = safeRedirect(state?.from)
   // 가입·재설정이 넘긴 한 줄. state는 사용자가 심을 수 있으니 문자열만 받는다.
   const notice = typeof state?.notice === 'string' ? state.notice : null
-  // GitHub 로그인(COM-02)이 실패해 되돌려 보낸 한 줄. 같은 자리에 쓰지 않는다 — 안내는
-  // role="status"로 지나가고 실패는 role="alert"로 읽혀야 한다.
+  // GitHub 로그인(COM-02)이 실패해 되돌려 보낸 한 줄. 안내와 같은 자리에 쓰지 않는다 —
+  // 안내는 role="status"로 지나가고 실패는 role="alert"로 읽혀야 한다.
   const failure = typeof state?.error === 'string' ? state.error : null
 
   const {
@@ -65,7 +65,11 @@ export function Component() {
         </p>
       ) : null}
 
-      {failure ? (
+      {/*
+        방금 로그인이 실패했으면 보여 주지 않는다. 이 값은 history 항목에 남아 있어
+        지우지 않으면 경고가 둘로 겹치고, 그중 하나는 이미 지나간 일을 설명한다.
+      */}
+      {failure && !login.isError ? (
         <p role="alert" className="text-destructive text-sm">
           {failure}
         </p>
