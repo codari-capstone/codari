@@ -77,7 +77,10 @@ def run_one(client, workload, lang, stdin):
 
 
 def conditions(client, label):
-    _, about = client.request("GET", "/about")
+    status, about = client.request("GET", "/about")
+    if status in (401, 403):
+        # 토큰이 틀리면 모든 제출이 같은 이유로 실패한다. 측정을 시작하지 않는다.
+        raise SystemExit(f"Judge0가 {status}로 거절했다. JUDGE0_AUTHN_TOKEN(또는 judge/.env의 AUTHN_TOKEN)을 확인한다")
     _, isolate = client.request("GET", "/isolate")
     # /isolate는 버전·저작권·빌드 정보 여러 줄을 준다. 결과 md 목록이 깨지지 않게 첫 줄만 남긴다.
     isolate = isolate.splitlines()[0] if isinstance(isolate, str) and isolate else isolate
@@ -125,6 +128,8 @@ def main(argv=None):
     parser.add_argument("--max-size-index", type=int, default=2, help="0이면 소 크기만, 2면 소·중·대 모두")
     parser.add_argument("--results", action="store_true", help="표를 bench/results/에도 저장한다")
     args = parser.parse_args(argv)
+    if args.runs < 1:
+        parser.error("--runs는 1 이상이어야 한다")
 
     client = client_from_env()
     cond = conditions(client, args.label)
@@ -161,6 +166,9 @@ def measure(client, args, raw, rows, problems):
                     try:
                         m = run_one(client, workload, lang, stdin)
                     except (Judge0HTTPError, PollTimeout, OSError) as e:
+                        # 토큰·요청 값 오류는 다시 해도 같으니 바로 멈춘다(그때까지의 원자료는 finally가 남긴다).
+                        if isinstance(e, Judge0HTTPError) and e.status in (400, 401, 403, 422):
+                            raise
                         problems.append(f"{workload} N={n} {lang} 실행 {i}: 실행 실패 {e}")
                         continue
                     raw.append({"workload": workload, "n": n, "lang": lang, "run": i, "warmup": i == 0, **m})
@@ -171,7 +179,8 @@ def measure(client, args, raw, rows, problems):
                     if i > 0:
                         samples[lang]["time"].append(m["time"])
                         samples[lang]["memory"].append(m["memory"])
-            if workload != "empty" and hashes["python"] != hashes["cpp"]:
+            # 한 언어가 한 번도 끝나지 못했으면 비교할 출력이 없다. 실행 실패는 위에서 이미 적었다.
+            if workload != "empty" and hashes["python"] and hashes["cpp"] and hashes["python"] != hashes["cpp"]:
                 problems.append(f"{workload} N={n}: 두 언어 출력이 다름")
             rows[(workload, n)] = evaluate_row(samples["python"], samples["cpp"])
             print(f"  {workload} N={n} 완료", file=sys.stderr)
