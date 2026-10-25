@@ -50,7 +50,7 @@ sealed interface SubmissionOutcome {
                 }
                 // 처리기가 다시 제출하지 않고 넘겼다면 채점 불가로 본다.
                 case CaseOutcome.InternalError error -> {
-                    return new JudgeError("Judge0 status 13 (Internal Error)");
+                    return new JudgeError("Judge0 status 13 (Internal Error): " + error.message());
                 }
                 // SAMPLE이 아직이면 기다린다. SAMPLE이 없는 실행은 컴파일 에러를 확정할 근거가 없다.
                 case CaseOutcome.CompileError error when compiled || !hasSample -> {

@@ -75,7 +75,7 @@ class SubmissionOutcomeTest {
         assertThat(SubmissionOutcome.combine(List.of(
                 sample(judged(Verdict.ACCEPTED, 10, 9_000)), hidden(new CaseOutcome.JudgeError("status 14")), hidden(PENDING))))
                 .isEqualTo(new SubmissionOutcome.JudgeError("status 14"));
-        assertThat(SubmissionOutcome.combine(List.of(sample(new CaseOutcome.InternalError()))))
+        assertThat(SubmissionOutcome.combine(List.of(sample(new CaseOutcome.InternalError(null)))))
                 .isInstanceOf(SubmissionOutcome.JudgeError.class);
         assertThat(SubmissionOutcome.combine(List.of())).isInstanceOf(SubmissionOutcome.JudgeError.class);
     }
