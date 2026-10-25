@@ -8,7 +8,7 @@
       "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
     },
     "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
-    "run_at": "20261025-125752"
+    "run_at": "20261025-160232"
   },
   "case": {
     "id": "rec_ok_cpp",
@@ -26,17 +26,18 @@
   },
   "result": {
     "stdout": "1000000\n",
-    "time": "0.057",
-    "memory": 32248,
+    "time": "0.055",
+    "memory": 32116,
     "stderr": null,
     "compile_output": null,
     "exit_code": 0,
     "exit_signal": null,
     "message": null,
-    "wall_time": "0.081",
+    "wall_time": "0.066",
     "status": {
       "id": 3,
       "description": "Accepted"
     }
-  }
+  },
+  "verdict": "ok"
 }

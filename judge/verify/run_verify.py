@@ -20,6 +20,7 @@ import os
 import platform
 import subprocess
 import sys
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "scripts"))
@@ -113,7 +114,8 @@ def main(argv=None):
     parser.add_argument("--cases", default=os.path.join(HERE, "cases.json"))
     parser.add_argument("--group", action="append", help="이 묶음만 실행 (여러 번 지정 가능)")
     parser.add_argument("--observed", help="케이스별 응답 JSON을 저장할 폴더")
-    parser.add_argument("--deadline", type=float, default=600.0, help="전체 폴링 기한(초)")
+    parser.add_argument("--deadline", type=float, default=600.0,
+                        help="전체 폴링 기한(초). 케이스마다가 아니라 모든 케이스를 합친 기한이다")
     args = parser.parse_args(argv)
 
     client = client_from_env()
@@ -134,15 +136,20 @@ def main(argv=None):
             errors[case["id"]] = f"제출 실패 {e}"
 
     rows, records, failed = [], [], 0
+    # 케이스가 막혀 기다리는 시간이 케이스 수만큼 쌓이지 않게, 기한은 전체에 한 번 둔다.
+    deadline = time.monotonic() + args.deadline
     for case in cases:
         if case["id"] in tokens:
             try:
-                result = client.wait(tokens[case["id"]], deadline_s=args.deadline)
+                result = client.wait(tokens[case["id"]], deadline_s=max(1.0, deadline - time.monotonic()))
             except (Judge0HTTPError, PollTimeout, OSError) as e:
                 errors[case["id"]] = f"결과를 받지 못함 {e}"
         if case["id"] in errors:
             failed += 1
-            rows.append([case["id"], case["group"], "", None, None, None, None, None, "FAIL: " + errors[case["id"]], ""])
+            verdict = "FAIL: " + errors[case["id"]]
+            rows.append([case["id"], case["group"], "", None, None, None, None, None, verdict, ""])
+            # 같은 label로 다시 돌릴 때 이전 성공 응답이 observed/에 남지 않게 실패도 기록한다.
+            records.append({"case": case, "result": None, "verdict": verdict})
             continue
         ok, reasons = evaluate(case, result)
         note = last_line(result.get("stderr")) or last_line(result.get("compile_output")) or last_line(result.get("stdout"))
@@ -184,7 +191,8 @@ def main(argv=None):
         os.makedirs(target, exist_ok=True)
         for rec in records:
             with open(os.path.join(target, rec["case"]["id"] + ".json"), "w", encoding="utf-8") as f:
-                json.dump({"meta": meta, "case": rec["case"], "result": rec["result"]}, f, ensure_ascii=False, indent=2)
+                json.dump({"meta": meta, "case": rec["case"], "result": rec["result"], "verdict": rec["verdict"]},
+                          f, ensure_ascii=False, indent=2)
     return failed
 
 
