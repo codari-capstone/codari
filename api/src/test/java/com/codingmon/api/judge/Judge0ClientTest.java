@@ -32,6 +32,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.http.client.MockClientHttpResponse;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
 import org.springframework.web.client.RestClient;
@@ -126,6 +127,24 @@ class Judge0ClientTest {
         server.expect(once(), requestTo(SUBMIT)).andRespond(created("[{\"token\":\"a\"}]"));
 
         assertThat(client.submit(Language.PYTHON, "x", 1_000, 256, List.of(""))).containsExactly("a");
+        server.verify();
+    }
+
+    @Test
+    void 큐가_한도보다_오래_차면_채점_불가다() {
+        server.expect(ExpectedCount.times(7), requestTo(SUBMIT)).andRespond(withStatus(HttpStatus.SERVICE_UNAVAILABLE));
+
+        assertThatThrownBy(() -> client.submit(Language.PYTHON, "x", 1_000, 256, List.of(""))).isInstanceOf(Judge0Exception.class);
+        server.verify();
+    }
+
+    @Test
+    void 형식이_다른_응답은_다시_묻지_않는다() {
+        // 앞단 프록시의 점검 페이지처럼 JSON이 아닌 200 응답
+        server.expect(once(), requestTo(Matchers.startsWith(BATCH)))
+                .andRespond(withSuccess("<html>maintenance</html>", MediaType.TEXT_HTML));
+
+        assertThatThrownBy(() -> client.fetch(List.of("a"))).isInstanceOf(Judge0Exception.class);
         server.verify();
     }
 
