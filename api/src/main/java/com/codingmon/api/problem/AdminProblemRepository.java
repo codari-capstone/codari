@@ -151,6 +151,7 @@ class AdminProblemRepository {
         return jdbc.sql("select slug, id from concept_tags where slug in (:slugs)")
                 .param("slugs", slugs)
                 .query((rs, n) -> Map.entry(rs.getString("slug"), rs.getLong("id")))
+                .list()
                 .stream()
                 .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
     }
@@ -348,7 +349,7 @@ class AdminProblemRepository {
         if (input.tags().isEmpty()) {
             unmet.add(PublishCondition.TAG_COUNT);
         }
-        if (input.sourceName() == null || input.sourceName().isBlank()) {
+        if (blank(input.sourceName())) {
             unmet.add(PublishCondition.SOURCE);
         }
         return unmet;
@@ -360,7 +361,7 @@ class AdminProblemRepository {
                 + " (select count(*) from test_cases where problem_version_id = v.id and case_type = 'SAMPLE') >= 2 as samples,"
                 + " (select count(*) from test_cases where problem_version_id = v.id and case_type = 'HIDDEN') >= 5 as hidden,"
                 + " (select count(*) from problem_version_tags where problem_version_id = v.id) between 1 and 3 as tags,"
-                + " coalesce(trim(v.source_name), '') <> '' as source,"
+                + " v.source_name,"
                 + " (select count(*) from problem_language_configs where problem_version_id = v.id) = 2 as languages"
                 + " from problem_versions v where v.id = :id")
                 .param("id", versionId)
@@ -369,11 +370,16 @@ class AdminProblemRepository {
                     if (!rs.getBoolean("samples")) unmet.add(PublishCondition.SAMPLE_COUNT);
                     if (!rs.getBoolean("hidden")) unmet.add(PublishCondition.HIDDEN_COUNT);
                     if (!rs.getBoolean("tags")) unmet.add(PublishCondition.TAG_COUNT);
-                    if (!rs.getBoolean("source")) unmet.add(PublishCondition.SOURCE);
+                    if (blank(rs.getString("source_name"))) unmet.add(PublishCondition.SOURCE);
                     if (!rs.getBoolean("languages")) unmet.add(PublishCondition.LANGUAGES);
                     return unmet;
                 })
                 .single();
+    }
+
+    // 공개할 때와 공개 버전을 고칠 때 같은 기준으로 본다(탭·줄바꿈뿐이어도 빈 출처).
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     private Integer publishedVersionNo(long problemId) {
