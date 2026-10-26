@@ -43,14 +43,14 @@ class CaseJudgeTest {
     @Test
     void 비교는_원본_바이트로_한다() {
         // 둘 다 글자로 바꾸면 U+FFFD 하나가 돼 같아 보인다
-        Judge0Result result = new Judge0Result(3, new byte[] { (byte) 0xFF }, null, null, null, 9_000, 0, null);
+        Judge0Result result = new Judge0Result(3, new byte[] { (byte) 0xFF }, null, null, null, 9_000, 0, null, null);
         assertThat(verdict(CaseJudge.judge(Language.PYTHON, true, result, new byte[] { (byte) 0xFE }, LIMITS)))
                 .isEqualTo(Verdict.WRONG_ANSWER);
     }
 
     @Test
     void 시간과_메모리를_밀리초와_KB로_남긴다() {
-        Judge0Result tle = new Judge0Result(5, null, null, null, new BigDecimal("2.098"), 4_848, 0, null);
+        Judge0Result tle = new Judge0Result(5, null, null, null, new BigDecimal("2.098"), 4_848, 0, null, null);
         assertThat(CaseJudge.judge(Language.CPP, false, tle, bytes(""), LIMITS))
                 .isEqualTo(new CaseOutcome.Judged(Verdict.TIME_LIMIT_EXCEEDED, null, 2_098, 4_848));
     }
@@ -58,7 +58,7 @@ class CaseJudgeTest {
     @Test
     void C플러스플러스_컴파일_에러는_메시지를_남긴다() {
         String message = "main.cpp:3:1: error: expected primary-expression before '}' token\n";
-        Judge0Result result = new Judge0Result(6, null, null, bytes(message), null, null, null, null);
+        Judge0Result result = new Judge0Result(6, null, null, bytes(message), null, null, null, null, null);
         // 끝 줄바꿈은 Python 문법 오류 메시지와 같이 지운다
         assertThat(CaseJudge.judge(Language.CPP, true, result, bytes(""), LIMITS))
                 .isEqualTo(new CaseOutcome.CompileError(message.stripTrailing(), true));
@@ -181,7 +181,7 @@ class CaseJudgeTest {
 
     @Test
     void 신호_번호는_exit_signal_exit_code_status_순서로_읽는다() {
-        assertThat(CaseJudge.signal(new Judge0Result(11, null, null, null, null, null, 0, 11))).isEqualTo(11);
+        assertThat(CaseJudge.signal(new Judge0Result(11, null, null, null, null, null, 0, 11, null))).isEqualTo(11);
         assertThat(CaseJudge.signal(result(11, null, null, 139, null))).isEqualTo(11);
         assertThat(CaseJudge.signal(result(7, null, null, null, null))).isEqualTo(11);
         assertThat(CaseJudge.signal(result(8, null, null, null, null))).isEqualTo(25);
@@ -204,7 +204,7 @@ class CaseJudgeTest {
 
     private static Judge0Result result(int status, String stdout, String stderr, Integer exitCode, Integer memoryKb) {
         return new Judge0Result(status, stdout == null ? null : bytes(stdout), stderr == null ? null : bytes(stderr), null,
-                null, memoryKb, exitCode, null);
+                null, memoryKb, exitCode, null, null);
     }
 
     private static byte[] bytes(String text) {

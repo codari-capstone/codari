@@ -8,7 +8,8 @@ sealed interface CaseOutcome {
     }
 
     // status 13. 채점 처리기가 같은 케이스를 한 번 다시 제출하고, 또 나오면 채점 불가로 끝낸다(3번).
-    record InternalError() implements CaseOutcome {
+    // message는 Judge0가 준 원인 문구(없으면 null)이고 운영 로그에만 쓴다.
+    record InternalError(String message) implements CaseOutcome {
     }
 
     // 채점 불가. reason은 운영 로그용이고 학생에게 보여 주지 않는다.

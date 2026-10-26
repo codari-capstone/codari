@@ -17,7 +17,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 기대 출력 | `expected_output`을 보내지 않는다. 출력 비교는 API 서버가 base64를 푼 원본 바이트로 한다(3절 12번) |
 | 제한값 | 아래 표의 다섯 값을 요청마다 보낸다. 서버 기본값에 기대지 않는다 |
 | 보내지 않는 것 | `enable_network`, `additional_files`, `command_line_arguments`, `callback_url`, `number_of_runs`, `enable_per_process_and_thread_time_limit`, `enable_per_process_and_thread_memory_limit`. 브라우저에서 받은 값은 어떤 것도 Judge0 요청에 넣지 않는다 |
-| 결과 조회 | 토큰으로 폴링한다(채점 서버는 `wait=true`를 400으로 거절). `fields=status,stdout,stderr,compile_output,message,time,wall_time,memory,exit_code,exit_signal`을 명시한다 — 기본 응답에는 `exit_code`가 없다. 응답 필드는 `null`일 수 있다(2절 7번) |
+| 결과 조회 | 토큰으로 폴링한다(채점 서버는 `wait=true`를 400으로 거절). `fields=token,status,stdout,stderr,compile_output,message,time,memory,exit_code,exit_signal`을 명시한다 — 기본 응답에는 `exit_code`가 없고, 묶음 조회 결과를 토큰으로 짝지으려면 `token`이 있어야 한다. 응답 필드는 `null`일 수 있다(2절 7번) |
 | 묶음 제출 | 테스트케이스는 `POST /submissions/batch`로 최대 20개씩 보낸다. 응답은 항목별 목록이고 항목마다 `token`이나 오류가 온다(6절) |
 | 삭제 | 결과를 읽은 뒤 `DELETE /submissions/{token}`(`X-Auth-User` 필요)으로 지울 수 있다. 사용 여부는 #29에서 정한다 |
 
@@ -129,10 +129,10 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 401·403 | 설정 오류(토큰). 재시도하지 않고 `JUDGE_ERROR`, 운영 알림 |
 | 422 | 요청 값 오류. 재시도하지 않고 `JUDGE_ERROR`, 운영 알림. 제한값이 서버가 받는 범위를 벗어나도 422가 나므로 문제 등록 때 막는다(1절) |
 | 묶음 제출의 항목 오류 | 일부 항목만 잘못되면 201, 모두 잘못되면 422로 오고 둘 다 항목별 목록이다. `token`이 없는 항목이 하나라도 있으면 422와 같이 재시도하지 않고 제출을 `JUDGE_ERROR`로 끝낸다. 토큰을 받은 다른 항목의 결과는 쓰지 않는다 |
-| 503 (`queue is full`) | 지수 백오프로 재시도. 한도를 넘기면 `JUDGE_ERROR` |
+| 503 (`queue is full`) | 지수 백오프로 재시도(0.5초부터 두 배씩, 8초에서 멈춰 최대 7번, 합쳐 약 23초). 한도를 넘기면 `JUDGE_ERROR` |
 | 연결 오류·타임아웃·5xx (결과 조회) | 같은 GET을 백오프로 재시도 |
 | 404 (결과 조회) | 토큰이 채점 서버에 없다(Judge0 DB를 새로 만든 경우 등). 다시 물어도 같으므로 재시도하지 않고 `JUDGE_ERROR`, 오류 로그 |
-| 연결 오류·타임아웃·5xx (제출 POST) | 응답(토큰)을 받지 못하면 같은 요청을 자동으로 다시 보내지 않고 `JUDGE_ERROR`로 끝낸다. 제출이 이미 들어갔을 수 있어, 다시 보내면 같은 코드가 두 번 실행된다. 재시작 복구에서 행은 있는데 토큰이 빈 케이스도 같은 이유로 다시 보내지 않는다(`database-schema.md`) |
+| 연결 오류·타임아웃·5xx (제출 POST) | 응답(토큰)을 받지 못하면 같은 요청을 자동으로 다시 보내지 않고 `JUDGE_ERROR`로 끝낸다. 제출이 이미 들어갔을 수 있어, 다시 보내면 같은 코드가 두 번 실행된다. 연결 거부(`ConnectException`)만은 요청이 서버에 닿지 않은 것이라 결과 조회처럼 다시 보낸다. 재시작 복구에서 행은 있는데 토큰이 빈 케이스도 같은 이유로 다시 보내지 않는다(`database-schema.md`) |
 | 폴링 기한 초과 | `cpu_time_limit`가 아니라 큐 대기까지 고려한 기한이다. 넘기면 `JUDGE_ERROR` |
 | status 13·14, 14번 행 | 3절 |
 
