@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "label": "ec2-t3.medium",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
+    "run_at": "20261025-160232"
+  },
+  "case": {
+    "id": "cpp_compile_error_cpp",
+    "group": "exceptions",
+    "file": "cpp_compile_error.cpp",
+    "expect": {
+      "status": [
+        6
+      ]
+    },
+    "observe": true
+  },
+  "result": {
+    "stdout": null,
+    "time": null,
+    "memory": null,
+    "stderr": null,
+    "compile_output": "main.cpp: In function ‘int main()’:\nmain.cpp:3:1: error: expected primary-expression before ‘}’ token\n    3 | }\n      | ^\n",
+    "exit_code": null,
+    "exit_signal": null,
+    "message": null,
+    "wall_time": null,
+    "status": {
+      "id": 6,
+      "description": "Compilation Error"
+    }
+  },
+  "verdict": "ok"
+}

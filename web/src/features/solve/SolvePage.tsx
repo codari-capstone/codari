@@ -13,6 +13,8 @@ import { BeginnerGuide } from './BeginnerGuide'
 import { CodeEditor } from './CodeEditor'
 import { LanguagePicker } from './LanguagePicker'
 import { formatTimeLimit, LANGUAGE_LABEL } from './labels'
+import { SampleRun } from './SampleRun'
+import { useSampleRun } from './sampleRunQuery'
 import { Samples } from './Samples'
 import { readSavedCode, storeSavedCode } from './savedCode'
 import { askedLanguage } from './solvePath'
@@ -67,6 +69,8 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
   // 반응형 분기 **바깥**에서 부른다. 안에서 부르면 폭이 64rem을 넘나들 때 진행 중인
   // 제출을 잃는다 (submitQuery 주석).
   const submit = useSubmit()
+  // 같은 이유로 여기서 부른다 — 폭이 바뀌면 실행 번호가 사라져 결과를 영영 못 본다.
+  const sampleRun = useSampleRun()
   /**
    * 고른 언어는 **주소가 들고 있다** (`?language=`).
    *
@@ -164,6 +168,13 @@ function Workspace({ problem }: { problem: ProblemDetailView }) {
             // 저장을 늦출 자리는 여기다. 지금은 잃는 글자가 없는 쪽을 택한다.
             storeSavedCode(user?.id, problem.id, language, next)
           }}
+        />
+        <SampleRun
+          run={sampleRun}
+          samples={problem.samples}
+          problemId={problem.id}
+          language={language}
+          code={codeByLanguage[language] ?? opening}
         />
         <SubmitButton
           submit={submit}

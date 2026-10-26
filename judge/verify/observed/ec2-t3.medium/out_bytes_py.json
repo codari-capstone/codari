@@ -1,0 +1,40 @@
+{
+  "meta": {
+    "label": "ec2-t3.medium",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "Linux-6.8.0-1066-aws-x86_64-with-glibc2.35",
+    "run_at": "20261025-160232"
+  },
+  "case": {
+    "id": "out_bytes_py",
+    "group": "output",
+    "file": "out_bytes.py",
+    "expect": {
+      "status": [
+        3
+      ]
+    },
+    "note": "비UTF-8 출력도 base64로 정상 조회"
+  },
+  "result": {
+    "stdout": "�� ok\n",
+    "time": "0.024",
+    "memory": 3120,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": null,
+    "wall_time": "0.089",
+    "status": {
+      "id": 3,
+      "description": "Accepted"
+    }
+  },
+  "verdict": "ok"
+}

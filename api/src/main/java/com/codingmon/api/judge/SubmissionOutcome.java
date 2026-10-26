@@ -31,15 +31,18 @@ sealed interface SubmissionOutcome {
         if (cases.isEmpty()) {
             return new JudgeError("실행할 테스트케이스가 없다");
         }
-        // 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, SAMPLE은 컴파일됐는데 어떤 케이스만 컴파일러가 실패했다면
-        // (채점 VM 메모리 부족 등) 학생 코드 탓이 아니라 채점 불가다. SAMPLE끼리도, SAMPLE과 HIDDEN 사이도 같다.
-        // HIDDEN의 Judged는 컴파일 성공으로 세지 않는다. Python 문법 오류는 HIDDEN에서 런타임 에러로 오기 때문이다.
-        // Python 문법 오류(fromCompiler = false)는 이 규칙에서 뺀다. 학생이 stderr로 채점 불가를 만들 수 없게 한다.
-        boolean sampleCompiled = cases.stream().anyMatch(c -> c.sample() && c.outcome() instanceof CaseOutcome.Judged);
+        // Python 문법 오류(fromCompiler = false)는 SAMPLE stderr로 정한 것이라 SAMPLE에서 바로 컴파일 에러로 확정한다.
+        // 아래 '채점 불가' 예외를 쓰지 않아, 학생이 SAMPLE 하나에서만 문법 오류 모양을 찍어 채점 불가를 만들 수 없다.
+        // 컴파일러가 낸 status 6은 다르다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 다른 케이스가 하나라도
+        // 컴파일됐다면(SAMPLE이든 HIDDEN이든 판정이 났다면) 채점 VM 쪽 문제라 채점 불가다. 그래서 status 6은
+        // 다른 SAMPLE 결과가 다 나올 때까지 기다린 뒤 정한다. 진짜 컴파일 에러는 모든 SAMPLE이 곧바로 status 6으로 끝나
+        // 기다려도 늦어지지 않고, 결과가 도착한 순서와 상관없이 같은 판정이 난다.
+        boolean compiled = cases.stream().anyMatch(c -> c.outcome() instanceof CaseOutcome.Judged);
+        boolean samplePending = cases.stream().anyMatch(c -> c.sample() && c.outcome() instanceof CaseOutcome.Pending);
         boolean hasSample = cases.stream().anyMatch(Case::sample);
         for (Case c : cases) {
             if (c.sample() && c.outcome() instanceof CaseOutcome.CompileError error
-                    && !(error.fromCompiler() && sampleCompiled)) {
+                    && (!error.fromCompiler() || (!compiled && !samplePending))) {
                 return new CompileError(error.message());
             }
         }
@@ -53,9 +56,12 @@ sealed interface SubmissionOutcome {
                 case CaseOutcome.InternalError error -> {
                     return new JudgeError(CaseJudge.withMessage("Judge0 status 13 (Internal Error)", error.message()));
                 }
-                // HIDDEN의 컴파일 에러는 SAMPLE 결과가 아직이면 기다린다. SAMPLE이 없는 실행은 컴파일 에러를 확정할 근거가 없다.
-                case CaseOutcome.CompileError error when sampleCompiled || !hasSample -> {
-                    return new JudgeError("SAMPLE은 컴파일됐는데 컴파일러가 실패한 케이스가 있다");
+                case CaseOutcome.CompileError error when error.fromCompiler() && compiled -> {
+                    return new JudgeError("다른 케이스는 컴파일됐는데 컴파일러가 실패한 케이스가 있다");
+                }
+                // SAMPLE이 없는 실행은 컴파일 에러를 확정할 근거가 없다. 그 밖의 컴파일 에러는 SAMPLE 결과를 기다린다.
+                case CaseOutcome.CompileError error when !hasSample -> {
+                    return new JudgeError("SAMPLE 케이스가 없어 컴파일 에러를 확정할 수 없다");
                 }
                 case CaseOutcome.Judged j -> judged++;
                 default -> {

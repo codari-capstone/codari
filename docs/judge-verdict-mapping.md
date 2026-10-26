@@ -5,7 +5,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 - 화면 문구·출력 비교·공개 범위의 기준은 [`AI_FEATURES.md` 10절](AI_FEATURES.md#10-채점-결과와-쉬운-설명-ai-없이-표시)이다. 이 문서는 Judge0 응답을 그 판정으로 옮기는 방법만 정한다.
 - 저장 형식은 `V1__initial_schema.sql`의 `submissions`·`submission_test_results`를 따른다. 판정은 `verdict` 8종이고, '채점 불가'는 `job_status = 'JUDGE_ERROR'`에 `verdict = NULL`이다. 런타임 에러 종류는 `runtime_error_type`에 넣는다. 케이스 행의 `verdict`에는 `COMPILE_ERROR`가 없다([제출 판정 합치기](#제출-판정-합치기)).
 - 채점 서버의 기본값·상한은 [`judge/judge0.conf`](../judge/judge0.conf)와 [`judge/README.md`](../judge/README.md)를 따른다. 상한은 #65 실측 뒤 바뀔 수 있어 이 문서는 숫자 대신 설정 이름(`MAX_CPU_TIME_LIMIT` 등)으로 적는다.
-- 규칙의 근거는 격리·자원 제한 검증(#66) 케이스를 맥 Docker Desktop(cgroup v1, Rosetta)에서 돌려 관찰한 결과다. 케이스와 관찰 JSON은 채점 VM 재확인을 마친 뒤 #66에서 `judge/verify/`로 올린다. 채점 VM에서 다시 확인할 항목은 [9절](#9-채점-vm에서-다시-확인할-것)에 있다.
+- 규칙의 근거는 격리·자원 제한 검증(#66) 케이스를 맥 Docker Desktop(cgroup v1, Rosetta)과 채점 VM(EC2 t3.medium)에서 돌려 관찰한 결과다. 케이스와 관찰 JSON은 `judge/verify/`에 있다. 채점 VM에서 다시 확인한 결과는 [9절](#9-채점-vm에서-확인한-것)에 있다.
 
 ## 1. 요청 규약
 
@@ -59,7 +59,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 2 | status 1·2 | 진행 중. 계속 폴링 |
 | 3 | status 13 (Internal Error) | 같은 케이스를 1회 다시 제출한다. 또 13이면 채점 불가 |
 | 4 | status 14 (Exec Format Error) | 채점 불가 |
-| 5 | status 6 (Compilation Error) | 컴파일 에러 후보. `compile_output` → `compiler_message`. 다른 SAMPLE 케이스가 이미 컴파일됐으면 채점 불가, HIDDEN 케이스면 판정을 미루고 SAMPLE 케이스 결과를 따른다. 확정은 [제출 판정 합치기](#제출-판정-합치기) 1번이 한다 |
+| 5 | status 6 (Compilation Error) | 컴파일 에러 후보. `compile_output` → `compiler_message`. 다른 SAMPLE 결과가 다 나온 뒤, 다른 케이스가 컴파일됐으면 채점 불가, SAMPLE이 모두 status 6이면 컴파일 에러다. 확정은 [제출 판정 합치기](#제출-판정-합치기) 1번이 한다 |
 | 6 | Python, **SAMPLE 케이스**, status 11, stderr에 `Traceback (most recent call last):`가 없고 마지막 줄이 `SyntaxError`·`IndentationError`·`TabError`로 시작 | `COMPILE_ERROR`. stderr(7절대로 정리) → `compiler_message`. 다른 SAMPLE이 판정됐어도 컴파일 에러로 둔다(합치기 1번) |
 | 7 | status 5 | `TIME_LIMIT_EXCEEDED` |
 | 8 | status 3이 아니면서 stdout·stderr 중 하나의 바이트 길이가 `limit_bytes` 이상, 또는 status 8, 또는 신호 25 | `OUTPUT_LIMIT_EXCEEDED` |
@@ -81,7 +81,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 케이스 판정을 제출 하나(`submissions`)의 값으로 합치는 규칙이다. 케이스 순서는 SAMPLE 먼저, 같은 종류 안에서는 `ordinal` 순이다(AI_FEATURES 10절 "공개 예제부터").
 
-1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). 남은 케이스 결과는 기다리지 않는다. 다만 SAMPLE 케이스 중 하나라도 컴파일에 성공해 판정이 났다면, status 6인 케이스는 SAMPLE이든 HIDDEN이든 채점 불가로 보고 2번으로 끝낸다. HIDDEN 케이스의 판정은 컴파일 성공으로 세지 않는다(Python 문법 오류가 HIDDEN에서는 런타임 에러로 오기 때문이다). HIDDEN 케이스의 status 6은 SAMPLE 결과가 아직이면 기다린다. 6번(Python 문법 오류)은 status 6이 아니라 학생 코드의 stderr로 정한 것이라 이 예외를 쓰지 않고 늘 컴파일 에러로 둔다. 그래야 학생이 SAMPLE 하나에서만 문법 오류 모양을 찍어 채점 불가(시도 횟수 제외)를 만들 수 없다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
+1. SAMPLE 케이스에서 `COMPILE_ERROR`(5·6번)가 나오면 그 자리에서 제출을 끝낸다. `submissions.verdict = 'COMPILE_ERROR'`로 두고 메시지는 `compiler_message`에 넣는다. 케이스 행의 `verdict`는 비워 둔다(`submission_test_results.verdict`에는 `COMPILE_ERROR`가 없다). HIDDEN 케이스 결과는 기다리지 않는다. 6번(Python 문법 오류)은 학생 코드의 stderr로 정한 것이라 SAMPLE에서 바로 컴파일 에러로 확정한다. 그래야 학생이 SAMPLE 하나에서만 문법 오류 모양을 찍어 채점 불가(시도 횟수 제외)를 만들 수 없다. 5번(status 6)은 다른 SAMPLE 결과가 다 나올 때까지 기다린 뒤 정한다. 다른 케이스가 하나라도 컴파일에 성공해 판정이 났다면(SAMPLE이든 HIDDEN이든) status 6인 케이스는 채점 불가로 보고 2번으로 끝내고, SAMPLE이 모두 status 6이면 컴파일 에러다. 진짜 컴파일 에러는 모든 SAMPLE이 곧바로 status 6으로 끝나 기다려도 늦어지지 않고, 결과가 도착한 순서와 상관없이 같은 판정이 난다. HIDDEN 케이스의 status 6은 SAMPLE 결과가 아직이면 기다린다. SAMPLE 케이스가 없는 실행은 컴파일 에러를 확정할 근거가 없어 채점 불가다. 진짜 컴파일 에러는 모든 케이스에서 똑같이 나므로, 한 케이스만 컴파일에 실패했다면(VM 메모리 부족 등) 학생 코드 탓이 아니다.
 2. 채점 불가인 케이스가 나오면 그 자리에서 제출을 `job_status = 'JUDGE_ERROR'`, `verdict = NULL`로 끝낸다.
 3. 그 밖에는 실행 대상 케이스의 판정이 모두 모인 뒤(`database-schema.md`) 정한다. 모두 `ACCEPTED`면 `ACCEPTED`, 아니면 케이스 순서상 처음으로 `ACCEPTED`가 아닌 케이스의 판정이다.
 4. `runtime_error_type`은 3에서 고른 케이스가 `RUNTIME_ERROR`일 때 그 케이스의 종류(4절)다. 그 밖에는 `NULL`이다. 종류는 케이스 결과를 받을 때 정해 케이스 행에 저장한다. 비공개 케이스는 stderr를 저장하지 않아 나중에 다시 구할 수 없고, 재시작 복구도 판정이 빈 행만 다시 조회하기 때문이다(`database-schema.md`). 케이스 행의 `runtime_error_type`은 `V2__judge_case_results.sql`에서 더했다.
@@ -146,7 +146,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 ## 8. 관찰 근거
 
-아래 케이스 이름은 #66 검증 케이스다. #66에서 결과 표(`judge/verify/results/`)와 케이스별 관찰 JSON(`judge/verify/observed/<환경>/<케이스>.json`)을 함께 올린다. #29의 단위 테스트는 이 JSON의 `result`를 입력으로 쓸 수 있다. 다만 관찰 JSON은 stdout·stderr·compile_output을 2,000자로 자르고 `... (총 N자)`를 붙여 저장한다. 출력 초과 케이스(`ole_*`)는 출력을 그 길이만큼 다시 채워 넣어야 8번 규칙을 시험할 수 있다.
+아래 케이스 이름은 #66 검증 케이스다. 결과 표는 `judge/verify/results/`, 케이스별 관찰 JSON은 `judge/verify/observed/<환경>/<케이스>.json`에 있다. 맥 결과(`mac-rosetta-cgroupv1`, 2026-10-15)는 검증 도구를 고치기 전 형식이라 `verdict` 키가 없고 `case.expect`가 옛 조건이다. 응답(`result`)은 같은 형식이니 테스트 입력에는 `result`만 쓴다. 판정 규칙 단위 테스트(`CaseJudgeTest`, #133)는 이 JSON의 `result`를 입력으로 쓸 수 있다. 다만 관찰 JSON은 stdout·stderr·compile_output을 2,000자로 자르고 `... (총 N자)`를 붙여 저장한다. 출력 초과 케이스(`ole_*`)는 출력을 그 길이만큼 다시 채워 넣어야 8번 규칙을 시험할 수 있다.
 
 | 규칙 | 근거 케이스 | 관찰 |
 |---|---|---|
@@ -161,11 +161,13 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 컴파일 에러 | `cpp_compile_error_cpp` | status 6 |
 | `null` 필드 | `exit_1_py`, `cpp_compile_error_cpp` | stdout·stderr `null` / status 6이면 `time`·`memory`·`exit_code`도 `null` |
 
-## 9. 채점 VM에서 다시 확인할 것
+## 9. 채점 VM에서 확인한 것
 
-맥 결과는 amd64 명령을 Rosetta로 번역해 실행한 것이다. #66에서 채점 VM에 같은 케이스를 돌려 아래가 같은지 확인하고, 다르면 이 문서를 고친다.
+맥 결과는 amd64 명령을 Rosetta로 번역해 실행한 것이다. 2026-10-25 채점 VM(EC2 t3.medium, Ubuntu 22.04, cgroup v1)에서 같은 케이스를 다시 돌렸다(`judge/verify/results/2026-10-25-ec2-t3.medium.md`). 규칙을 바꿀 차이는 없었다.
 
-- 신호가 status 11 + `exit_code` 128+N으로 오는지(2절 1번). status 7~10이나 `exit_signal`로 와도 신호 번호 규칙으로 판정은 같다
-- 메모리 초과 응답의 `memory`가 제한값과 같은지(3절 9번)
-- `::operator new(4 TB)`가 `std::bad_alloc`으로 끝나는지(맥은 `vm.overcommit_memory=1`이라 할당이 성공했다)
-- `wall_time_limit` = `cpu_time_limit` × 2 + 1이 동시 실행 중에도 정답 풀이를 끊지 않는지(1절, #65 실측)
+| 확인할 것 | 채점 VM 결과 |
+|---|---|
+| 신호가 status 11 + `exit_code` 128+N으로 오는지 (2절 1번) | 같다. 139·136·134·137·153이 오고 `exit_signal`은 비어 있다. bash 줄 끝에 `(core dumped)`가 붙지만 7절의 `^run: line \d+:` 규칙으로 지워진다 |
+| 메모리 초과 응답의 `memory`가 제한값과 같은지 (3절 9번) | 같다. `memory` = 262144 KB |
+| `::operator new(4 TB)`가 `std::bad_alloc`으로 끝나는지 | 끝난다. VM은 `vm.overcommit_memory=0`이라 할당이 실패해 abort(134)하고 stderr에 `std::bad_alloc`이 남는다. 3절 10번으로 메모리 초과다 |
+| `wall_time_limit` = `cpu_time_limit` × 2 + 1이 동시 실행 중에도 정답 풀이를 끊지 않는지 (1절) | 끊지 않는다. CPU 1.5초 작업 4개를 한 번에 넣어도 모두 정상 종료했다. 슬롯 2개가 vCPU를 하나씩 쓰고 나머지는 큐에서 기다리는데, 큐 대기는 wall 시간에 들어가지 않는다 |

@@ -77,6 +77,17 @@ class CaseJudgeTest {
     }
 
     @Test
+    void 줄바꿈_없는_디버그_출력이_머리줄_앞에_붙어도_트레이스백으로_읽는다() {
+        // sys.stderr.write("debug ") 뒤에 exec("(")가 터진 경우
+        String stderr = "debug Traceback (most recent call last):\n  File \"script.py\", line 1, in <module>\n    exec(\"(\")\n"
+                + "  File \"<string>\", line 1\n    (\n    ^\nSyntaxError: unexpected EOF while parsing\n";
+        assertThat(python(true, result(11, null, stderr, 1, 9_000)))
+                .isEqualTo(new CaseOutcome.Judged(Verdict.RUNTIME_ERROR, RuntimeErrorType.OTHER, null, 9_000));
+        assertThat(CaseJudge.pythonExceptionName("debug Traceback (most recent call last):\n  File \"script.py\", line 1\n"
+                + "IndexError: list index out of range")).isEqualTo("IndexError");
+    }
+
+    @Test
     void 트레이스백_안의_SyntaxError는_런타임_에러다() {
         String stderr = "Traceback (most recent call last):\n  File \"script.py\", line 1, in <module>\n    exec(\"(\")\n"
                 + "  File \"<string>\", line 1\n    (\n    ^\nSyntaxError: unexpected EOF while parsing\n";

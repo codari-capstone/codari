@@ -63,6 +63,17 @@ def default_url(env):
     return os.environ.get("JUDGE0_URL") or f"http://{env.get('JUDGE0_BIND_ADDR') or '127.0.0.1'}:2358"
 
 
+def client_from_env():
+    """JUDGE0_URL·토큰 환경 변수, 없으면 judge/.env 값으로 클라이언트를 만든다. 검증·실측 스크립트도 이걸 쓴다."""
+    env_path = os.path.join(JUDGE_DIR, ".env")
+    env = read_kv(env_path) if os.path.exists(env_path) else {}
+    return Judge0Client(
+        base_url=default_url(env),
+        authn_token=os.environ.get("JUDGE0_AUTHN_TOKEN") or env.get("AUTHN_TOKEN"),
+        authz_token=os.environ.get("JUDGE0_AUTHZ_TOKEN") or env.get("AUTHZ_TOKEN"),
+    )
+
+
 def wait_until_ready(client, timeout_s=READY_TIMEOUT_S, interval_s=2.0, sleep=time.sleep, clock=time.monotonic):
     """server가 HTTP로 응답할 때까지 기다린다(상태 코드는 따지지 않는다). 기한 안에 응답하면 True."""
     end = clock() + timeout_s
@@ -219,12 +230,7 @@ def run_sections(sections, client, c):
 
 
 def main():
-    env = read_kv(os.path.join(JUDGE_DIR, ".env")) if os.path.exists(os.path.join(JUDGE_DIR, ".env")) else {}
-    client = Judge0Client(
-        base_url=default_url(env),
-        authn_token=os.environ.get("JUDGE0_AUTHN_TOKEN") or env.get("AUTHN_TOKEN"),
-        authz_token=os.environ.get("JUDGE0_AUTHZ_TOKEN") or env.get("AUTHZ_TOKEN"),
-    )
+    client = client_from_env()
     c = Checker()
     print(f"접속 주소 {client.base_url} — 응답을 최대 {READY_TIMEOUT_S}초 기다린다")
     if not wait_until_ready(client):

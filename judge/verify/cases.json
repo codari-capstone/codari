@@ -1,0 +1,614 @@
+{
+  "defaults": {
+    "note": "제한값은 judge0.conf 기본값(CPU 2초, wall 5초, 메모리 256 MB, 출력 1024 KB). 프로그램은 /bin/bash run으로 감싸 실행되므로 신호로 끝나면 status 11과 exit_code 128+신호번호로 온다"
+  },
+  "cases": [
+    {
+      "id": "net_probe_py",
+      "group": "network",
+      "file": "net_probe.py",
+      "expect": {
+        "status": [
+          3
+        ],
+        "stdout_not": [
+          "REACHED"
+        ]
+      },
+      "control": true,
+      "note": "샌드박스 밖(호스트) 대조 실행에서 REACHED인 대상만 차단 근거로 인정"
+    },
+    {
+      "id": "net_probe_cpp",
+      "group": "network",
+      "file": "net_probe.cpp",
+      "expect": {
+        "status": [
+          3
+        ],
+        "stdout_not": [
+          "REACHED"
+        ]
+      }
+    },
+    {
+      "id": "iso_files_py",
+      "group": "files",
+      "file": "iso_files.py",
+      "expect": {
+        "status": [
+          3
+        ],
+        "stdout_not": [
+          "REACHED"
+        ]
+      }
+    },
+    {
+      "id": "iso_fork_py",
+      "group": "process",
+      "file": "iso_fork.py",
+      "expect": {
+        "status": [
+          3
+        ],
+        "stdout_has": [
+          "BLOCKED"
+        ]
+      }
+    },
+    {
+      "id": "tle_loop_py",
+      "group": "time",
+      "file": "tle_loop.py",
+      "expect": {
+        "status": [
+          5
+        ]
+      }
+    },
+    {
+      "id": "tle_loop_cpp",
+      "group": "time",
+      "file": "tle_loop.cpp",
+      "expect": {
+        "status": [
+          5
+        ]
+      }
+    },
+    {
+      "id": "tle_sleep_py",
+      "group": "time",
+      "file": "tle_sleep.py",
+      "expect": {
+        "status": [
+          5
+        ]
+      },
+      "note": "CPU를 쓰지 않아 wall 제한으로 끝나야 함"
+    },
+    {
+      "id": "mle_list_py",
+      "group": "memory",
+      "file": "mle_list.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          137
+        ]
+      }
+    },
+    {
+      "id": "mle_touch_py",
+      "group": "memory",
+      "file": "mle_touch.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          137
+        ]
+      }
+    },
+    {
+      "id": "mle_vector_cpp",
+      "group": "memory",
+      "file": "mle_vector.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          137
+        ]
+      }
+    },
+    {
+      "id": "mle_grow_cpp",
+      "group": "memory",
+      "file": "mle_grow.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          137
+        ]
+      }
+    },
+    {
+      "id": "mle_badalloc_cpp",
+      "group": "memory",
+      "file": "mle_badalloc.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          134
+        ],
+        "stderr_has": [
+          "bad_alloc"
+        ]
+      },
+      "observe": true,
+      "note": "커널 overcommit 설정에 따라 다르다. Ubuntu 기본값(0)에서는 bad_alloc → abort(134), Docker Desktop(overcommit_memory=1)에서는 할당이 성공한다"
+    },
+    {
+      "id": "rec_default_py",
+      "group": "recursion",
+      "file": "rec_default.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "RecursionError"
+        ]
+      }
+    },
+    {
+      "id": "rec_deep_py",
+      "group": "recursion",
+      "file": "rec_deep.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          137
+        ]
+      }
+    },
+    {
+      "id": "rec_deep_ok_py",
+      "group": "recursion",
+      "file": "rec_deep_ok.py",
+      "expect": {
+        "status": [
+          3
+        ],
+        "stdout_has": [
+          "100000"
+        ]
+      },
+      "note": "깊이 10^5 재귀가 스택 제한 안에서 통과해야 함"
+    },
+    {
+      "id": "rec_deep_cpp",
+      "group": "recursion",
+      "file": "rec_deep.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          137
+        ]
+      }
+    },
+    {
+      "id": "rec_ok_cpp",
+      "group": "recursion",
+      "file": "rec_ok.cpp",
+      "expect": {
+        "status": [
+          3
+        ],
+        "stdout_has": [
+          "1000000"
+        ]
+      },
+      "note": "깊이 10^6 재귀(DFS 규모)가 스택 제한 안에서 통과해야 함"
+    },
+    {
+      "id": "ole_stdout_py",
+      "group": "output",
+      "file": "ole_stdout.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          1
+        ],
+        "stderr_has": [
+          "File too large"
+        ]
+      }
+    },
+    {
+      "id": "ole_stderr_py",
+      "group": "output",
+      "file": "ole_stderr.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          120
+        ]
+      }
+    },
+    {
+      "id": "ole_stdout_cpp",
+      "group": "output",
+      "file": "ole_stdout.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          153
+        ]
+      },
+      "note": "bash 래퍼 때문에 SIGXFSZ가 status 8이 아니라 11 + exit_code 153(128+25)으로 온다"
+    },
+    {
+      "id": "ole_ok_py",
+      "group": "output",
+      "file": "ole_ok.py",
+      "expect": {
+        "status": [
+          3
+        ]
+      },
+      "note": "제한(1024 KB) 바로 아래 출력은 통과"
+    },
+    {
+      "id": "out_bytes_py",
+      "group": "output",
+      "file": "out_bytes.py",
+      "expect": {
+        "status": [
+          3
+        ]
+      },
+      "note": "비UTF-8 출력도 base64로 정상 조회"
+    },
+    {
+      "id": "exc_index_py",
+      "group": "exceptions",
+      "file": "exc_index.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "IndexError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_zero_py",
+      "group": "exceptions",
+      "file": "exc_zero.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "ZeroDivisionError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_value_py",
+      "group": "exceptions",
+      "file": "exc_value.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "ValueError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_name_py",
+      "group": "exceptions",
+      "file": "exc_name.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "NameError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_unbound_py",
+      "group": "exceptions",
+      "file": "exc_unbound.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "UnboundLocalError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_type_py",
+      "group": "exceptions",
+      "file": "exc_type.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "TypeError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_eof_py",
+      "group": "exceptions",
+      "file": "exc_eof.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "EOFError"
+        ]
+      },
+      "observe": true,
+      "stdin": "1\n"
+    },
+    {
+      "id": "exc_key_py",
+      "group": "exceptions",
+      "file": "exc_key.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "KeyError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_attr_py",
+      "group": "exceptions",
+      "file": "exc_attr.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "AttributeError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_assert_py",
+      "group": "exceptions",
+      "file": "exc_assert.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "AssertionError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_custom_py",
+      "group": "exceptions",
+      "file": "exc_custom.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "MyError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_syntax_py",
+      "group": "exceptions",
+      "file": "exc_syntax.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "SyntaxError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_indent_py",
+      "group": "exceptions",
+      "file": "exc_indent.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "IndentationError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exc_debug_stderr_py",
+      "group": "exceptions",
+      "file": "exc_debug_stderr.py",
+      "expect": {
+        "status": [
+          11
+        ],
+        "stderr_has": [
+          "IndexError"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "exit_1_py",
+      "group": "exceptions",
+      "file": "exit_1.py",
+      "expect": {
+        "status": [
+          11
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "cpp_nullptr_cpp",
+      "group": "exceptions",
+      "file": "cpp_nullptr.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          139
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "cpp_divzero_cpp",
+      "group": "exceptions",
+      "file": "cpp_divzero.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          136
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "cpp_assert_cpp",
+      "group": "exceptions",
+      "file": "cpp_assert.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          134
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "cpp_at_cpp",
+      "group": "exceptions",
+      "file": "cpp_at.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          134
+        ],
+        "stderr_has": [
+          "out_of_range"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "cpp_stoi_cpp",
+      "group": "exceptions",
+      "file": "cpp_stoi.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          134
+        ],
+        "stderr_has": [
+          "invalid_argument"
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "cpp_return1_cpp",
+      "group": "exceptions",
+      "file": "cpp_return1.cpp",
+      "expect": {
+        "status": [
+          11
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "cpp_compile_error_cpp",
+      "group": "exceptions",
+      "file": "cpp_compile_error.cpp",
+      "expect": {
+        "status": [
+          6
+        ]
+      },
+      "observe": true
+    },
+    {
+      "id": "cpp_throw_cpp",
+      "group": "exceptions",
+      "file": "cpp_throw.cpp",
+      "expect": {
+        "status": [
+          11
+        ],
+        "exit_code": [
+          134
+        ]
+      },
+      "observe": true
+    }
+  ]
+}

@@ -36,6 +36,18 @@ export type LoginRequest = NonNullable<
   paths['/api/auth/login']['post']['requestBody']
 >['content']['application/json']
 
+/**
+ * 예제 실행 결과 (SOLVE-08).
+ *
+ * 제출 결과와 달리 `cases`로 예제별 실제 출력을 준다. **기대 출력은 없다** — 계약이
+ * "예제의 입력·기대 출력은 담지 않는다. 화면은 문제 상세의 `samples`와 `ordinal`로
+ * 짝짓는다"로 정했다.
+ */
+export type SampleRunResult = components['schemas']['SampleRunResult']
+
+/** 예제 하나의 실행 결과. */
+export type SampleRunCase = SampleRunResult['cases'][number]
+
 /** 제출·채점에 쓰는 언어 (SOLVE-04). */
 export type Language = components['schemas']['Language']
 
