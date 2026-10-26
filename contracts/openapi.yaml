@@ -847,7 +847,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/AdminProblemDetail'
         '400':
-          description: '`id`나 `versionNo`가 정수가 아님'
+          description: '`id`가 정수가 아님'
           content:
             application/problem+json:
               schema:
@@ -927,7 +927,7 @@ paths:
         '204':
           description: 삭제됨
         '400':
-          description: '`id`나 `versionNo`가 정수가 아님'
+          description: '`id`가 정수가 아님'
           content:
             application/problem+json:
               schema:
@@ -956,7 +956,7 @@ paths:
         '204':
           description: 공개됨
         '400':
-          description: '`id`나 `versionNo`가 정수가 아님'
+          description: '`id`가 정수가 아님'
           content:
             application/problem+json:
               schema:
@@ -984,7 +984,7 @@ paths:
         '204':
           description: 비공개됨
         '400':
-          description: '`id`나 `versionNo`가 정수가 아님'
+          description: '`id`가 정수가 아님'
           content:
             application/problem+json:
               schema:
@@ -1014,7 +1014,7 @@ paths:
                 items:
                   $ref: '#/components/schemas/ProblemVersionSummary'
         '400':
-          description: '`id`나 `versionNo`가 정수가 아님'
+          description: '`id`가 정수가 아님'
           content:
             application/problem+json:
               schema:

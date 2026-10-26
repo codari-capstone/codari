@@ -1690,7 +1690,7 @@ export interface operations {
                     "application/json": components["schemas"]["AdminProblemDetail"];
                 };
             };
-            /** @description `id`나 `versionNo`가 정수가 아님 */
+            /** @description `id`가 정수가 아님 */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1772,7 +1772,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description `id`나 `versionNo`가 정수가 아님 */
+            /** @description `id`가 정수가 아님 */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1806,7 +1806,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description `id`나 `versionNo`가 정수가 아님 */
+            /** @description `id`가 정수가 아님 */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1840,7 +1840,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description `id`나 `versionNo`가 정수가 아님 */
+            /** @description `id`가 정수가 아님 */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -1875,7 +1875,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProblemVersionSummary"][];
                 };
             };
-            /** @description `id`나 `versionNo`가 정수가 아님 */
+            /** @description `id`가 정수가 아님 */
             400: {
                 headers: {
                     [name: string]: unknown;
