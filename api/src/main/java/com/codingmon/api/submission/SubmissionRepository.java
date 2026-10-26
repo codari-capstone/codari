@@ -4,8 +4,6 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -13,6 +11,7 @@ import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.codingmon.api.Language;
+import com.codingmon.api.judge.StoredText;
 
 // 제출 저장과 결과 조회. 예제 실행(SAMPLE_RUN, #28)도 같은 버전 조회와 저장을 쓰고, 결과는 findSampleRun으로 읽는다.
 // 정답 코드 검증(VALIDATION, #35)은 reference_solution_id가 있어야 해서 그때 저장 함수를 더한다.
@@ -41,9 +40,6 @@ class SubmissionRepository {
     record SampleCaseResult(int ordinal, String actualOutput, String verdict, String errorMessage,
             Integer executionTimeMs, Integer memoryUsedKb) {
     }
-
-    // Judge0 실행 스크립트가 남기는 줄. 내부 경로가 들어 있다(judge-verdict-mapping.md 7절).
-    private static final Pattern JUDGE_RUN_LINE = Pattern.compile("^run: line \\d+:");
 
     private final JdbcClient jdbc;
 
@@ -136,8 +132,7 @@ class SubmissionRepository {
         if (stderr == null) {
             return null;
         }
-        String cleaned = stderr.lines().filter(line -> !JUDGE_RUN_LINE.matcher(line).find())
-                .collect(Collectors.joining("\n")).stripTrailing();
+        String cleaned = StoredText.withoutJudgeLines(stderr);
         return cleaned.isBlank() ? null : cleaned;
     }
 

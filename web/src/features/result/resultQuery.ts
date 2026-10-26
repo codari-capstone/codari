@@ -2,7 +2,7 @@ import { queryOptions } from '@tanstack/react-query'
 
 import { api } from '@/api/client'
 import { fail } from '@/api/fail'
-import type { SubmissionResult } from '@/api/types'
+import type { SubmissionResult, SubmissionStatus } from '@/api/types'
 import { POLL_INTERVAL_MS } from '@/app/queryClient'
 import { toUserMessage } from '@/constants/errors'
 
@@ -55,6 +55,23 @@ export function isDeadEnd(error: unknown, hasData: boolean): boolean {
 }
 
 /**
+ * 다음 조회까지의 간격, 또는 멈춤(false).
+ *
+ * 제출 채점과 예제 실행(SOLVE-08)이 **같은 규칙**을 쓴다 — 계약이 예제 실행의 `status`를
+ * "`SubmissionResult.status`와 같다"로 정하고 멈추는 조건도 같은 문장으로 적어 두었다.
+ * 그래서 규칙을 두 벌로 적지 않고 여기 하나만 둔다.
+ */
+export function pollingInterval(
+  error: unknown,
+  status: SubmissionStatus | undefined,
+): number | false {
+  if (isDeadEnd(error, status !== undefined)) return false
+  if (status !== undefined && isFinished(status)) return false
+  // 실패하는 중에는 뜸하게 묻는다 (FAILING_INTERVAL_MS 주석).
+  return error === null || error === undefined ? POLL_INTERVAL_MS : FAILING_INTERVAL_MS
+}
+
+/**
  * 채점 상태·결과 (RES-01·02).
  *
  * 끝날 때까지 주기적으로 묻는다(계약: "화면은 `status`가 `COMPLETED`나 `JUDGE_ERROR`가 될
@@ -85,13 +102,7 @@ export function submissionResultQuery(id: number) {
       if (result.data === undefined) fail(result)
       return result.data
     },
-    refetchInterval: (query) => {
-      const { error, data } = query.state
-      if (isDeadEnd(error, data !== undefined)) return false
-      if (data !== undefined && isFinished(data.status)) return false
-      // 실패하는 중에는 뜸하게 묻는다 (FAILING_INTERVAL_MS 주석).
-      return error === null ? POLL_INTERVAL_MS : FAILING_INTERVAL_MS
-    },
+    refetchInterval: (query) => pollingInterval(query.state.error, query.state.data?.status),
     retry: false,
   })
 }

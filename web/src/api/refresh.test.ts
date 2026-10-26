@@ -282,10 +282,11 @@ describe('세션 정리', () => {
 
     try {
       channel.postMessage('ended')
-      // BroadcastChannel은 다음 태스크에 전달된다.
-      await new Promise((resolve) => setTimeout(resolve, 0))
 
-      expect(getAccessToken()).toBeNull()
+      // BroadcastChannel은 다음 태스크에 전달된다. 한 틱만 기다리면 안 된다 — 머신이
+      // 바쁠 때(실제 타이머를 쓰는 폴링 테스트와 같이 돌 때) 한 틱 안에 안 오고,
+      // 전체 실행에서만 간헐적으로 실패했다.
+      await vi.waitFor(() => expect(getAccessToken()).toBeNull())
     } finally {
       channel.close()
     }
