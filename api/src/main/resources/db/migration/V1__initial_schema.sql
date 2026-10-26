@@ -78,7 +78,6 @@ CREATE TABLE problem_versions (
     published_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (problem_id, version_no),
-    UNIQUE (id, problem_id),
     CHECK ((status <> 'PUBLISHED') OR published_at IS NOT NULL)
 );
 
@@ -256,13 +255,9 @@ CREATE INDEX learning_reports_user_generated_idx ON learning_reports (user_id, g
 CREATE TABLE learning_report_recommendations (
     learning_report_id BIGINT NOT NULL REFERENCES learning_reports(id) ON DELETE CASCADE,
     rank SMALLINT NOT NULL CHECK (rank BETWEEN 1 AND 3),
-    problem_id BIGINT NOT NULL,
-    problem_version_id BIGINT NOT NULL,
+    problem_id BIGINT NOT NULL REFERENCES problems(id),
     concept_tag_id BIGINT REFERENCES concept_tags(id),
     reason TEXT NOT NULL,
     PRIMARY KEY (learning_report_id, rank),
-    UNIQUE (learning_report_id, problem_id),
-    FOREIGN KEY (problem_version_id, problem_id) REFERENCES problem_versions(id, problem_id),
-    FOREIGN KEY (problem_version_id, concept_tag_id)
-        REFERENCES problem_version_tags(problem_version_id, concept_tag_id)
+    UNIQUE (learning_report_id, problem_id)
 );
