@@ -474,6 +474,172 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/problems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 관리자 문제 목록·검색 (ADM-01)
+         * @description 공개 전·비공개 문제까지 모두 준다. 번호 오름차순이다.
+         *     목록의 상태 표시(작성 중·검증 중·공개·공개 중 수정·비공개)는 화면이 `latestStatus`와 `publishedVersionNo`로 정한다.
+         *     예: `latestStatus`가 `DRAFT`이고 `publishedVersionNo`가 2면 "공개 v2 · 수정 중".
+         */
+        get: operations["listAdminProblems"];
+        put?: never;
+        /**
+         * 문제 등록 (ADM-02·03)
+         * @description 문제와 1번 버전을 초안(`DRAFT`)으로 만든다. 사용자에게는 공개하기 전까지 보이지 않는다.
+         *     `slug`는 서버가 만든다(`p-{id}`). 예제·테스트케이스는 #34의 API로 넣는다.
+         */
+        post: operations["createProblem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/problems/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 관리자 문제 상세 (ADM-02·03·06)
+         * @description 최신 버전의 내용과 공개 조건 충족 여부를 준다. 최신 버전은 초안이 있으면 초안, 없으면 가장 최근 버전이다.
+         *     화면은 저장할 때마다 이 API를 다시 불러 공개 조건 체크리스트를 갱신한다.
+         *     `/api/admin/problems/{id}` 아래 API는 모두 없는 문제에 404 `PROBLEM_NOT_FOUND`를 준다.
+         */
+        get: operations["getAdminProblem"];
+        /**
+         * 문제 수정 (ADM-02·03·07)
+         * @description 폼 전체를 보낸다. 보낸 값이 그대로 저장되고, null은 그 칸을 비운다.
+         *     어느 버전에 저장할지는 서버가 정한다.
+         *     - 검증 중(`VALIDATING`)이면 409 `PROBLEM_VALIDATING`이다. 검증이 끝나 초안(`DRAFT`)으로 돌아온 뒤 고친다.
+         *     - 초안이 있으면 초안을 고친다.
+         *     - 초안이 없고 언어별 시간·메모리 제한이 최신 버전과 모두 같으면(언어 목록 포함) 최신 버전을 그 자리에서 고친다. 공개 중이면 사용자 화면에 바로 반영된다.
+         *     - 초안이 없고 언어별 시간·메모리 제한이 하나라도 다르거나 언어를 더하거나 빼면 최신 버전을 복사해 새 초안(버전 번호 +1)을 만들고 거기에 저장한다.
+         *       예제·테스트케이스와 정답 코드도 복사하고, 정답 코드는 다시 검증해야 한다. 공개하기 전까지 사용자는 기존 버전을 푼다.
+         *     두 관리자가 같은 문제를 동시에 고치면 나중에 저장한 쪽이 이긴다.
+         *     공개 중인 버전을 그 자리에서 고칠 때 공개 조건이 깨지면(태그를 모두 빼거나 출처를 비움) 409 `PUBLISH_CONDITIONS_NOT_MET`이다.
+         */
+        put: operations["updateProblem"];
+        post?: never;
+        /**
+         * 문제 삭제
+         * @description 사용자 기록(제출·풀이 통계·리포트 추천)이 없는 문제만 지운다. 잘못 만든 문제를 정리할 때 쓴다.
+         *     예제 실행과 관리자의 정답 코드 검증 기록은 사용자 기록으로 세지 않고 함께 지운다.
+         *     기록이 있으면 409 `PROBLEM_IN_USE`다. 사용자에게서 내리려면 비공개(`unpublish`)를 쓴다.
+         */
+        delete: operations["deleteProblem"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/problems/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 공개 (ADM-06)
+         * @description 최신 버전을 공개한다. 이전 공개 버전은 지난 버전(`RETIRED`)이 된다. 비공개로 내린 버전이 최신이면 다시 공개한다.
+         *     공개 조건을 모두 채워야 한다. 못 채우면 409 `PUBLISH_CONDITIONS_NOT_MET`과 `unmetConditions`를 준다.
+         *     이미 최신 버전이 공개 중이면 아무것도 바꾸지 않고 204다.
+         */
+        post: operations["publishProblem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/problems/{id}/unpublish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 비공개
+         * @description 공개 중인 버전을 `RETIRED`로 바꾼다. 사용자 목록에서 사라지고 상세·제출·예제 실행은 404가 된다. 기존 제출 기록은 남는다.
+         *     초안이 있으면 초안은 그대로 둔다. 공개 중인 버전이 없으면 아무것도 바꾸지 않고 204다.
+         */
+        post: operations["unpublishProblem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/problems/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 버전 목록 (ADM-07)
+         * @description 최신 버전부터 준다.
+         */
+        get: operations["listProblemVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/problems/{id}/versions/{versionNo}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+                versionNo: number;
+            };
+            cookie?: never;
+        };
+        /**
+         * 버전 내용 보기 (ADM-07)
+         * @description 고른 버전의 내용을 준다. 읽기 전용이다. 없는 문제나 버전은 404 `PROBLEM_NOT_FOUND`다.
+         */
+        get: operations["getProblemVersion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -568,7 +734,7 @@ export interface components {
             id: number;
             /** Format: int64 */
             problemId: number;
-            /** @description 제출한 때 공개돼 있던 버전의 제목 */
+            /** @description 제출한 버전의 제목. 제목 수정은 버전을 늘리지 않아 그 뒤 고친 제목일 수 있다 */
             problemTitle: string;
             language: components["schemas"]["Language"];
             /**
@@ -655,6 +821,85 @@ export interface components {
                 memoryUsedKb: number | null;
             }[];
         };
+        /**
+         * @description `DRAFT` 초안(작성 중), `VALIDATING` 정답 코드 검증 중(#35), `PUBLISHED` 공개 중,
+         *     `RETIRED` 지난 버전이거나 비공개로 내린 버전. 문제마다 `PUBLISHED`는 하나뿐이다.
+         * @enum {string}
+         */
+        ProblemVersionStatus: "DRAFT" | "VALIDATING" | "PUBLISHED" | "RETIRED";
+        /**
+         * @description 공개 조건 (ADM-06). `SAMPLE_COUNT` 공개 예제 2개 이상, `HIDDEN_COUNT` 비공개 테스트케이스 5개 이상,
+         *     `TAG_COUNT` 개념 태그 1~3개, `SOURCE` 출처(`sourceName`) 입력, `LANGUAGES` Python·C++ 언어 설정이 둘 다 있음.
+         *     정답 코드 검증 통과는 #35에서 더한다.
+         * @enum {string}
+         */
+        PublishCondition: "SAMPLE_COUNT" | "HIDDEN_COUNT" | "TAG_COUNT" | "SOURCE" | "LANGUAGES";
+        /** @description 등록·수정 본문. 글은 받은 그대로(앞뒤 공백·줄바꿈 포함) 저장한다. */
+        ProblemInput: {
+            /** @description 공백뿐이면 안 된다 */
+            title: string;
+            difficulty: components["schemas"]["Difficulty"];
+            /** @description 지문. Markdown과 수식. 초안에서는 비어도 된다 */
+            statementMarkdown: string;
+            inputDescription: string;
+            outputDescription: string;
+            /** @description 없으면 빈 문자열 */
+            constraintsMarkdown: string;
+            sourceName: string | null;
+            /** @description `http://`나 `https://`로 시작해야 한다. 사용자 화면에 링크로 나간다 */
+            sourceUrl: string | null;
+            license: string | null;
+            /** @description 개념 태그 `slug` (`GET /api/concept-tags`). 초안에서는 비어도 되고, 공개하려면 1개 이상이어야 한다 */
+            tags: string[];
+            /** @description 언어마다 하나씩. 초안에서는 하나만 있거나 비어도 되고, 공개하려면 PYTHON과 CPP가 둘 다 있어야 한다 */
+            languages: {
+                language: components["schemas"]["Language"];
+                /** @description 채점 서버 상한(`MAX_CPU_TIME_LIMIT`, 지금 20초) 이하. Python은 보정한 값을 그대로 넣는다(`docs/judge-verdict-mapping.md` 1절). */
+                timeLimitMs: number;
+                /** @description 채점 서버 상한(`MAX_MEMORY_LIMIT`, 지금 512MB) 이하 */
+                memoryLimitMb: number;
+                /** @description 없으면 빈 문자열 */
+                starterCode: string;
+            }[];
+        };
+        AdminProblemSummary: {
+            /** Format: int64 */
+            id: number;
+            slug: string;
+            /** @description 최신 버전의 제목 */
+            title: string;
+            difficulty: components["schemas"]["Difficulty"];
+            latestVersionNo: number;
+            latestStatus: components["schemas"]["ProblemVersionStatus"];
+            /** @description 공개 중인 버전 번호. 없으면 null */
+            publishedVersionNo: number | null;
+        };
+        ProblemVersionSummary: {
+            versionNo: number;
+            status: components["schemas"]["ProblemVersionStatus"];
+            /** Format: date-time */
+            createdAt: string;
+            /**
+             * Format: date-time
+             * @description 마지막으로 공개한 시각. 공개한 적이 없으면 null
+             */
+            publishedAt: string | null;
+        };
+        /** @description 버전 하나의 내용. 필드 뜻은 `ProblemInput`과 같다 */
+        AdminProblemVersion: components["schemas"]["ProblemInput"] & components["schemas"]["ProblemVersionSummary"] & {
+            /**
+             * Format: int64
+             * @description 문제 번호
+             */
+            id: number;
+            slug: string;
+        };
+        AdminProblemDetail: components["schemas"]["AdminProblemVersion"] & {
+            /** @description 공개 중인 버전 번호. 없으면 null */
+            publishedVersionNo: number | null;
+            /** @description 이 버전이 아직 못 채운 공개 조건. 비어 있으면 공개할 수 있다(ADM-06 [공개하기] 활성화) */
+            unmetConditions: components["schemas"]["PublishCondition"][];
+        };
         AccessTokenResponse: {
             accessToken: string;
         };
@@ -698,8 +943,45 @@ export interface components {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
             };
         };
+        /** @description ADMIN이 아님 */
+        Forbidden: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /**
+         * @description 본문이 규칙에 맞지 않음. 오류 `code`: `TAG_NOT_FOUND`(없는 태그 `slug`),
+         *     `LIMIT_OUT_OF_RANGE`(시간·메모리 제한이 채점 서버 상한 밖. `detail`에 범위를 적는다).
+         *     그 밖의 규칙(빈 제목, 태그 4개 이상, 같은 언어 두 번, `http(s)`가 아닌 URL)은 화면이 막으므로 `code` 없는 400이다.
+         *     수정에서 경로의 `id`가 정수가 아닐 때도 `code` 없는 400이다.
+         */
+        ProblemInputInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /** @description 오류 `code`: `PUBLISH_CONDITIONS_NOT_MET`. 못 채운 공개 조건을 `unmetConditions`로 준다. */
+        PublishConditionsNotMet: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"] & {
+                    unmetConditions: components["schemas"]["PublishCondition"][];
+                };
+            };
+        };
     };
-    parameters: never;
+    parameters: {
+        /** @description 문제 번호 */
+        AdminProblemId: number;
+    };
     requestBodies: never;
     headers: never;
     pathItems: never;
@@ -1312,6 +1594,335 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listAdminProblems: {
+        parameters: {
+            query?: {
+                /** @description 최신 버전 제목 부분 일치, 대소문자 무시. `%`·`_`도 글자로 찾는다. */
+                keyword?: string;
+                /** @description 0부터 센다 */
+                page?: number;
+                size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 문제 목록 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        content: components["schemas"]["AdminProblemSummary"][];
+                        /** Format: int64 */
+                        totalElements: number;
+                    };
+                };
+            };
+            /** @description `page`·`size` 범위 밖 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createProblem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProblemInput"];
+            };
+        };
+        responses: {
+            /** @description 등록됨 */
+            201: {
+                headers: {
+                    /** @description 이 문제의 관리자 상세 경로 */
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: int64 */
+                        id: number;
+                    };
+                };
+            };
+            400: components["responses"]["ProblemInputInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getAdminProblem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 최신 버전 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminProblemDetail"];
+                };
+            };
+            /** @description `id`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    updateProblem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProblemInput"];
+            };
+        };
+        responses: {
+            /** @description 저장됨. 저장된 버전을 준다 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        versionNo: number;
+                        status: components["schemas"]["ProblemVersionStatus"];
+                    };
+                };
+            };
+            400: components["responses"]["ProblemInputInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+            /**
+             * @description 오류 `code`: `PUBLISH_CONDITIONS_NOT_MET`(공개 버전을 고치다 공개 조건이 깨짐. `unmetConditions`를 준다),
+             *     `PROBLEM_VALIDATING`(검증 중).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"] & {
+                        /** @description `PUBLISH_CONDITIONS_NOT_MET`일 때만 있다 */
+                        unmetConditions?: components["schemas"]["PublishCondition"][];
+                    };
+                };
+            };
+        };
+    };
+    deleteProblem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 삭제됨 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `id`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    publishProblem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 공개됨 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `id`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["PublishConditionsNotMet"];
+        };
+    };
+    unpublishProblem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 비공개됨 */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `id`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    listProblemVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 버전 목록 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemVersionSummary"][];
+                };
+            };
+            /** @description `id`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    getProblemVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+                versionNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 그 버전 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminProblemVersion"];
+                };
+            };
+            /** @description `id`나 `versionNo`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
         };
     };
 }
