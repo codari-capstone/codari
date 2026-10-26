@@ -123,7 +123,6 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | `ENABLE_COMPILER_OPTIONS` / `ALLOWED_LANGUAGES_FOR_COMPILER_OPTIONS` | true / `C++` | true / 전체 | GCC 9.2 기본 표준이 gnu++14라 C++17에 옵션이 필요하다. API 서버만 `-O2 -std=c++17`을 보낸다. 이름 접두어 일치라 Python에 옵션을 보내면 422 |
 | `ALLOW_ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT` / `…_MEMORY_LIMIT` | false / false | true / true | 켜면 isolate가 cgroup 대신 주소 공간 제한(`-m`)을 써서 메모리 측정 기준이 바뀐다 |
 | `COUNT` | 2 | 2×nproc | 실행 슬롯 2개 |
-
 | `MAX_QUEUE_SIZE` | 100 | 100 | 명시. 대기 중인 제출(테스트케이스 하나가 제출 하나) 수의 상한이라, 20개짜리 묶음 5개면 찬다. 넘치면 503이 온다. 백오프 재시도는 #67의 규약대로 API의 `Judge0Client`가 한다(503은 0.5초부터 두 배씩 8초까지 최대 7번, 약 23초). 100으로 확정했다(실측 절의 큐 크기) |
 | `NUMBER_OF_RUNS` / `MAX_NUMBER_OF_RUNS` | 1 / 1 | 1 / 20 | 한 제출이 슬롯을 여러 번 점유하지 못하게 한다 |
 | `MAX_SUBMISSION_BATCH_SIZE` | 20 | 20 | 테스트케이스 묶음 제출 단위(명시) |
