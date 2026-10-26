@@ -527,6 +527,7 @@ export interface paths {
          *     - 초안이 없고 언어별 시간·메모리 제한이 최신 버전과 모두 같으면(언어 목록 포함) 최신 버전을 그 자리에서 고친다. 공개 중이면 사용자 화면에 바로 반영된다.
          *     - 초안이 없고 언어별 시간·메모리 제한이 하나라도 다르거나 언어를 더하거나 빼면 최신 버전을 복사해 새 초안(버전 번호 +1)을 만들고 거기에 저장한다.
          *       예제·테스트케이스와 정답 코드도 복사하고, 정답 코드는 다시 검증해야 한다. 공개하기 전까지 사용자는 기존 버전을 푼다.
+         *     두 관리자가 같은 문제를 동시에 고치면 나중에 저장한 쪽이 이긴다.
          *     공개 중인 버전을 그 자리에서 고칠 때 공개 조건이 깨지면(태그를 모두 빼거나 출처를 비움) 409 `PUBLISH_CONDITIONS_NOT_MET`이다.
          */
         put: operations["updateProblem"];
@@ -955,6 +956,7 @@ export interface components {
          * @description 본문이 규칙에 맞지 않음. 오류 `code`: `TAG_NOT_FOUND`(없는 태그 `slug`),
          *     `LIMIT_OUT_OF_RANGE`(시간·메모리 제한이 채점 서버 상한 밖. `detail`에 범위를 적는다).
          *     그 밖의 규칙(빈 제목, 태그 4개 이상, 같은 언어 두 번, `http(s)`가 아닌 URL)은 화면이 막으므로 `code` 없는 400이다.
+         *     수정에서 경로의 `id`가 정수가 아닐 때도 `code` 없는 400이다.
          */
         ProblemInputInvalid: {
             headers: {
@@ -1688,6 +1690,15 @@ export interface operations {
                     "application/json": components["schemas"]["AdminProblemDetail"];
                 };
             };
+            /** @description `id`나 `versionNo`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["Problem"];
@@ -1761,6 +1772,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description `id`나 `versionNo`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["Problem"];
@@ -1786,6 +1806,15 @@ export interface operations {
                 };
                 content?: never;
             };
+            /** @description `id`나 `versionNo`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["Problem"];
@@ -1810,6 +1839,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description `id`나 `versionNo`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
@@ -1837,6 +1875,15 @@ export interface operations {
                     "application/json": components["schemas"]["ProblemVersionSummary"][];
                 };
             };
+            /** @description `id`나 `versionNo`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["Problem"];
@@ -1862,6 +1909,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminProblemVersion"];
+                };
+            };
+            /** @description `id`나 `versionNo`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
             401: components["responses"]["Unauthorized"];
