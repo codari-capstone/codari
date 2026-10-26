@@ -19,11 +19,50 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 | `scripts/preflight.sh` | 기동 전 확인: x86_64, cgroup v1, Docker·Compose, `.env`, conf에 비밀값 키가 없는지 |
 | `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), AUTHZ(403·삭제 200), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 `COUNT`개, 금지 요청 거절 |
 | `scripts/judge0_client.py` | 표준 라이브러리 클라이언트. smoke·실측·검증이 함께 쓴다 |
-| `tests/` | 클라이언트·smoke 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
+| `verify/` | 격리·자원 제한 검증(#66): 케이스 `cases/`·`cases.json`, 실행기 `run_verify.py`, 동시 실행 `concurrency_check.py`, 결과 `results/`, 케이스별 응답 `observed/` |
+| `tests/` | 클라이언트·smoke·검증 로직 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
+
+## 채점 VM 준비
+
+2026-10-25 서울 리전(ap-northeast-2)에 만든 VM이다. 계획서는 judge 서버를 t3.small로 시작한다고 했지만, t3.small(메모리 2 GB)에서는 실행 슬롯 2개가 동시에 C++를 컴파일하거나 메모리를 많이 쓰면 호스트 여유 메모리가 기준(256 MiB) 아래로 떨어져 같은 날 t3.medium으로 키웠다(아래 "동시 실행" 표).
+
+| 항목 | 값 |
+|---|---|
+| 인스턴스 | t3.medium (2 vCPU, 메모리 4 GB, 스왑 없음), Intel Xeon Platinum 8259CL. CPU 크레딧 `unlimited`라 크레딧이 떨어져도 느려지지 않고 초과분이 과금된다 |
+| OS | Ubuntu 22.04.5 LTS (커널 6.8.0-1066-aws), 루트 gp3 20 GB, IMDSv2만 허용 |
+| Docker | Engine 29.9.2, Compose v5.6.1 (Docker 공식 apt 저장소) |
+| 태그 | `Name=codingmon-judge`, `Project=codingmon` |
+| 보안 그룹 | `codingmon-judge`. 22만 허용한 IP(/32)에서 연다. 2358은 열지 않는다. API 서버가 생기면 2358에 API 서버의 보안 그룹만 더한다(아래 3번) |
+
+접속 주소와 SSH 키는 저장소에 두지 않고 팀 비공개 채널로 공유한다. 공인 IP는 인스턴스를 멈췄다 켜면 바뀐다.
+
+1. cgroup v1로 바꾼다. Ubuntu 22.04는 기본이 cgroup v2라 그대로 두면 isolate가 `/box`를 만들지 못한다.
+
+   ```bash
+   sudo sed -i 's/^GRUB_CMDLINE_LINUX="/GRUB_CMDLINE_LINUX="systemd.unified_cgroup_hierarchy=0 /' /etc/default/grub
+   sudo update-grub && sudo reboot
+   stat -fc %T /sys/fs/cgroup          # tmpfs면 cgroup v1 (cgroup2fs면 v2)
+   ```
+
+2. Docker Engine과 Compose 플러그인을 Docker 공식 apt 저장소에서 설치하고 `ubuntu` 사용자를 `docker` 그룹에 넣는다([설치 안내](https://docs.docker.com/engine/install/ubuntu/)). `docker info --format '{{.CgroupVersion}}'`이 `1`이어야 한다. Docker 29는 cgroup v1 지원을 늦어도 2029년 5월에 없앤다고 경고하지만 이번 운영 기간과는 상관없다.
+3. 아래 "설치·기동"대로 띄운다. API 서버가 생기기 전에는 `.env`의 `JUDGE0_BIND_ADDR`를 `127.0.0.1`로 둔다. VM 밖에서는 보안 그룹과 상관없이 2358에 닿지 않고, 개발 중인 맥은 SSH 터널로 붙는다: `ssh -i <키> -N -L 2358:127.0.0.1:2358 ubuntu@<공인 IP>` 뒤 `JUDGE0_URL=http://127.0.0.1:2358`.
+   - API 서버가 생기면 `JUDGE0_BIND_ADDR`를 VM 사설 IP(`hostname -I`의 첫 값)로 바꾸고, 보안 그룹의 2358에 API 서버 보안 그룹만 더한다.
+   - 이때부터는 보안 그룹이 유일한 차단이다. EC2는 공인 IP로 온 연결을 사설 IP로 바꿔 넘기므로(VM 인터페이스에는 사설 IP만 있다), 사설 IP 바인딩만으로는 인터넷 접속이 막히지 않는다. 2358 규칙을 IP 대역으로 넓히지 않는다.
+4. `judge0.conf`의 `ALLOW_IP`는 비워 둔다. 주소 제한은 보안 그룹 한 곳에서 하고, Judge0에는 토큰 인증(`AUTHN_TOKEN`)만 둔다.
+
+2026-10-25 방화벽 확인:
+
+| 확인 | 결과 |
+|---|---|
+| 허용한 IP → 공인 IP:2358 | 연결 안 됨 (보안 그룹에 2358 규칙 없음, 127.0.0.1 바인딩) |
+| VM 안에서 사설 IP:2358 (같은 VPC 서버 자리) | 연결 안 됨 (127.0.0.1에만 바인딩) |
+| 허용한 IP → SSH 터널 → 127.0.0.1:2358, 토큰 있음 | 200 |
+| SSH 터널, 토큰 없음 | 401 |
+| 다른 호스트(VM이 자기 공인 IP로) → 22 · 2358 | 둘 다 연결 안 됨 |
 
 ## 설치·기동
 
-채점 VM(amd64 Ubuntu 22.04, cgroup v1, Docker)을 준비하는 절차는 #63에서 이 문서에 추가한다. 보안 그룹과 함께 `judge0.conf`의 `ALLOW_IP`로 2358 호출을 API 서버 주소로만 제한할지도 그때 정한다(지금은 비어 있어 토큰만 있으면 어느 주소에서든 호출된다). 준비된 VM에서:
+준비된 VM에서:
 
 ```bash
 git clone https://github.com/codari-capstone/codingmon.git ~/codingmon
@@ -109,3 +148,61 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | C++ | 54 | GCC 9.2.0 | `-O2 -std=c++17` (API 서버가 고정해 보낸다) |
 
 Judge0 1.13.1에는 Python 3.10 이상이 없다. `match` 문 같은 3.10+ 문법은 쓸 수 없다.
+
+## 격리·자원 제한 검증 (#66)
+
+```bash
+cd judge
+python3 verify/run_verify.py --label <환경 이름> --observed verify/observed   # 종료 코드 = 실패 수
+python3 verify/concurrency_check.py                                         # 실행 슬롯(COUNT)
+```
+
+접속 주소와 토큰은 smoke와 같이 `JUDGE0_URL`·`JUDGE0_AUTHN_TOKEN`, 없으면 `.env`에서 읽는다. 채점 VM에서는 그대로 실행하면 된다.
+
+`run_verify.py`는 `verify/cases.json`의 케이스 45개(네트워크·파일·프로세스·시간·메모리·재귀·출력·예외)를 제출해 기대값과 대조한다. 네트워크 케이스는 같은 코드를 호스트에서도 실행해, 샌드박스 밖에서는 닿는 대상만 차단 근거로 인정한다. 예외 케이스는 판정 매핑의 근거로 기록만 한다(`observe`). 제한값은 `judge0.conf` 기본값(CPU 2초, wall 5초, 메모리 256 MB, 출력 1024 KB)이다.
+
+### 결과: 맥 Docker Desktop (cgroup v1, Rosetta) — 2026-10-15
+
+전체 표는 `verify/results/2026-10-15-mac-rosetta-cgroupv1.md`, 케이스별 응답은 `verify/observed/mac-rosetta-cgroupv1/`에 있다. 실패 0건(44건 통과, 환경에 따라 다른 관찰 1건).
+
+| 묶음 | 결과 |
+|---|---|
+| 네트워크 | Python·C++ 모두 DNS(example.com)·TCP(1.1.1.1:53, 8.8.8.8:53) 차단. 같은 대상이 호스트에서는 닿는 것을 대조 실행으로 확인 |
+| 파일 | `docker.sock`·`/judge0.conf`·`/api/environment`(Judge0 비밀값이 담긴 파일)·isolate 작업 폴더가 보이지 않음. `/etc/shadow` 읽기 거부, `/etc`·`/usr` 쓰기 거부 |
+| 프로세스 | uid 60000번대로 실행. `/proc`에는 샌드박스 안 프로세스만 보임. fork는 58개에서 막힘(`-p 60`) |
+| 시간 | 무한 반복(Python·C++) → status 5, CPU 2.1초. 무한 `sleep` → status 5, wall 5.0초 |
+| 메모리 | 큰 리스트·배열·벡터 → status 11, exit_code 137(SIGKILL), `memory` = 제한값(262144 KB) |
+| 재귀 | Python 기본 한도 → `RecursionError`. 깊이 10⁵(Python)은 통과. 끝없는 재귀는 스택이 메모리에 포함되어 메모리 제한에서 SIGKILL. C++ 깊이 10⁶ 케이스는 이때 `-O2`가 반복문으로 바꿔 스택을 쓰지 않았다(856 KB). 고친 케이스의 결과는 아래 채점 VM 결과에 있다 |
+| 출력 | C++ 무한 출력 → status 11, exit_code 153(SIGXFSZ). Python 무한 출력 → `OSError: [Errno 27] File too large`, exit_code 1. stderr 무한 출력 → exit_code 120. 제한 바로 아래 출력(900 KB)과 비UTF-8 출력은 정상 |
+| 동시 실행 | CPU 1.5초 작업 4개 → 샌드박스 실행 구간 최대 2개 겹침, 나머지는 큐 대기. 450 MiB 작업 2개 동시 실행 정상 |
+
+판정 매핑에 영향을 주는 관찰:
+
+- Judge0는 프로그램을 `/bin/bash run` 스크립트로 감싸 실행한다. 그래서 신호로 끝난 프로그램도 isolate에는 bash의 비정상 종료로 보여 **status 11(NZEC)에 `exit_code` = 128 + 신호 번호**로 온다. `exit_signal`은 비어 있다. 세그폴트 139, 0 나누기 136, abort(예외·assert) 134, 출력 초과 153, 메모리 kill 137. Judge0 문서의 status 7~10은 이 구성에서 나오지 않았다.
+- 신호로 끝나면 stderr 끝에 bash의 `run: line 1: … Killed …/python3 script.py` 같은 줄이 붙는다. 사용자에게 에러 원문을 보여 줄 때는 이 줄을 지운다.
+- `new`로 4 TB를 요청하는 케이스는 Docker Desktop VM의 `vm.overcommit_memory=1` 때문에 할당이 성공했다. Ubuntu 기본값(0)에서는 `bad_alloc` → abort(134)가 예상된다.
+- `/workers`는 호출할 때마다 워커 등록을 지워 `working`·`available`이 0으로 온다(운영 명령 절). 동시 실행 수는 샌드박스 안 시각으로 잰다.
+
+### 결과: 채점 VM (EC2, Ubuntu 22.04, cgroup v1) — 2026-10-25
+
+전체 표는 `verify/results/2026-10-25-ec2-t3.medium.md`, 케이스별 응답은 `verify/observed/ec2-t3.medium/`에 있다. 키우기 전 t3.small에서도 같은 결과였다(판정 동작은 인스턴스 크기와 상관없다). 실패 0건이다. 판정 규칙을 바꿀 차이는 없었다([판정 매핑 9절](../docs/judge-verdict-mapping.md#9-채점-vm에서-확인한-것)).
+
+| 묶음 | 맥과 다른 점 |
+|---|---|
+| 네트워크 | EC2 메타데이터(169.254.169.254:80)도 샌드박스 안에서 막힌다. 같은 코드가 호스트에서는 닿는 것을 대조 실행으로 확인했다 |
+| 메모리 | `new`로 4 TB를 요청하면 할당이 실패해 `std::bad_alloc` → abort(134)로 끝난다. VM은 `vm.overcommit_memory=0`이다 |
+| 신호 | 맥과 같이 status 11 + `exit_code` 128+N으로 온다. bash 줄 끝에 `(core dumped)`가 붙는다 |
+| 시간 | 무한 반복 CPU 2.1초(Python 2.057, C++ 2.068), 무한 `sleep` wall 5.1초 → status 5 |
+| 재귀 | C++ 깊이 10⁶(호출 뒤에도 프레임을 쓰게 고친 `rec_ok_cpp`)이 메모리 32 MB를 쓰며 정상 종료한다. 스택 한도(메모리 한도와 같은 256 MB) 안이다 |
+
+동시 실행(`concurrency_check.py`):
+
+| 단계 | t3.small (2 GB) | t3.medium (4 GB) |
+|---|---|---|
+| CPU 1.5초 작업 4개 | 모두 정상 종료, 실행 구간 최대 2개 겹침. 호스트 MemAvailable 최소 821 MiB | 같음. 최소 2793 MiB |
+| 450 MiB 작업 2개 | 둘 다 정상 종료했지만 MemAvailable 최소 **32 MiB** (기준 256 MiB, **실패**) | 최소 1899 MiB (통과) |
+| `bits/stdc++.h` C++ 컴파일 2개 | MemAvailable 최소 **119 MiB** | 최소 2437 MiB |
+
+- 샌드박스 실행 구간은 최대 2개만 겹치고 나머지는 큐에서 기다린다. 두 크기 모두 컨테이너 재시작과 호스트 OOM은 없었다(dmesg의 OOM은 메모리 초과 케이스가 샌드박스 cgroup 안에서 죽은 것뿐이다).
+- 평상시 Judge0 컨테이너 메모리는 server 171 MiB, workers 271 MiB, db 53 MiB, redis 7 MiB다. 스왑은 없다.
+- 컴파일 메모리는 Judge0 응답에 없어 cgroup v1의 workers 컨테이너 `memory.max_usage_in_bytes`와 `cc1plus` RSS로 쟀다. 컴파일 하나가 약 210 MiB를 쓴다(2개 합 419 MiB).

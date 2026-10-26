@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "label": "mac-rosetta-cgroupv1",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "run_at": "20261015-120625"
+  },
+  "case": {
+    "id": "out_bytes_py",
+    "group": "output",
+    "file": "out_bytes.py",
+    "expect": {
+      "status": [
+        3
+      ]
+    },
+    "note": "비UTF-8 출력도 base64로 정상 조회"
+  },
+  "result": {
+    "stdout": "�� ok\n",
+    "time": "0.074",
+    "memory": 9356,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": null,
+    "wall_time": "0.079",
+    "status": {
+      "id": 3,
+      "description": "Accepted"
+    }
+  }
+}

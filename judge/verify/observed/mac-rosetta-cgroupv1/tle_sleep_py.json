@@ -1,0 +1,39 @@
+{
+  "meta": {
+    "label": "mac-rosetta-cgroupv1",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "run_at": "20261015-120625"
+  },
+  "case": {
+    "id": "tle_sleep_py",
+    "group": "time",
+    "file": "tle_sleep.py",
+    "expect": {
+      "status": [
+        5
+      ]
+    },
+    "note": "CPU를 쓰지 않아 wall 제한으로 끝나야 함"
+  },
+  "result": {
+    "stdout": null,
+    "time": "0.07",
+    "memory": 9240,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": "Time limit exceeded (wall clock)",
+    "wall_time": "5.005",
+    "status": {
+      "id": 5,
+      "description": "Time Limit Exceeded"
+    }
+  }
+}

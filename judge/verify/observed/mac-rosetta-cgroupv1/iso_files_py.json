@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "label": "mac-rosetta-cgroupv1",
+    "judge0": {
+      "version": "1.13.1",
+      "homepage": "https://judge0.com",
+      "source_code": "https://github.com/judge0/judge0",
+      "maintainer": "Herman Zvonimir Došilović <hermanz.dosilovic@gmail.com>"
+    },
+    "host": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "run_at": "20261015-120625"
+  },
+  "case": {
+    "id": "iso_files_py",
+    "group": "files",
+    "file": "iso_files.py",
+    "expect": {
+      "status": [
+        3
+      ],
+      "stdout_not": [
+        "REACHED"
+      ]
+    }
+  },
+  "result": {
+    "stdout": "docker_sock BLOCKED FileNotFoundError\netc_shadow_read BLOCKED PermissionError\njudge0_conf_read BLOCKED FileNotFoundError\napi_environment_read BLOCKED FileNotFoundError\nisolate_boxes_list BLOCKED FileNotFoundError\nwrite_etc BLOCKED OSError\nwrite_usr BLOCKED OSError\nproc_other_processes BLOCKED []\nuid 60106 BLOCKED\n",
+    "time": "0.086",
+    "memory": 10480,
+    "stderr": null,
+    "compile_output": null,
+    "exit_code": 0,
+    "exit_signal": null,
+    "message": null,
+    "wall_time": "0.103",
+    "status": {
+      "id": 3,
+      "description": "Accepted"
+    }
+  }
+}
