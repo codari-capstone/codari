@@ -19,6 +19,7 @@ Judge0 v1.13.1 자체 호스팅 설정. 제출 코드를 웹·API 서버와 분�
 | `scripts/preflight.sh` | 기동 전 확인: x86_64, cgroup v1, Docker·Compose, `.env`, conf에 비밀값 키가 없는지 |
 | `scripts/smoke.py` | 기동 후 확인: 인증(`/about`), AUTHZ(403·삭제 200), `/system_info`, `/config_info`와 conf 대조, 언어 71·54, hello world, 동시 실행 `COUNT`개, 금지 요청 거절 |
 | `scripts/judge0_client.py` | 표준 라이브러리 클라이언트. smoke·실측·검증이 함께 쓴다 |
+| `bench/` | 실행 시간·메모리 실측(#65): 워크로드 `workloads/`, 입력 생성 `gen_input.py`, 실행기 `run_bench.py`, 결과 `results/` |
 | `verify/` | 격리·자원 제한 검증(#66): 케이스 `cases/`·`cases.json`, 실행기 `run_verify.py`, 동시 실행 `concurrency_check.py`, 결과 `results/`, 케이스별 응답 `observed/` |
 | `tests/` | 클라이언트·smoke·검증 로직 단위 테스트 (`python3 -m unittest discover -s judge/tests`) |
 
@@ -122,21 +123,21 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | `ENABLE_COMPILER_OPTIONS` / `ALLOWED_LANGUAGES_FOR_COMPILER_OPTIONS` | true / `C++` | true / 전체 | GCC 9.2 기본 표준이 gnu++14라 C++17에 옵션이 필요하다. API 서버만 `-O2 -std=c++17`을 보낸다. 이름 접두어 일치라 Python에 옵션을 보내면 422 |
 | `ALLOW_ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT` / `…_MEMORY_LIMIT` | false / false | true / true | 켜면 isolate가 cgroup 대신 주소 공간 제한(`-m`)을 써서 메모리 측정 기준이 바뀐다 |
 | `COUNT` | 2 | 2×nproc | 실행 슬롯 2개 |
-| `MAX_QUEUE_SIZE` | 100 | 100 | 명시. 대기 중인 제출(테스트케이스 하나가 제출 하나) 수의 상한이라, 20개짜리 묶음 5개면 찬다. 넘치면 503이 온다. 백오프 재시도는 #67의 규약대로 API의 `Judge0Client`가 한다(503은 0.5초부터 두 배씩 8초까지 최대 7번, 약 23초). 동시 사용자 목표와 함께 #65에서 확정 |
+| `MAX_QUEUE_SIZE` | 100 | 100 | 명시. 대기 중인 제출(테스트케이스 하나가 제출 하나) 수의 상한이라, 20개짜리 묶음 5개면 찬다. 넘치면 503이 온다. 백오프 재시도는 #67의 규약대로 API의 `Judge0Client`가 한다(503은 0.5초부터 두 배씩 8초까지 최대 7번, 약 23초). 100으로 확정했다(실측 절의 큐 크기) |
 | `NUMBER_OF_RUNS` / `MAX_NUMBER_OF_RUNS` | 1 / 1 | 1 / 20 | 한 제출이 슬롯을 여러 번 점유하지 못하게 한다 |
 | `MAX_SUBMISSION_BATCH_SIZE` | 20 | 20 | 테스트케이스 묶음 제출 단위(명시) |
 | `ENABLE_SUBMISSION_DELETE` | true | false | 결과를 읽은 뒤 비공개 입력을 지울 수 있게 한다(AUTHZ 토큰 필요). 채점 처리기는 아직 지우지 않는다 |
 | `SUBMISSION_CACHE_DURATION` | 0 | 1 | 폴링이 캐시된 상태를 받지 않게 한다 |
-| `RAILS_SERVER_PROCESSES` | 1 | 2 | t3.small 메모리 절약. 동시 실행 측정 후 조정 |
+| `RAILS_SERVER_PROCESSES` | 1 | 2 | 1로 둔다. Judge0를 부르는 곳은 API 서버뿐이고, 채점 처리기 슬롯이 2개라 동시에 오는 요청이 적다 |
 | `JUDGE0_TELEMETRY_ENABLE` | false | true | 외부 전송 차단 |
-| `CPU_TIME_LIMIT` / `MAX_…` | 2 / 20 초 | 5 / 15 | **실측 전 시작값** (#65에서 확정) |
+| `CPU_TIME_LIMIT` / `MAX_…` | 2 / 20 초 | 5 / 15 | #65 실측으로 확정. 상한 20초는 C++ 6초 문제의 Python 제한(×3 + 2초)까지 받는다. API는 요청마다 값을 보내 기본값은 쓰이지 않는다 |
 | `CPU_EXTRA_TIME` / `MAX_…` | 0.5 / 1 초 | 1 / 5 | TLE 판정 꼬리 지연 제한 |
-| `WALL_TIME_LIMIT` / `MAX_…` | 5 / 30 초 | 10 / 20 | 실측 전 시작값 |
-| `MEMORY_LIMIT` / `MAX_…` | 262144 / 524288 KB | 128000 / 512000 | 실측 전 시작값 |
+| `WALL_TIME_LIMIT` / `MAX_…` | 5 / 30 초 | 10 / 20 | #65 실측으로 확정. API는 min(CPU × 2 + 1, 30)을 보낸다 |
+| `MEMORY_LIMIT` / `MAX_…` | 262144 / 524288 KB | 128000 / 512000 | #65 실측으로 확정. 상한은 컴파일 한도이기도 하다(아래). t3.medium에서는 슬롯 2개가 상한 가까이 써도 여유가 있다 |
 | `STACK_LIMIT` / `MAX_…` | 262144 / 524288 KB | 64000 / 128000 | 스택을 메모리 제한과 같게 둔다(깊은 재귀가 메모리 전에 끊기지 않게) |
-| `MAX_FILE_SIZE` / `MAX_MAX_FILE_SIZE` | 1024 / 4096 KB | 1024 / 4096 | 출력 제한. 컴파일 산출물도 상한을 받는다. #65에서 확정 |
+| `MAX_FILE_SIZE` / `MAX_MAX_FILE_SIZE` | 1024 / 4096 KB | 1024 / 4096 | 출력 제한 1024 KB로 확정. 컴파일 산출물도 상한을 받는다. 문제의 정답 출력은 1 MB 안에 들게 만든다 |
 
-`MAX_…` 값은 호출자가 요청할 수 있는 상한이면서 **컴파일 단계의 제한**이기도 하다. Judge0는 컴파일을 `-t MAX_CPU_TIME_LIMIT -w MAX_WALL_TIME_LIMIT --cg-mem=MAX_MEMORY_LIMIT`로 돌린다(로컬 워커 로그에서 `-t 20.0 -w 30.0 --cg-mem=524288` 확인). 그래서 두 슬롯이 동시에 C++를 컴파일하면 각각 512 MB까지 쓸 수 있고, 이 값을 줄이면 컴파일 한도도 같이 줄어든다. 컴파일 메모리는 #65에서 함께 잰다.
+`MAX_…` 값은 호출자가 요청할 수 있는 상한이면서 **컴파일 단계의 제한**이기도 하다. Judge0는 컴파일을 `-t MAX_CPU_TIME_LIMIT -w MAX_WALL_TIME_LIMIT --cg-mem=MAX_MEMORY_LIMIT`로 돌린다(로컬 워커 로그에서 `-t 20.0 -w 30.0 --cg-mem=524288` 확인). 그래서 두 슬롯이 동시에 C++를 컴파일하면 각각 512 MB까지 쓸 수 있고, 이 값을 줄이면 컴파일 한도도 같이 줄어든다. #65에서 잰 컴파일 메모리는 `bits/stdc++.h`·`-O2` 하나에 약 210 MiB다. 256 MB로 낮추면 컴파일이 한도에 가까워져 512 MB를 유지한다.
 
 비밀값(`AUTHN_TOKEN`, `AUTHZ_TOKEN`, `REDIS_PASSWORD`, `POSTGRES_PASSWORD`)은 `judge0.conf`에 두지 않는다. Judge0의 `scripts/load-config`가 conf를 allexport로 읽기 때문에, `AUTHN_TOKEN=` 같은 빈 줄이 하나라도 있으면 `.env`로 넣은 값을 빈 값으로 덮어써 인증이 꺼진다. `preflight.sh`가 이 줄이 없는지 확인한다. 운영 비밀값은 SSM Parameter Store에 두고 VM의 `.env`로 옮긴다.
 
@@ -148,6 +149,65 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | C++ | 54 | GCC 9.2.0 | `-O2 -std=c++17` (API 서버가 고정해 보낸다) |
 
 Judge0 1.13.1에는 Python 3.10 이상이 없다. `match` 문 같은 3.10+ 문법은 쓸 수 없다.
+
+## 실행 시간·메모리 실측 (#65)
+
+**채점 VM에서만 측정한다.** 맥 Docker Desktop은 Apple 칩에서 amd64 명령을 Rosetta로 번역해 실행하므로 시간과 Python/C++ 비율이 서버와 다르다. 맥에서는 하네스가 동작하는지만 확인했다(2026-10-15, 모든 워크로드·크기에서 status 3, 두 언어 출력 일치).
+
+```bash
+cd judge
+python3 bench/run_bench.py --label ec2-<인스턴스 타입> --results   # bench/results/<날짜>-<label>.md 생성
+```
+
+| 워크로드 | 내용 | 입력 크기 N (소·중·대) |
+|---|---|---|
+| `io_sort_prefix` | 정수 N개 읽기 → 정렬 → 누적합 | 10⁴, 10⁵, 10⁶ |
+| `nested_loop` | O(N²) 순수 반복 | 1000, 2000, 4000 |
+| `dict_count` | 해시 맵 빈도 집계 | 10⁴, 10⁵, 10⁶ |
+| `recursion_dfs` | 깊이 N 재귀 | 1000, 10⁴, 5×10⁴ |
+| `io_print` | N줄 출력 | 10⁴, 5×10⁴, 10⁵ |
+| `empty` | 빈 프로그램(언어 기본 비용) | — |
+
+- 조합마다 예열 1회를 버리고 5회 측정한다. 한 번에 하나씩 제출하고 언어 순서를 번갈아 바꾼다. 측정이 잘리지 않게 상한값(CPU 20초, 메모리 512 MB)으로 요청한다.
+- 두 언어의 출력이 같은지 확인한다(다르면 결과의 '문제'에 나온다). 입력은 고정 시드 합성 데이터다.
+- 측정 조건(Judge0·isolate 버전, CPU 모델, vCPU, 메모리, 시각)은 결과 파일 머리에 자동으로 적힌다. 버스트 인스턴스(t3)는 측정 전후 CPU 크레딧 잔량(CloudWatch `CPUCreditBalance`)을 손으로 적는다. 2026-10-25 VM은 크레딧이 `unlimited`라 잔량(0)과 상관없이 느려지지 않은 상태에서 쟀다.
+
+**Python 보정 배수 정하는 법**: 출발점은 계획서의 시간 ×3 + 2초, 메모리 ×2다.
+
+- 결과 표는 입력마다 C++ 기준 제한 L을 잡는다. C++ 최댓값 × 2를 0.5초 단위로 올린 값이고 최소 1초다. 그리고 Python 최댓값이 3L + 2초 안에 드는지(통과 열)를 보여 준다. 다만 L의 하한 1초 때문에 작은 입력은 거의 늘 통과해 이 열만으로는 배수를 시험하지 못한다.
+- 배수는 '최대 비율'(Python 최대 ÷ C++ 최대) 열로 판단한다. C++ 풀이가 L의 절반을 쓴다고 보면 3L + 2초 = 6 × C++ 시간 + 2초라, 비율 6배까지 맞는다. 실행이 0.3초를 넘는 큰 입력에서 최대 비율이 6 이하면 ×3 + 2초를 유지한다. 넘으면 그 비율을 덮는 배수를 후보로 올린다. 지금 크기에서 0.3초를 넘는 것은 `io_sort_prefix`·`dict_count`의 10⁶뿐이다. `recursion_dfs`·`io_print`는 가장 큰 크기도 0.1초가 안 돼 이 기준을 적용할 자료가 없다(입출력·재귀가 아주 많은 문제는 아래 결론대로 따로 잰다).
+- `nested_loop` 같은 순수 반복은 Python이 수십 배 느려 배수로 맞추지 않는다(백준도 같다). 비율은 기록만 한다.
+- 메모리는 사용량 비율이 아니라 문제의 메모리 제한 기준으로 판단한다. 정수 10⁶개를 담는 워크로드는 Python 객체 오버헤드로 사용량이 C++의 9배를 넘지만, 256 MB 제한 문제라면 Python 제한 512 MB 안에 충분히 든다.
+- 확정한 배수는 문제 등록 시 `problem_language_configs`에 언어별 값으로 저장한다. 제출 때 다시 곱하지 않는다.
+
+### 결과: EC2 t3.medium — 2026-10-25
+
+전체 표는 `bench/results/2026-10-25-ec2-t3.medium.md`에 있다. 키우기 전 t3.small에서도 같은 CPU라 거의 같은 값이 나왔다. 모든 실행이 status 3이고 두 언어의 출력이 같았다.
+
+| 워크로드 (가장 큰 N) | Python 최대 | C++ 최대 | 시간 비율(중앙값) | 최대 비율 | Python 메모리 최대 | C++ 메모리 최대 |
+|---|---|---|---|---|---|---|
+| `io_sort_prefix` (10⁶) | 1.661초 | 0.312초 | 5.2 | 5.3 | 110860 KB | 8776 KB |
+| `dict_count` (10⁶) | 1.037초 | 0.387초 | 2.7 | 2.7 | 80196 KB | 5112 KB |
+| `recursion_dfs` (5×10⁴) | 0.067초 | 0.006초 | 13.0 | 11.2 | 44196 KB | 2524 KB |
+| `io_print` (10⁵) | 0.064초 | 0.018초 | 5.6 | 3.6 | 4264 KB | 1564 KB |
+| `nested_loop` (4000) | 3.157초 | 0.029초 | 122.2 | 108.9 | 3348 KB | 984 KB |
+| `empty` | 0.018초 | 0.003초 | 5.3 | 6.0 | 3272 KB | 980 KB |
+
+확정한 값:
+
+- **Python 보정 배수는 시간 ×3 + 2초, 메모리 ×2를 유지한다.** 근거는 '최대 비율' 열이다. 통과 열은 모든 행이 L = 1초(Python 제한 5초)라 배수를 시험하지 못한다.
+  - 실행이 0.3초를 넘는 큰 입력(`io_sort_prefix`·`dict_count`의 10⁶)에서는 최대 비율이 2.7~5.3배로, C++이 제한의 절반을 쓰는 문제까지 6배 안에 든다. `recursion_dfs`·`io_print`는 큰 입력 자료가 없다.
+  - 6배를 넘는 것(최대 11.2배, `recursion_dfs` 5×10⁴)은 Python 실행이 0.1초도 안 되는 작은 입력뿐이고, +2초가 덮는다.
+  - `nested_loop`(순수 반복)는 41~109배라 배수로 맞추지 않고 기록만 한다.
+  - C++ 정답이 1초 넘게 걸리는 문제, 특히 입출력·재귀가 많은 문제는 ×3 + 2초가 빠듯할 수 있다. 이런 문제는 등록할 때 Python 정답 코드로 실제 시간을 재서 Python 제한을 정한다(정답 코드 검증, ADM-05).
+- 메모리는 정수 10⁶개를 담는 Python 풀이가 약 108 MiB로 C++의 12배를 넘지만, 256 MB 문제의 Python 제한(512 MB) 안에 충분히 든다.
+- **컴파일 메모리**: `bits/stdc++.h`·`-O2` C++ 제출 2개를 동시에 컴파일하면 `cc1plus` RSS 합이 419 MiB(하나에 약 210 MiB)다. workers 컨테이너 최대 사용량은 790 MiB다(cgroup v1 `memory.max_usage_in_bytes`). Judge0는 컴파일 메모리를 응답에 넣지 않아 호스트에서 쟀다. `MAX_MEMORY_LIMIT`은 512 MB를 유지한다.
+- **큐 크기**: `MAX_QUEUE_SIZE`는 100을 유지한다. API 채점 처리기는 슬롯 2개로 제출을 둘씩만 보내므로, Judge0 큐에 동시에 들어가는 케이스는 많아야 문제 케이스 수의 2배다. 문제당 케이스가 50개를 넘는 문제를 넣으면 다시 정한다.
+- 동시 실행 중에도 `wall_time_limit` = CPU × 2 + 1이 정답을 끊지 않는다([판정 매핑 9절](../docs/judge-verdict-mapping.md#9-채점-vm에서-확인한-것)).
+
+## 판정 매핑
+
+Judge0 응답(status·exit_code·memory·stderr)을 우리 판정 9가지와 런타임 에러 종류로 바꾸는 규칙은 [`docs/judge-verdict-mapping.md`](../docs/judge-verdict-mapping.md)에 있다. 아래 검증 결과가 그 근거다.
 
 ## 격리·자원 제한 검증 (#66)
 

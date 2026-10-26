@@ -4,7 +4,7 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 
 - 화면 문구·출력 비교·공개 범위의 기준은 [`AI_FEATURES.md` 10절](AI_FEATURES.md#10-채점-결과와-쉬운-설명-ai-없이-표시)이다. 이 문서는 Judge0 응답을 그 판정으로 옮기는 방법만 정한다.
 - 저장 형식은 `V1__initial_schema.sql`의 `submissions`·`submission_test_results`를 따른다. 판정은 `verdict` 8종이고, '채점 불가'는 `job_status = 'JUDGE_ERROR'`에 `verdict = NULL`이다. 런타임 에러 종류는 `runtime_error_type`에 넣는다. 케이스 행의 `verdict`에는 `COMPILE_ERROR`가 없다([제출 판정 합치기](#제출-판정-합치기)).
-- 채점 서버의 기본값·상한은 [`judge/judge0.conf`](../judge/judge0.conf)와 [`judge/README.md`](../judge/README.md)를 따른다. 상한은 #65 실측 뒤 바뀔 수 있어 이 문서는 숫자 대신 설정 이름(`MAX_CPU_TIME_LIMIT` 등)으로 적는다.
+- 채점 서버의 기본값·상한은 [`judge/judge0.conf`](../judge/judge0.conf)와 [`judge/README.md`](../judge/README.md)를 따른다. 상한은 바뀔 수 있어 이 문서는 숫자 대신 설정 이름(`MAX_CPU_TIME_LIMIT` 등)으로 적는다.
 - 규칙의 근거는 격리·자원 제한 검증(#66) 케이스를 맥 Docker Desktop(cgroup v1, Rosetta)과 채점 VM(EC2 t3.medium)에서 돌려 관찰한 결과다. 케이스와 관찰 JSON은 `judge/verify/`에 있다. 채점 VM에서 다시 확인한 결과는 [9절](#9-채점-vm에서-확인한-것)에 있다.
 
 ## 1. 요청 규약
@@ -21,12 +21,12 @@ Judge0 1.13.1의 응답을 우리 판정 9가지와 런타임 에러 이름으�
 | 묶음 제출 | 테스트케이스는 `POST /submissions/batch`로 최대 20개씩 보낸다. 응답은 항목별 목록이고 항목마다 `token`이나 오류가 온다(6절) |
 | 삭제 | 결과를 읽은 뒤 `DELETE /submissions/{token}`(`X-Auth-User` 필요)으로 지울 수 있다. 채점 처리기는 아직 지우지 않는다 |
 
-제한값은 `problem_language_configs`의 언어별 값으로 만든다. Python 보정(계획서 초기값: 시간 ×3 + 2초, 메모리 ×2. #65 실측으로 확정)은 문제를 등록할 때 Python 행의 `time_limit_ms`·`memory_limit_mb`에 반영해 저장하므로, 요청을 만들 때 다시 곱하지 않는다.
+제한값은 `problem_language_configs`의 언어별 값으로 만든다. Python 보정(시간 ×3 + 2초, 메모리 ×2. #65 실측으로 확정, `judge/README.md` 실측 절)은 문제를 등록할 때 Python 행의 `time_limit_ms`·`memory_limit_mb`에 반영해 저장하므로, 요청을 만들 때 다시 곱하지 않는다.
 
 | 필드 | 값 | 이유 |
 |---|---|---|
 | `cpu_time_limit` | `time_limit_ms` / 1000 (초) | |
-| `wall_time_limit` | min(`cpu_time_limit` × 2 + 1, `MAX_WALL_TIME_LIMIT`) (초) | 보내지 않으면 `WALL_TIME_LIMIT`(5초)가 적용돼, 제한이 5초를 넘는 문제는 정답도 wall 5초에서 끊긴다. ×2 + 1은 서버 기본값(CPU 2초 → wall 5초)과 같은 비율이고, #65 실측으로 조정할 수 있다 |
+| `wall_time_limit` | min(`cpu_time_limit` × 2 + 1, `MAX_WALL_TIME_LIMIT`) (초) | 보내지 않으면 `WALL_TIME_LIMIT`(5초)가 적용돼, 제한이 5초를 넘는 문제는 정답도 wall 5초에서 끊긴다. ×2 + 1은 서버 기본값(CPU 2초 → wall 5초)과 같은 비율이다. 동시 실행 중에도 정답을 끊지 않는 것을 채점 VM에서 확인했다(9절) |
 | `memory_limit` | `memory_limit_mb` × 1024 (KB) | |
 | `stack_limit` | `memory_limit`과 같은 값 | 끝없는 재귀를 메모리 초과로 판정하는 근거다(3절). 보내지 않으면 `STACK_LIMIT`(256 MB)이 적용돼, 메모리 제한이 그보다 큰 문제에서는 재귀가 SIGSEGV로 끝난다 |
 | `max_file_size` | 1024 (KB) | 출력 제한이자 3절 `limit_bytes`의 기준이다. 서버 기본값과 같아도 명시한다 |
