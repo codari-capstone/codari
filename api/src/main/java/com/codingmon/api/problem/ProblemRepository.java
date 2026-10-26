@@ -189,7 +189,7 @@ class ProblemRepository {
     }
 
     // 사용자가 입력한 %·_는 와일드카드가 아니라 글자로 찾는다.
-    private static String escapeLike(String value) {
+    static String escapeLike(String value) {
         return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
