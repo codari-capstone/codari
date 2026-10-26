@@ -736,12 +736,292 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/admin/problems:
+    get:
+      operationId: listAdminProblems
+      summary: 관리자 문제 목록·검색 (ADM-01)
+      description: |
+        공개 전·비공개 문제까지 모두 준다. 번호 오름차순이다.
+        목록의 상태 표시(작성 중·검증 중·공개·공개 중 수정·비공개)는 화면이 `latestStatus`와 `publishedVersionNo`로 정한다.
+        예: `latestStatus`가 `DRAFT`이고 `publishedVersionNo`가 2면 "공개 v2 · 수정 중".
+      tags: [admin]
+      parameters:
+        - in: query
+          name: keyword
+          description: 최신 버전 제목 부분 일치, 대소문자 무시. `%`·`_`도 글자로 찾는다.
+          schema:
+            type: string
+        - in: query
+          name: page
+          description: 0부터 센다
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - in: query
+          name: size
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
+            default: 20
+      responses:
+        '200':
+          description: 문제 목록
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [content, totalElements]
+                properties:
+                  content:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminProblemSummary'
+                  totalElements:
+                    type: integer
+                    format: int64
+        '400':
+          description: '`page`·`size` 범위 밖'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      operationId: createProblem
+      summary: 문제 등록 (ADM-02·03)
+      description: |
+        문제와 1번 버전을 초안(`DRAFT`)으로 만든다. 사용자에게는 공개하기 전까지 보이지 않는다.
+        `slug`는 서버가 만든다(`p-{id}`). 예제·테스트케이스는 #34의 API로 넣는다.
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProblemInput'
+      responses:
+        '201':
+          description: 등록됨
+          headers:
+            Location:
+              description: 이 문제의 관리자 상세 경로
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id]
+                properties:
+                  id:
+                    type: integer
+                    format: int64
+        '400':
+          $ref: '#/components/responses/ProblemInputInvalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/admin/problems/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AdminProblemId'
+    get:
+      operationId: getAdminProblem
+      summary: 관리자 문제 상세 (ADM-02·03·06)
+      description: |
+        최신 버전의 내용과 공개 조건 충족 여부를 준다. 최신 버전은 초안이 있으면 초안, 없으면 가장 최근 버전이다.
+        화면은 저장할 때마다 이 API를 다시 불러 공개 조건 체크리스트를 갱신한다.
+        `/api/admin/problems/{id}` 아래 API는 모두 없는 문제에 404 `PROBLEM_NOT_FOUND`를 준다.
+      tags: [admin]
+      responses:
+        '200':
+          description: 최신 버전
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: updateProblem
+      summary: 문제 수정 (ADM-02·03·07)
+      description: |
+        폼 전체를 보낸다. 보낸 값이 그대로 저장되고, null은 그 칸을 비운다.
+        어느 버전에 저장할지는 서버가 정한다.
+        - 초안이 있으면 초안을 고친다.
+        - 초안이 없고 시간·메모리 제한이 최신 버전과 같으면 최신 버전을 그 자리에서 고친다. 공개 중이면 사용자 화면에 바로 반영된다.
+        - 초안이 없고 시간·메모리 제한이 하나라도 다르면 최신 버전을 복사해 새 초안(버전 번호 +1)을 만들고 거기에 저장한다.
+          예제·테스트케이스와 정답 코드도 복사하고, 정답 코드는 다시 검증해야 한다. 공개하기 전까지 사용자는 기존 버전을 푼다.
+        공개 중인 버전을 그 자리에서 고칠 때 공개 조건이 깨지면(태그를 모두 빼거나, 출처를 비우거나, 언어를 빼면) 409 `PUBLISH_CONDITIONS_NOT_MET`이다.
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProblemInput'
+      responses:
+        '200':
+          description: 저장됨. 저장된 버전을 준다
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [versionNo, status]
+                properties:
+                  versionNo:
+                    type: integer
+                  status:
+                    $ref: '#/components/schemas/ProblemVersionStatus'
+        '400':
+          $ref: '#/components/responses/ProblemInputInvalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/PublishConditionsNotMet'
+    delete:
+      operationId: deleteProblem
+      summary: 문제 삭제
+      description: |
+        사용자 기록(제출·풀이 통계·리포트 추천)이 없는 문제만 지운다. 잘못 만든 문제를 정리할 때 쓴다.
+        기록이 있으면 409 `PROBLEM_IN_USE`다. 사용자에게서 내리려면 비공개(`unpublish`)를 쓴다.
+      tags: [admin]
+      responses:
+        '204':
+          description: 삭제됨
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/Problem'
+
+  /api/admin/problems/{id}/publish:
+    parameters:
+      - $ref: '#/components/parameters/AdminProblemId'
+    post:
+      operationId: publishProblem
+      summary: 공개 (ADM-06)
+      description: |
+        최신 버전을 공개한다. 이전 공개 버전은 지난 버전(`RETIRED`)이 된다. 비공개로 내린 버전이 최신이면 다시 공개한다.
+        공개 조건을 모두 채워야 한다. 못 채우면 409 `PUBLISH_CONDITIONS_NOT_MET`과 `unmetConditions`를 준다.
+        이미 최신 버전이 공개 중이면 아무것도 바꾸지 않고 204다.
+      tags: [admin]
+      responses:
+        '204':
+          description: 공개됨
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          $ref: '#/components/responses/PublishConditionsNotMet'
+
+  /api/admin/problems/{id}/unpublish:
+    parameters:
+      - $ref: '#/components/parameters/AdminProblemId'
+    post:
+      operationId: unpublishProblem
+      summary: 비공개
+      description: |
+        공개 중인 버전을 `RETIRED`로 바꾼다. 사용자 목록에서 사라지고 상세·제출·예제 실행은 404가 된다. 기존 제출 기록은 남는다.
+        초안이 있으면 초안은 그대로 둔다. 공개 중인 버전이 없으면 아무것도 바꾸지 않고 204다.
+      tags: [admin]
+      responses:
+        '204':
+          description: 비공개됨
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+
+  /api/admin/problems/{id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/AdminProblemId'
+    get:
+      operationId: listProblemVersions
+      summary: 버전 목록 (ADM-07)
+      description: 최신 버전부터 준다.
+      tags: [admin]
+      responses:
+        '200':
+          description: 버전 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProblemVersionSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+
+  /api/admin/problems/{id}/versions/{versionNo}:
+    parameters:
+      - $ref: '#/components/parameters/AdminProblemId'
+      - in: path
+        name: versionNo
+        required: true
+        schema:
+          type: integer
+    get:
+      operationId: getProblemVersion
+      summary: 버전 내용 보기 (ADM-07)
+      description: 고른 버전의 내용을 준다. 읽기 전용이다. 없는 문제나 버전은 404 `PROBLEM_NOT_FOUND`다.
+      tags: [admin]
+      responses:
+        '200':
+          description: 그 버전
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProblemVersion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+
+  parameters:
+    AdminProblemId:
+      in: path
+      name: id
+      required: true
+      description: 문제 번호
+      schema:
+        type: integer
+        format: int64
 
   schemas:
     EmailRequest:
@@ -908,7 +1188,7 @@ components:
           format: int64
         problemTitle:
           type: string
-          description: 제출한 때 공개돼 있던 버전의 제목
+          description: 제출한 버전의 제목. 제목 수정은 버전을 늘리지 않아 그 뒤 고친 제목일 수 있다
         language:
           $ref: '#/components/schemas/Language'
         status:
@@ -1020,6 +1300,151 @@ components:
               memoryUsedKb:
                 type: [integer, 'null']
 
+    ProblemVersionStatus:
+      type: string
+      enum: [DRAFT, VALIDATING, PUBLISHED, RETIRED]
+      description: |
+        `DRAFT` 초안(작성 중), `VALIDATING` 정답 코드 검증 중(#35), `PUBLISHED` 공개 중,
+        `RETIRED` 지난 버전이거나 비공개로 내린 버전. 문제마다 `PUBLISHED`는 하나뿐이다.
+
+    PublishCondition:
+      type: string
+      enum: [SAMPLE_COUNT, HIDDEN_COUNT, TAG_COUNT, SOURCE, LANGUAGES]
+      description: |
+        공개 조건 (ADM-06). `SAMPLE_COUNT` 공개 예제 2개 이상, `HIDDEN_COUNT` 비공개 테스트케이스 5개 이상,
+        `TAG_COUNT` 개념 태그 1~3개, `SOURCE` 출처(`sourceName`) 입력, `LANGUAGES` Python·C++ 언어 설정이 둘 다 있음.
+        정답 코드 검증 통과는 #35에서 더한다.
+
+    ProblemInput:
+      type: object
+      description: 등록·수정 본문. 글은 받은 그대로(앞뒤 공백·줄바꿈 포함) 저장한다.
+      required: [title, difficulty, statementMarkdown, inputDescription, outputDescription, constraintsMarkdown,
+        sourceName, sourceUrl, license, tags, languages]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: 공백뿐이면 안 된다
+        difficulty:
+          $ref: '#/components/schemas/Difficulty'
+        statementMarkdown:
+          type: string
+          description: 지문. Markdown과 수식. 초안에서는 비어도 된다
+        inputDescription:
+          type: string
+        outputDescription:
+          type: string
+        constraintsMarkdown:
+          type: string
+          description: 없으면 빈 문자열
+        sourceName:
+          type: [string, 'null']
+          maxLength: 200
+        sourceUrl:
+          type: [string, 'null']
+          description: '`http://`나 `https://`로 시작해야 한다. 사용자 화면에 링크로 나간다'
+        license:
+          type: [string, 'null']
+          maxLength: 120
+        tags:
+          type: array
+          maxItems: 3
+          uniqueItems: true
+          description: 개념 태그 `slug` (`GET /api/concept-tags`). 초안에서는 비어도 되고, 공개하려면 1개 이상이어야 한다
+          items:
+            type: string
+        languages:
+          type: array
+          maxItems: 2
+          description: 언어마다 하나씩. 초안에서는 하나만 있거나 비어도 되고, 공개하려면 PYTHON과 CPP가 둘 다 있어야 한다
+          items:
+            type: object
+            required: [language, timeLimitMs, memoryLimitMb, starterCode]
+            properties:
+              language:
+                $ref: '#/components/schemas/Language'
+              timeLimitMs:
+                type: integer
+                minimum: 1
+                description: |
+                  채점 서버 상한(`MAX_CPU_TIME_LIMIT`, 지금 20초) 이하. Python은 보정한 값을 그대로 넣는다(`docs/judge-verdict-mapping.md` 1절).
+              memoryLimitMb:
+                type: integer
+                minimum: 2
+                description: 채점 서버 상한(`MAX_MEMORY_LIMIT`, 지금 512MB) 이하
+              starterCode:
+                type: string
+                description: 없으면 빈 문자열
+
+    AdminProblemSummary:
+      type: object
+      required: [id, slug, title, difficulty, latestVersionNo, latestStatus, publishedVersionNo]
+      properties:
+        id:
+          type: integer
+          format: int64
+        slug:
+          type: string
+        title:
+          type: string
+          description: 최신 버전의 제목
+        difficulty:
+          $ref: '#/components/schemas/Difficulty'
+        latestVersionNo:
+          type: integer
+        latestStatus:
+          $ref: '#/components/schemas/ProblemVersionStatus'
+        publishedVersionNo:
+          type: [integer, 'null']
+          description: 공개 중인 버전 번호. 없으면 null
+
+    ProblemVersionSummary:
+      type: object
+      required: [versionNo, status, createdAt, publishedAt]
+      properties:
+        versionNo:
+          type: integer
+        status:
+          $ref: '#/components/schemas/ProblemVersionStatus'
+        createdAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: [string, 'null']
+          format: date-time
+          description: 마지막으로 공개한 시각. 공개한 적이 없으면 null
+
+    AdminProblemVersion:
+      description: 버전 하나의 내용. 필드 뜻은 `ProblemInput`과 같다
+      allOf:
+        - $ref: '#/components/schemas/ProblemInput'
+        - $ref: '#/components/schemas/ProblemVersionSummary'
+        - type: object
+          required: [id, slug]
+          properties:
+            id:
+              type: integer
+              format: int64
+              description: 문제 번호
+            slug:
+              type: string
+
+    AdminProblemDetail:
+      allOf:
+        - $ref: '#/components/schemas/AdminProblemVersion'
+        - type: object
+          required: [publishedVersionNo, unmetConditions]
+          properties:
+            publishedVersionNo:
+              type: [integer, 'null']
+              description: 공개 중인 버전 번호. 없으면 null
+            unmetConditions:
+              type: array
+              description: 이 버전이 아직 못 채운 공개 조건. 비어 있으면 공개할 수 있다(ADM-06 [공개하기] 활성화)
+              items:
+                $ref: '#/components/schemas/PublishCondition'
+
     AccessTokenResponse:
       type: object
       required: [accessToken]
@@ -1070,6 +1495,39 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
+
+    Forbidden:
+      description: ADMIN이 아님
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    ProblemInputInvalid:
+      description: |
+        본문이 규칙에 맞지 않음. 오류 `code`: `TAG_NOT_FOUND`(없는 태그 `slug`),
+        `LIMIT_OUT_OF_RANGE`(시간·메모리 제한이 채점 서버 상한 밖. `detail`에 범위를 적는다).
+        그 밖의 규칙(빈 제목, 태그 4개 이상, 같은 언어 두 번, `http(s)`가 아닌 URL)은 화면이 막으므로 `code` 없는 400이다.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    PublishConditionsNotMet:
+      description: |
+        오류 `code`: `PUBLISH_CONDITIONS_NOT_MET`. 못 채운 공개 조건을 `unmetConditions`로 준다.
+      content:
+        application/problem+json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ProblemDetail'
+              - type: object
+                required: [unmetConditions]
+                properties:
+                  unmetConditions:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PublishCondition'
 
 security:
   - bearerAuth: []
