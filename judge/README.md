@@ -123,10 +123,11 @@ Docker Desktop은 기본이 cgroup v2라 그대로는 isolate 샌드박스가 �
 | `ENABLE_COMPILER_OPTIONS` / `ALLOWED_LANGUAGES_FOR_COMPILER_OPTIONS` | true / `C++` | true / 전체 | GCC 9.2 기본 표준이 gnu++14라 C++17에 옵션이 필요하다. API 서버만 `-O2 -std=c++17`을 보낸다. 이름 접두어 일치라 Python에 옵션을 보내면 422 |
 | `ALLOW_ENABLE_PER_PROCESS_AND_THREAD_TIME_LIMIT` / `…_MEMORY_LIMIT` | false / false | true / true | 켜면 isolate가 cgroup 대신 주소 공간 제한(`-m`)을 써서 메모리 측정 기준이 바뀐다 |
 | `COUNT` | 2 | 2×nproc | 실행 슬롯 2개 |
+
 | `MAX_QUEUE_SIZE` | 100 | 100 | 명시. 대기 중인 제출(테스트케이스 하나가 제출 하나) 수의 상한이라, 20개짜리 묶음 5개면 찬다. 넘치면 503이 온다. 백오프 재시도는 #67의 규약대로 API의 `Judge0Client`가 한다(503은 0.5초부터 두 배씩 8초까지 최대 7번, 약 23초). 100으로 확정했다(실측 절의 큐 크기) |
 | `NUMBER_OF_RUNS` / `MAX_NUMBER_OF_RUNS` | 1 / 1 | 1 / 20 | 한 제출이 슬롯을 여러 번 점유하지 못하게 한다 |
 | `MAX_SUBMISSION_BATCH_SIZE` | 20 | 20 | 테스트케이스 묶음 제출 단위(명시) |
-| `ENABLE_SUBMISSION_DELETE` | true | false | 결과를 읽은 뒤 비공개 입력을 지울 수 있게 한다(AUTHZ 토큰 필요). 사용 여부는 #29에서 정한다 |
+| `ENABLE_SUBMISSION_DELETE` | true | false | 결과를 읽은 뒤 비공개 입력을 지울 수 있게 한다(AUTHZ 토큰 필요). 채점 처리기는 아직 지우지 않는다 |
 | `SUBMISSION_CACHE_DURATION` | 0 | 1 | 폴링이 캐시된 상태를 받지 않게 한다 |
 | `RAILS_SERVER_PROCESSES` | 1 | 2 | 1로 둔다. Judge0를 부르는 곳은 API 서버뿐이고, 채점 처리기 슬롯이 2개라 동시에 오는 요청이 적다 |
 | `JUDGE0_TELEMETRY_ENABLE` | false | true | 외부 전송 차단 |
