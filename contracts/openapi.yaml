@@ -796,7 +796,7 @@ paths:
       summary: 문제 등록 (ADM-02·03)
       description: |
         문제와 1번 버전을 초안(`DRAFT`)으로 만든다. 사용자에게는 공개하기 전까지 보이지 않는다.
-        `slug`는 서버가 만든다(`p-{id}`). 예제·테스트케이스는 #34의 API로 넣는다.
+        `slug`는 서버가 만든다(`p-{id}`). 예제·테스트케이스는 `PUT /api/admin/problems/{id}/test-cases`로 넣는다.
       tags: [admin]
       requestBody:
         required: true
@@ -1057,6 +1057,178 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '404':
+          $ref: '#/components/responses/Problem'
+
+  /api/admin/problems/{id}/test-cases:
+    parameters:
+      - $ref: '#/components/parameters/AdminProblemId'
+    get:
+      operationId: listTestCases
+      summary: 테스트케이스 목록 (ADM-04)
+      description: |
+        최신 버전(`GET /api/admin/problems/{id}`와 같은 버전)의 공개 예제와 비공개 테스트케이스를 순서대로 준다.
+        비공개 케이스도 그대로 주므로 관리자 API에만 있다.
+        케이스별 검증 상태는 #35에서 더한다.
+      tags: [admin]
+      responses:
+        '200':
+          description: 케이스 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminTestCase'
+        '400':
+          description: '`id`가 정수가 아님'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+    put:
+      operationId: replaceTestCases
+      summary: 테스트케이스 저장 (ADM-04·07)
+      description: |
+        화면의 케이스 표 전체를 보낸다. 그 버전의 케이스를 보낸 목록으로 통째로 바꾸고, 순서는 목록 순서다.
+        공개 예제와 비공개 케이스가 섞여도 된다. 채점은 이 순서와 상관없이 공개 예제를 먼저 돌린다.
+        어느 버전에 저장할지는 서버가 정한다.
+        - 검증 중(`VALIDATING`)이면 409 `PROBLEM_VALIDATING`이다.
+        - 보낸 목록이 최신 버전의 케이스와 똑같으면 아무것도 바꾸지 않는다.
+        - 최신 버전이 초안이면 그 초안에 저장한다. 정답 코드 검증 기록을 지우므로 다시 검증해야 한다.
+        - 최신 버전이 공개 중이거나 비공개면 최신 버전을 복사해 새 초안(버전 번호 +1)을 만들고 거기에 저장한다.
+          기존 버전과 사용자 제출 기록은 그대로다. 공개하기 전까지 사용자는 기존 버전을 푼다.
+        크기 제한(추후 조정할 수 있음): 케이스 10개, 입력 2MiB(2,097,152바이트), 기대 출력 1MiB(1,048,576바이트),
+        모든 케이스의 입력·기대 출력 합 10MiB. 크기는 UTF-8 바이트로 센다. 기대 출력 상한은 채점 서버의 출력 상한과 같다.
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              maxItems: 10
+              items:
+                $ref: '#/components/schemas/TestCaseInput'
+      responses:
+        '200':
+          description: 저장됨. 저장된 버전을 준다
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [versionNo, status]
+                properties:
+                  versionNo:
+                    type: integer
+                  status:
+                    $ref: '#/components/schemas/ProblemVersionStatus'
+        '400':
+          $ref: '#/components/responses/TestCasesInvalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '409':
+          description: '오류 `code`: `PROBLEM_VALIDATING`(검증 중)'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /api/admin/problems/{id}/test-cases/zip:
+    parameters:
+      - $ref: '#/components/parameters/AdminProblemId'
+    post:
+      operationId: readTestCaseZip
+      summary: 테스트케이스 ZIP 읽기 (ADM-04)
+      description: |
+        ZIP을 풀어 케이스 목록으로 돌려준다. 저장하지 않는다. 화면은 이 목록으로 표를 채우고, 저장은 `PUT /api/admin/problems/{id}/test-cases`로 한다.
+        ZIP 안 파일 규칙:
+        - `sample/N.in`·`sample/N.out`은 공개 예제, `hidden/N.in`·`hidden/N.out`은 비공개 케이스다. 같은 `N`의 `.in`과 `.out`이 한 쌍이다.
+        - `N`은 1 이상의 정수다. 순서는 `sample` 먼저, 그 안에서 `N`의 숫자 순서다(`2`가 `10`보다 앞). 번호가 비어도 되고, 저장할 때 1부터 새로 매긴다. 같은 번호가 두 번 있으면(`1.in`·`01.in`) 안 된다.
+        - 맨 위에 폴더가 하나 더 있어도 된다(`cases/sample/1.in`). `__MACOSX/`와 `.DS_Store`는 무시한다.
+        - 파일은 UTF-8 글자여야 한다. 맨 앞의 BOM(`EF BB BF`)은 지운다.
+        짝이 없거나 규칙 밖의 파일이 있으면 400 `ZIP_INVALID`이고 `detail`에 파일 이름을 적는다.
+        크기 제한은 저장(`PUT`)과 같고, 넘으면 400 `TEST_CASE_LIMIT_EXCEEDED`다. ZIP 파일 자체도 10MiB까지고, 넘으면 `code` 없는 413이다. 화면은 올리기 전에 파일 크기를 확인해 막는다.
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: ZIP 파일
+      responses:
+        '200':
+          description: 읽은 케이스 목록. 저장 본문과 같은 모양이다
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TestCaseInput'
+        '400':
+          $ref: '#/components/responses/TestCasesInvalid'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/Problem'
+        '413':
+          description: ZIP 파일이 10MiB를 넘음. 화면이 막으므로 `code`가 없다
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  /api/admin/concept-tags:
+    post:
+      operationId: createConceptTag
+      summary: 개념 태그 등록 (ADM-02)
+      description: |
+        `slug`는 영문 소문자·숫자를 `-`로 이은 것이다(예: `binary-search`). 문제 목록 주소의 태그 필터에 쓰이고 바꿀 수 없다.
+        `name`이나 `slug`가 이미 있으면 409 `CONCEPT_TAG_EXISTS`다.
+        `name`은 앞뒤 공백을 지우고 저장하고, 중복도 지운 값으로 비교한다.
+        태그 목록은 `GET /api/concept-tags`로 본다.
+      tags: [admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConceptTagInput'
+      responses:
+        '201':
+          description: 등록됨
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConceptTag'
+        '400':
+          description: '`slug` 형식이 틀리거나 `name`이 비었거나 너무 김. 화면이 막으므로 `code` 없는 400이다'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
           $ref: '#/components/responses/Problem'
 
 components:
@@ -1498,6 +1670,49 @@ components:
               items:
                 $ref: '#/components/schemas/PublishCondition'
 
+    TestCaseInput:
+      type: object
+      description: 케이스 하나. 글은 받은 그대로(앞뒤 공백·줄바꿈 포함) 저장한다
+      required: [caseType, input, output]
+      properties:
+        caseType:
+          type: string
+          enum: [SAMPLE, HIDDEN]
+          description: '`SAMPLE` 공개 예제(문제 화면에 보임), `HIDDEN` 비공개(채점에만 씀)'
+        input:
+          type: string
+          description: 프로그램에 넣을 입력. 비어도 된다
+        output:
+          type: string
+          description: 기대 출력. 비어도 된다
+
+    AdminTestCase:
+      allOf:
+        - $ref: '#/components/schemas/TestCaseInput'
+        - type: object
+          required: [inputBytes, outputBytes]
+          properties:
+            inputBytes:
+              type: integer
+              description: '`input`의 UTF-8 바이트 수'
+            outputBytes:
+              type: integer
+              description: '`output`의 UTF-8 바이트 수'
+
+    ConceptTagInput:
+      type: object
+      required: [slug, name]
+      properties:
+        slug:
+          type: string
+          maxLength: 80
+          pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: '화면에 보이는 이름(예: 이분 탐색). 공백뿐이면 안 된다. 앞뒤 공백은 지우고 저장한다'
+
     AccessTokenResponse:
       type: object
       required: [accessToken]
@@ -1562,6 +1777,16 @@ components:
         `LIMIT_OUT_OF_RANGE`(시간·메모리 제한이 채점 서버 상한 밖. `detail`에 범위를 적는다).
         그 밖의 규칙(빈 제목, 태그 4개 이상, 같은 언어 두 번, `http(s)`가 아닌 URL)은 화면이 막으므로 `code` 없는 400이다.
         수정에서 경로의 `id`가 정수가 아닐 때도 `code` 없는 400이다.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    TestCasesInvalid:
+      description: |
+        케이스가 규칙에 맞지 않음. 오류 `code`: `TEST_CASE_LIMIT_EXCEEDED`(개수·크기 제한을 넘음. `detail`에 어느 케이스가 얼마나 넘었는지 적는다. 저장은 표의 몇 번째 줄, ZIP 읽기는 파일 이름이다),
+        `ZIP_INVALID`(ZIP 읽기에서만. ZIP이 아니거나 파일 규칙에 맞지 않음. `detail`에 파일 이름을 적는다).
+        그 밖의 규칙(null인 칸, NUL 글자)은 `code` 없는 400이다. 경로의 `id`가 정수가 아닐 때도 `code` 없는 400이다.
       content:
         application/problem+json:
           schema:
