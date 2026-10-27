@@ -1,0 +1,2 @@
+# 서버마다 다른 추가 CA 인증서(compose.yaml의 api 볼륨)
+certs/
