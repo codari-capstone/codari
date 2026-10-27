@@ -12,6 +12,7 @@ import {
   verifyMockCode,
   type VerifyResult,
 } from './fixtures/emailCodes'
+import { adminProblems, adminSummary, latestVersion } from './fixtures/adminProblems'
 import { problemDetails } from './fixtures/problemDetails'
 import { conceptTags, problems } from './fixtures/problems'
 import { mockAccessToken, mockAccounts, REFRESH_COOKIE, userIdFromToken } from './fixtures/users'
@@ -303,6 +304,46 @@ export const handlers: RequestHandler[] = [
     const detail = problemDetails.find((item) => item.id === id)
     if (!detail) return problem(404, 'PROBLEM_NOT_FOUND', '문제를 찾을 수 없어요')
     return HttpResponse.json(detail)
+  }),
+
+  /**
+   * 관리자 문제 목록·검색 (ADM-01).
+   *
+   * 공개 전·비공개 문제까지 모두 주고 번호 오름차순이다(계약). 상태 문구는 담지 않는다 —
+   * 계약이 "화면이 `latestStatus`와 `publishedVersionNo`로 정한다"로 정했다.
+   *
+   * 검색은 **최신 버전 제목**의 부분 일치다. 목록에 보이는 제목이 최신 버전의 것이므로
+   * (adminSummary), 보이는 글자로 찾을 수 있어야 한다. `%`·`_`를 글자로 찾는 것은 저절로
+   * 된다 — 여기는 SQL이 아니다.
+   *
+   * 세션을 보지 않는 것은 다른 핸들러와 같은 선택이다 — 화면이 RequireAdmin 뒤에 있다.
+   * 그래서 이 목으로는 403을 재현할 수 없다.
+   */
+  http.get('*/api/admin/problems', ({ request }) => {
+    const query = new URL(request.url).searchParams
+    const keyword = query.get('keyword')?.trim().toLowerCase() ?? ''
+
+    const matched = adminProblems.filter(
+      (item) => keyword === '' || latestVersion(item).input.title.toLowerCase().includes(keyword),
+    )
+
+    const page = Number(query.get('page') ?? 0)
+    const size = Number(query.get('size') ?? MAX_PAGE_SIZE)
+    // 사용자 목록과 같은 자리에서 400을 준다. 받아 주면 목에서만 통과하는 테스트가 생긴다.
+    if (
+      !Number.isInteger(page) ||
+      page < 0 ||
+      !Number.isInteger(size) ||
+      size < 1 ||
+      size > MAX_PAGE_SIZE
+    ) {
+      return badRequest(`page는 0 이상, size는 1~${MAX_PAGE_SIZE}이다`)
+    }
+
+    return HttpResponse.json({
+      content: matched.slice(page * size, page * size + size).map(adminSummary),
+      totalElements: matched.length,
+    })
   }),
 
   /**

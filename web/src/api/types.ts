@@ -97,3 +97,20 @@ export const DIFFICULTY_RANK: Record<Difficulty, number> = { EASY: 0, MEDIUM: 1,
 export const DIFFICULTIES = Object.keys(DIFFICULTY_RANK) as readonly Difficulty[]
 
 export const SOLVE_STATUSES: readonly SolveStatus[] = ['SOLVED', 'WRONG', 'UNSOLVED']
+
+/**
+ * 관리자 문제 목록 한 줄 (ADM-01).
+ *
+ * 상태 문구("공개 v2 · 수정 중")는 이 안에 없다. 계약이 "화면이 `latestStatus`와
+ * `publishedVersionNo`로 정한다"로 정했고, 그 합성은 features/admin/labels.ts에 있다.
+ */
+export type AdminProblemSummary = components['schemas']['AdminProblemSummary']
+
+/**
+ * 버전 상태. `DRAFT` 작성 중, `VALIDATING` 정답 코드 검증 중, `PUBLISHED` 공개 중,
+ * `RETIRED` 지난 버전이거나 비공개로 내린 버전. 문제마다 `PUBLISHED`는 하나뿐이다.
+ */
+export type ProblemVersionStatus = components['schemas']['ProblemVersionStatus']
+
+/** 문제 등록·수정 본문 (ADM-02·03). 수정은 폼 전체를 보낸다(계약). */
+export type ProblemInput = components['schemas']['ProblemInput']

@@ -43,7 +43,12 @@ export const router = createBrowserRouter([
               {
                 // RequireAdmin은 역할만 본다. 비로그인이 403을 보지 않도록 RequireAuth 안에 둔다.
                 Component: RequireAdmin,
-                children: [{ path: 'admin/*', lazy: () => import('@/features/admin/AdminPage') }],
+                children: [
+                  // 문제 관리를 /admin 자체에 둔다. 관리자 화면이 이것뿐이라 리다이렉트를
+                  // 둘 이유가 없고, AppHeader의 /admin 링크도 그대로 쓴다. #50 관리자
+                  // 대시보드가 오면 그쪽이 index가 되고 목록은 'problems'로 내려간다.
+                  { path: 'admin', lazy: () => import('@/features/admin/AdminProblemListPage') },
+                ],
               },
             ],
           },

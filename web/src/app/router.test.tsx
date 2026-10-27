@@ -38,11 +38,11 @@ describe('라우터 보호 구조', () => {
     },
   )
 
-  it('admin/*는 RequireAuth와 RequireAdmin 둘 다 아래에 있다', () => {
-    expect(guardsOf('admin/*')).toContain('RequireAuth')
-    expect(guardsOf('admin/*')).toContain('RequireAdmin')
+  it('admin은 RequireAuth와 RequireAdmin 둘 다 아래에 있다', () => {
+    expect(guardsOf('admin')).toContain('RequireAuth')
+    expect(guardsOf('admin')).toContain('RequireAdmin')
     // RequireAdmin은 역할만 본다. 바깥에 두면 비로그인이 로그인 화면 대신 403을 본다.
-    const guards = guardsOf('admin/*')
+    const guards = guardsOf('admin')
     expect(guards.indexOf('RequireAuth')).toBeLessThan(guards.indexOf('RequireAdmin'))
   })
 
@@ -67,6 +67,6 @@ describe('라우터 보호 구조', () => {
     // 형제로 두면 헤더가 사라진다. RootLayout이 조상에 있어야 한다.
     expect(guardsOf('submissions')).toContain('RootLayout')
     expect(guardsOf('problems/:id')).toContain('RootLayout')
-    expect(guardsOf('admin/*')).toContain('RootLayout')
+    expect(guardsOf('admin')).toContain('RootLayout')
   })
 })
