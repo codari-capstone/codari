@@ -44,10 +44,29 @@ export const router = createBrowserRouter([
                 // RequireAdmin은 역할만 본다. 비로그인이 403을 보지 않도록 RequireAuth 안에 둔다.
                 Component: RequireAdmin,
                 children: [
-                  // 문제 관리를 /admin 자체에 둔다. 관리자 화면이 이것뿐이라 리다이렉트를
-                  // 둘 이유가 없고, AppHeader의 /admin 링크도 그대로 쓴다. #50 관리자
-                  // 대시보드가 오면 그쪽이 index가 되고 목록은 'problems'로 내려간다.
-                  { path: 'admin', lazy: () => import('@/features/admin/AdminProblemListPage') },
+                  {
+                    // 문제 관리를 /admin 자체에 둔다. 관리자 화면이 이것뿐이라 리다이렉트를
+                    // 둘 이유가 없고, AppHeader의 /admin 링크도 그대로 쓴다. #50 관리자
+                    // 대시보드가 오면 그쪽이 index가 되고 목록은 'problems'로 내려간다.
+                    path: 'admin',
+                    children: [
+                      { index: true, lazy: () => import('@/features/admin/AdminProblemListPage') },
+                      // 등록·수정·버전 보기가 한 컴포넌트다. 폼이 같고 어디서 값을 읽는지만
+                      // 다르다 (AdminProblemFormPage 주석).
+                      {
+                        path: 'problems/new',
+                        lazy: () => import('@/features/admin/AdminProblemFormPage'),
+                      },
+                      {
+                        path: 'problems/:id',
+                        lazy: () => import('@/features/admin/AdminProblemFormPage'),
+                      },
+                      {
+                        path: 'problems/:id/versions/:versionNo',
+                        lazy: () => import('@/features/admin/AdminProblemFormPage'),
+                      },
+                    ],
+                  },
                 ],
               },
             ],

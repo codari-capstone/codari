@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createQueryClient } from '@/app/queryClient'
 import { ME_QUERY_KEY } from '@/features/auth/authQuery'
-import { adminProblems, adminSummary } from '@/mocks/fixtures/adminProblems'
+import { adminSummary, buildAdminProblems } from '@/mocks/fixtures/adminProblems'
 import { server } from '@/mocks/server'
 import { ADMIN_PAGE_SIZE } from './adminProblemQuery'
 import { Component as AdminProblemListPage } from './AdminProblemListPage'
@@ -54,7 +54,7 @@ describe('AdminProblemListPage', () => {
   it('전체 개수를 알려 준다', async () => {
     renderPage()
 
-    expect(await screen.findByText(`문제 ${adminProblems.length}개`)).toBeInTheDocument()
+    expect(await screen.findByText(`문제 ${buildAdminProblems().length}개`)).toBeInTheDocument()
   })
 
   /**
@@ -161,7 +161,7 @@ describe('AdminProblemListPage', () => {
       await user.type(screen.getByLabelText('제목으로 검색'), '  ')
 
       await waitFor(() =>
-        expect(screen.getByText(`문제 ${adminProblems.length}개`)).toBeInTheDocument(),
+        expect(screen.getByText(`문제 ${buildAdminProblems().length}개`)).toBeInTheDocument(),
       )
     })
   })
@@ -182,7 +182,7 @@ describe('AdminProblemListPage', () => {
       http.get('*/api/admin/problems', ({ request }) => {
         const page = new URL(request.url).searchParams.get('page')
         return HttpResponse.json({
-          content: page === '0' ? adminProblems.slice(0, ADMIN_PAGE_SIZE).map(adminSummary) : [],
+          content: page === '0' ? buildAdminProblems().slice(0, ADMIN_PAGE_SIZE).map(adminSummary) : [],
           totalElements: ADMIN_PAGE_SIZE,
         })
       }),
@@ -208,7 +208,9 @@ describe('AdminProblemListPage', () => {
 
     // 25개 중 1페이지 20개를 뺀 나머지다.
     await waitFor(() =>
-      expect(screen.getAllByRole('row')).toHaveLength(adminProblems.length - ADMIN_PAGE_SIZE + 1),
+      expect(screen.getAllByRole('row')).toHaveLength(
+        buildAdminProblems().length - ADMIN_PAGE_SIZE + 1,
+      ),
     )
     expect(screen.queryByRole('row', { name: /두 수의 합/ })).not.toBeInTheDocument()
   })
