@@ -492,7 +492,7 @@ export interface paths {
         /**
          * 문제 등록 (ADM-02·03)
          * @description 문제와 1번 버전을 초안(`DRAFT`)으로 만든다. 사용자에게는 공개하기 전까지 보이지 않는다.
-         *     `slug`는 서버가 만든다(`p-{id}`). 예제·테스트케이스는 #34의 API로 넣는다.
+         *     `slug`는 서버가 만든다(`p-{id}`). 예제·테스트케이스는 `PUT /api/admin/problems/{id}/test-cases`로 넣는다.
          */
         post: operations["createProblem"];
         delete?: never;
@@ -634,6 +634,96 @@ export interface paths {
         get: operations["getProblemVersion"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/problems/{id}/test-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 테스트케이스 목록 (ADM-04)
+         * @description 최신 버전(`GET /api/admin/problems/{id}`와 같은 버전)의 공개 예제와 비공개 테스트케이스를 순서대로 준다.
+         *     비공개 케이스도 그대로 주므로 관리자 API에만 있다.
+         *     케이스별 검증 상태는 #35에서 더한다.
+         */
+        get: operations["listTestCases"];
+        /**
+         * 테스트케이스 저장 (ADM-04·07)
+         * @description 화면의 케이스 표 전체를 보낸다. 그 버전의 케이스를 보낸 목록으로 통째로 바꾸고, 순서는 목록 순서다.
+         *     공개 예제와 비공개 케이스가 섞여도 된다. 채점은 이 순서와 상관없이 공개 예제를 먼저 돌린다.
+         *     어느 버전에 저장할지는 서버가 정한다.
+         *     - 검증 중(`VALIDATING`)이면 409 `PROBLEM_VALIDATING`이다.
+         *     - 보낸 목록이 최신 버전의 케이스와 똑같으면 아무것도 바꾸지 않는다.
+         *     - 최신 버전이 초안이면 그 초안에 저장한다. 정답 코드 검증 기록을 지우므로 다시 검증해야 한다.
+         *     - 최신 버전이 공개 중이거나 비공개면 최신 버전을 복사해 새 초안(버전 번호 +1)을 만들고 거기에 저장한다.
+         *       기존 버전과 사용자 제출 기록은 그대로다. 공개하기 전까지 사용자는 기존 버전을 푼다.
+         *     크기 제한(추후 조정할 수 있음): 케이스 10개, 입력 2MiB(2,097,152바이트), 기대 출력 1MiB(1,048,576바이트),
+         *     모든 케이스의 입력·기대 출력 합 10MiB. 크기는 UTF-8 바이트로 센다. 기대 출력 상한은 채점 서버의 출력 상한과 같다.
+         */
+        put: operations["replaceTestCases"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/problems/{id}/test-cases/zip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 테스트케이스 ZIP 읽기 (ADM-04)
+         * @description ZIP을 풀어 케이스 목록으로 돌려준다. 저장하지 않는다. 화면은 이 목록으로 표를 채우고, 저장은 `PUT /api/admin/problems/{id}/test-cases`로 한다.
+         *     ZIP 안 파일 규칙:
+         *     - `sample/N.in`·`sample/N.out`은 공개 예제, `hidden/N.in`·`hidden/N.out`은 비공개 케이스다. 같은 `N`의 `.in`과 `.out`이 한 쌍이다.
+         *     - `N`은 1 이상의 정수다. 순서는 `sample` 먼저, 그 안에서 `N`의 숫자 순서다(`2`가 `10`보다 앞). 번호가 비어도 되고, 저장할 때 1부터 새로 매긴다. 같은 번호가 두 번 있으면(`1.in`·`01.in`) 안 된다.
+         *     - 맨 위에 폴더가 하나 더 있어도 된다(`cases/sample/1.in`). `__MACOSX/`와 `.DS_Store`는 무시한다.
+         *     - 파일은 UTF-8 글자여야 한다.
+         *     짝이 없거나 규칙 밖의 파일이 있으면 400 `ZIP_INVALID`이고 `detail`에 파일 이름을 적는다.
+         *     크기 제한은 저장(`PUT`)과 같고, 넘으면 400 `TEST_CASE_LIMIT_EXCEEDED`다. ZIP 파일 자체도 10MiB까지다.
+         */
+        post: operations["readTestCaseZip"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/concept-tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 개념 태그 등록 (ADM-02)
+         * @description `slug`는 영문 소문자·숫자를 `-`로 이은 것이다(예: `binary-search`). 문제 목록 주소의 태그 필터에 쓰이고 바꿀 수 없다.
+         *     `name`이나 `slug`가 이미 있으면 409 `CONCEPT_TAG_EXISTS`다.
+         *     태그 목록은 `GET /api/concept-tags`로 본다.
+         */
+        post: operations["createConceptTag"];
         delete?: never;
         options?: never;
         head?: never;
@@ -900,6 +990,29 @@ export interface components {
             /** @description 이 버전이 아직 못 채운 공개 조건. 비어 있으면 공개할 수 있다(ADM-06 [공개하기] 활성화) */
             unmetConditions: components["schemas"]["PublishCondition"][];
         };
+        /** @description 케이스 하나. 글은 받은 그대로(앞뒤 공백·줄바꿈 포함) 저장한다 */
+        TestCaseInput: {
+            /**
+             * @description `SAMPLE` 공개 예제(문제 화면에 보임), `HIDDEN` 비공개(채점에만 씀)
+             * @enum {string}
+             */
+            caseType: "SAMPLE" | "HIDDEN";
+            /** @description 프로그램에 넣을 입력. 비어도 된다 */
+            input: string;
+            /** @description 기대 출력. 비어도 된다 */
+            output: string;
+        };
+        AdminTestCase: components["schemas"]["TestCaseInput"] & {
+            /** @description `input`의 UTF-8 바이트 수 */
+            inputBytes: number;
+            /** @description `output`의 UTF-8 바이트 수 */
+            outputBytes: number;
+        };
+        ConceptTagInput: {
+            slug: string;
+            /** @description 화면에 보이는 이름(예: 이분 탐색). 공백뿐이면 안 된다 */
+            name: string;
+        };
         AccessTokenResponse: {
             accessToken: string;
         };
@@ -959,6 +1072,19 @@ export interface components {
          *     수정에서 경로의 `id`가 정수가 아닐 때도 `code` 없는 400이다.
          */
         ProblemInputInvalid: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["ProblemDetail"];
+            };
+        };
+        /**
+         * @description 케이스가 규칙에 맞지 않음. 오류 `code`: `TEST_CASE_LIMIT_EXCEEDED`(개수·크기 제한을 넘음. `detail`에 몇 번 케이스가 얼마나 넘었는지 적는다),
+         *     `ZIP_INVALID`(ZIP 읽기에서만. ZIP이 아니거나 파일 규칙에 맞지 않음. `detail`에 파일 이름을 적는다).
+         *     그 밖의 규칙(null인 칸, NUL 글자)은 `code` 없는 400이다. 경로의 `id`가 정수가 아닐 때도 `code` 없는 400이다.
+         */
+        TestCasesInvalid: {
             headers: {
                 [name: string]: unknown;
             };
@@ -1923,6 +2049,157 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["Problem"];
+        };
+    };
+    listTestCases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 케이스 목록 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminTestCase"][];
+                };
+            };
+            /** @description `id`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    replaceTestCases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestCaseInput"][];
+            };
+        };
+        responses: {
+            /** @description 저장됨. 저장된 버전을 준다 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        versionNo: number;
+                        status: components["schemas"]["ProblemVersionStatus"];
+                    };
+                };
+            };
+            400: components["responses"]["TestCasesInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+            /** @description 오류 `code`: `PROBLEM_VALIDATING`(검증 중) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    readTestCaseZip: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description ZIP 파일
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 읽은 케이스 목록. 저장 본문과 같은 모양이다 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestCaseInput"][];
+                };
+            };
+            400: components["responses"]["TestCasesInvalid"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    createConceptTag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConceptTagInput"];
+            };
+        };
+        responses: {
+            /** @description 등록됨 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConceptTag"];
+                };
+            };
+            /** @description `slug` 형식이 틀리거나 `name`이 비었거나 너무 김. 화면이 막으므로 `code` 없는 400이다 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Problem"];
         };
     };
 }
