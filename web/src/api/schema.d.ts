@@ -699,7 +699,7 @@ export interface paths {
          *     - 맨 위에 폴더가 하나 더 있어도 된다(`cases/sample/1.in`). `__MACOSX/`와 `.DS_Store`는 무시한다.
          *     - 파일은 UTF-8 글자여야 한다.
          *     짝이 없거나 규칙 밖의 파일이 있으면 400 `ZIP_INVALID`이고 `detail`에 파일 이름을 적는다.
-         *     크기 제한은 저장(`PUT`)과 같고, 넘으면 400 `TEST_CASE_LIMIT_EXCEEDED`다. ZIP 파일 자체도 10MiB까지다.
+         *     크기 제한은 저장(`PUT`)과 같고, 넘으면 400 `TEST_CASE_LIMIT_EXCEEDED`다. ZIP 파일 자체도 10MiB까지고, 넘으면 `code` 없는 413이다. 화면은 올리기 전에 파일 크기를 확인해 막는다.
          */
         post: operations["readTestCaseZip"];
         delete?: never;
@@ -721,6 +721,7 @@ export interface paths {
          * 개념 태그 등록 (ADM-02)
          * @description `slug`는 영문 소문자·숫자를 `-`로 이은 것이다(예: `binary-search`). 문제 목록 주소의 태그 필터에 쓰이고 바꿀 수 없다.
          *     `name`이나 `slug`가 이미 있으면 409 `CONCEPT_TAG_EXISTS`다.
+         *     `name`은 앞뒤 공백을 지우고 저장하고, 중복도 지운 값으로 비교한다.
          *     태그 목록은 `GET /api/concept-tags`로 본다.
          */
         post: operations["createConceptTag"];
@@ -1010,7 +1011,7 @@ export interface components {
         };
         ConceptTagInput: {
             slug: string;
-            /** @description 화면에 보이는 이름(예: 이분 탐색). 공백뿐이면 안 된다 */
+            /** @description 화면에 보이는 이름(예: 이분 탐색). 공백뿐이면 안 된다. 앞뒤 공백은 지우고 저장한다 */
             name: string;
         };
         AccessTokenResponse: {
@@ -2164,6 +2165,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["Problem"];
+            /** @description ZIP 파일이 10MiB를 넘음. 화면이 막으므로 `code`가 없다 */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
         };
     };
     createConceptTag: {
