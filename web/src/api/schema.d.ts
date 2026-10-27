@@ -697,7 +697,7 @@ export interface paths {
          *     - `sample/N.in`·`sample/N.out`은 공개 예제, `hidden/N.in`·`hidden/N.out`은 비공개 케이스다. 같은 `N`의 `.in`과 `.out`이 한 쌍이다.
          *     - `N`은 1 이상의 정수다. 순서는 `sample` 먼저, 그 안에서 `N`의 숫자 순서다(`2`가 `10`보다 앞). 번호가 비어도 되고, 저장할 때 1부터 새로 매긴다. 같은 번호가 두 번 있으면(`1.in`·`01.in`) 안 된다.
          *     - 맨 위에 폴더가 하나 더 있어도 된다(`cases/sample/1.in`). `__MACOSX/`와 `.DS_Store`는 무시한다.
-         *     - 파일은 UTF-8 글자여야 한다.
+         *     - 파일은 UTF-8 글자여야 한다. 맨 앞의 BOM(`EF BB BF`)은 지운다.
          *     짝이 없거나 규칙 밖의 파일이 있으면 400 `ZIP_INVALID`이고 `detail`에 파일 이름을 적는다.
          *     크기 제한은 저장(`PUT`)과 같고, 넘으면 400 `TEST_CASE_LIMIT_EXCEEDED`다. ZIP 파일 자체도 10MiB까지고, 넘으면 `code` 없는 413이다. 화면은 올리기 전에 파일 크기를 확인해 막는다.
          */
@@ -1081,7 +1081,7 @@ export interface components {
             };
         };
         /**
-         * @description 케이스가 규칙에 맞지 않음. 오류 `code`: `TEST_CASE_LIMIT_EXCEEDED`(개수·크기 제한을 넘음. `detail`에 몇 번 케이스가 얼마나 넘었는지 적는다),
+         * @description 케이스가 규칙에 맞지 않음. 오류 `code`: `TEST_CASE_LIMIT_EXCEEDED`(개수·크기 제한을 넘음. `detail`에 어느 케이스가 얼마나 넘었는지 적는다. 저장은 표의 몇 번째 줄, ZIP 읽기는 파일 이름이다),
          *     `ZIP_INVALID`(ZIP 읽기에서만. ZIP이 아니거나 파일 규칙에 맞지 않음. `detail`에 파일 이름을 적는다).
          *     그 밖의 규칙(null인 칸, NUL 글자)은 `code` 없는 400이다. 경로의 `id`가 정수가 아닐 때도 `code` 없는 400이다.
          */
