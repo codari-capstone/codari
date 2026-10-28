@@ -537,6 +537,7 @@ export interface paths {
          * @description 사용자 기록(제출·풀이 통계·리포트 추천)이 없는 문제만 지운다. 잘못 만든 문제를 정리할 때 쓴다.
          *     예제 실행과 관리자의 정답 코드 검증 기록은 사용자 기록으로 세지 않고 함께 지운다.
          *     기록이 있으면 409 `PROBLEM_IN_USE`다. 사용자에게서 내리려면 비공개(`unpublish`)를 쓴다.
+         *     정답 코드를 검증하는 중(`VALIDATING`)이면 409 `PROBLEM_VALIDATING`이다. 검증은 늘 끝나므로 끝난 뒤 지운다.
          */
         delete: operations["deleteProblem"];
         options?: never;
@@ -654,7 +655,7 @@ export interface paths {
          * 테스트케이스 목록 (ADM-04)
          * @description 최신 버전(`GET /api/admin/problems/{id}`와 같은 버전)의 공개 예제와 비공개 테스트케이스를 순서대로 준다.
          *     비공개 케이스도 그대로 주므로 관리자 API에만 있다.
-         *     케이스별 검증 상태는 #35에서 더한다.
+         *     케이스마다 정답 코드 검증 결과(`validation`)를 함께 준다(ADM-04 상태 칸, ADM-05 결과 표). 검증 중에는 이 API 대신 `GET /api/admin/problems/{id}/solutions`로 진행을 본다.
          */
         get: operations["listTestCases"];
         /**
@@ -703,6 +704,72 @@ export interface paths {
          *     크기 제한은 저장(`PUT`)과 같고, 넘으면 400 `TEST_CASE_LIMIT_EXCEEDED`다. ZIP 파일 자체도 10MiB까지고, 넘으면 `code` 없는 413이다. 화면은 올리기 전에 파일 크기를 확인해 막는다.
          */
         post: operations["readTestCaseZip"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/problems/{id}/solutions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        /**
+         * 정답 코드와 검증 상태 (ADM-05)
+         * @description 최신 버전의 정답 코드를 언어 순서(Python → C++)로 준다. 없는 언어는 빠진다.
+         *     언어마다 검증 상태와 진행률을 함께 준다. 검증 중에는 화면이 이 API만 다시 불러 진행을 보여 주고,
+         *     끝나면 `GET /api/admin/problems/{id}/test-cases`를 한 번 받아 케이스별 결과를 그린다.
+         */
+        get: operations["listSolutions"];
+        /**
+         * 정답 코드 저장 (ADM-05)
+         * @description 탭 전체를 보낸다. 언어마다 하나씩 0~2개이고, 목록에 없거나 코드가 비어 있으면(공백뿐 포함) 그 언어의 정답 코드를 지운다.
+         *     저장만 하고 실행하지 않는다. 실행은 `POST /api/admin/problems/{id}/validate`로 한다.
+         *     어느 버전에 저장할지는 테스트케이스 저장(`replaceTestCases`)과 같다.
+         *     - 검증 중(`VALIDATING`)이면 409 `PROBLEM_VALIDATING`이다.
+         *     - 보낸 코드가 최신 버전과 똑같으면 아무것도 바꾸지 않는다.
+         *     - 최신 버전이 초안이면 그 초안에 저장한다. 정답 코드 검증 기록을 지우므로 다시 검증해야 한다.
+         *     - 최신 버전이 공개 중이거나 비공개면 최신 버전을 복사해 새 초안(버전 번호 +1)을 만들고 거기에 저장한다.
+         *       공개 버전은 검증된 정답 코드를 그대로 가진다.
+         *     코드는 하나당 64KB(65,536바이트, UTF-8)까지다. 넘으면 400 `SOURCE_TOO_LONG`이다.
+         *     언어가 `PYTHON`·`CPP`가 아니거나, 같은 언어가 두 번 있거나, null 칸이나 NUL 글자가 있으면 `code` 없는 400이다.
+         */
+        put: operations["replaceSolutions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/problems/{id}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * 정답 코드 검증 시작 (ADM-05)
+         * @description 최신 초안의 정답 코드를 모두 그 초안의 테스트케이스로 채점한다. 학생 제출과 같은 채점 대기열을 쓰고 바로 `202`로 답한다.
+         *     시작하면 이전 검증 기록을 지우고 정답 코드의 검증 통과 표시를 비운 뒤, 버전을 `VALIDATING`으로 바꾼다.
+         *     검증 중에는 저장·삭제가 409 `PROBLEM_VALIDATING`이고, 공개는 `SOLUTIONS_VERIFIED`를 못 채워 409다.
+         *     정답 코드마다 채점이 끝나면 모든 케이스를 통과한 코드만 검증 통과가 되고, 모두 끝나면 버전이 `DRAFT`로 돌아온다.
+         *     채점이 실패해도(채점 불가) `DRAFT`로 돌아온다. 진행은 `GET /api/admin/problems/{id}/solutions`로 본다.
+         *     "저장하고 검증"은 화면이 `PUT .../solutions` 다음에 이 API를 부른다.
+         */
+        post: operations["validateSolutions"];
         delete?: never;
         options?: never;
         head?: never;
@@ -921,11 +988,11 @@ export interface components {
         ProblemVersionStatus: "DRAFT" | "VALIDATING" | "PUBLISHED" | "RETIRED";
         /**
          * @description 공개 조건 (ADM-06). `SAMPLE_COUNT` 공개 예제 2개 이상, `HIDDEN_COUNT` 비공개 테스트케이스 5개 이상,
-         *     `TAG_COUNT` 개념 태그 1~3개, `SOURCE` 출처(`sourceName`) 입력, `LANGUAGES` Python·C++ 언어 설정이 둘 다 있음.
-         *     정답 코드 검증 통과는 #35에서 더한다.
+         *     `TAG_COUNT` 개념 태그 1~3개, `SOURCE` 출처(`sourceName`) 입력, `LANGUAGES` Python·C++ 언어 설정이 둘 다 있음,
+         *     `SOLUTIONS_VERIFIED` Python·C++ 정답 코드가 둘 다 있고 둘 다 검증을 통과함.
          * @enum {string}
          */
-        PublishCondition: "SAMPLE_COUNT" | "HIDDEN_COUNT" | "TAG_COUNT" | "SOURCE" | "LANGUAGES";
+        PublishCondition: "SAMPLE_COUNT" | "HIDDEN_COUNT" | "TAG_COUNT" | "SOURCE" | "LANGUAGES" | "SOLUTIONS_VERIFIED";
         /** @description 등록·수정 본문. 글은 받은 그대로(앞뒤 공백·줄바꿈 포함) 저장한다. */
         ProblemInput: {
             /** @description 공백뿐이면 안 된다 */
@@ -1005,6 +1072,11 @@ export interface components {
             output: string;
         };
         AdminTestCase: components["schemas"]["TestCaseInput"] & {
+            /** @description 언어별 정답 코드 검증 결과. 그 언어의 검증 결과가 없으면(검증 전·정답 코드 없음·아직 이 케이스를 안 돌림) null */
+            validation: {
+                PYTHON: components["schemas"]["CaseValidation"] | null;
+                CPP: components["schemas"]["CaseValidation"] | null;
+            };
             /** @description `input`의 UTF-8 바이트 수 */
             inputBytes: number;
             /** @description `output`의 UTF-8 바이트 수 */
@@ -1014,6 +1086,51 @@ export interface components {
             slug: string;
             /** @description 화면에 보이는 이름(예: 이분 탐색). 공백뿐이면 안 된다. 앞뒤 공백은 지우고 저장한다 */
             name: string;
+        };
+        SolutionInput: {
+            language: components["schemas"]["Language"];
+            /** @description 비어 있으면(공백뿐 포함) 그 언어의 정답 코드를 지운다 */
+            sourceCode: string;
+        };
+        /** @description 정답 코드 하나와 그 검증 상태. 관리자 API에만 있다 */
+        AdminSolution: {
+            language: components["schemas"]["Language"];
+            sourceCode: string;
+            /**
+             * Format: date-time
+             * @description 모든 케이스를 통과한 시각. 통과 전이면 null
+             */
+            verifiedAt: string | null;
+            /**
+             * @description `NOT_VALIDATED` 검증 전(저장 뒤 아직 검증하지 않음), `VALIDATING` 검증 중, `PASSED` 모든 케이스 통과,
+             *     `FAILED` 통과하지 못한 케이스가 있음, `JUDGE_ERROR` 채점 불가(서버 문제라 다시 검증한다).
+             * @enum {string}
+             */
+            status: "NOT_VALIDATED" | "VALIDATING" | "PASSED" | "FAILED" | "JUDGE_ERROR";
+            /** @description 검증 전은 0, 검증 중은 진행률, 끝나면 100 */
+            progress: number;
+            /**
+             * @description `PASSED`·`FAILED`일 때 대표 판정(처음 틀린 케이스의 판정). 그 밖에는 null
+             * @enum {string|null}
+             */
+            verdict: "ACCEPTED" | "PRESENTATION_ERROR" | "WRONG_ANSWER" | "TIME_LIMIT_EXCEEDED" | "MEMORY_LIMIT_EXCEEDED" | "OUTPUT_LIMIT_EXCEEDED" | "RUNTIME_ERROR" | "COMPILE_ERROR" | null;
+            /** @description `verdict`가 `COMPILE_ERROR`일 때 컴파일러 메시지 */
+            compilerMessage: string | null;
+        };
+        /** @description 케이스 하나를 정답 코드 하나로 돌린 결과. 필드 뜻은 `SubmissionResult`와 같다 */
+        CaseValidation: {
+            /**
+             * @description 실행 전이거나 컴파일 에러·채점 불가로 이 케이스를 실행하지 않았으면 null
+             * @enum {string|null}
+             */
+            verdict: "ACCEPTED" | "PRESENTATION_ERROR" | "WRONG_ANSWER" | "TIME_LIMIT_EXCEEDED" | "MEMORY_LIMIT_EXCEEDED" | "OUTPUT_LIMIT_EXCEEDED" | "RUNTIME_ERROR" | null;
+            executionTimeMs: number | null;
+            memoryUsedKb: number | null;
+            /**
+             * @description `verdict`가 `RUNTIME_ERROR`일 때만 있다
+             * @enum {string|null}
+             */
+            runtimeErrorType: "INDEX_ERROR" | "ZERO_DIVISION" | "VALUE_ERROR" | "NAME_ERROR" | "TYPE_ERROR" | "RECURSION_ERROR" | "EOF_ERROR" | "OTHER" | null;
         };
         AccessTokenResponse: {
             accessToken: string;
@@ -1912,7 +2029,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["Problem"];
-            409: components["responses"]["Problem"];
+            /** @description 오류 `code`: `PROBLEM_IN_USE`(사용자 기록이 있음), `PROBLEM_VALIDATING`(검증 중) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
         };
     };
     publishProblem: {
@@ -2168,6 +2293,147 @@ export interface operations {
             404: components["responses"]["Problem"];
             /** @description ZIP 파일이 10MiB를 넘음. 화면이 막으므로 `code`가 없다 */
             413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    listSolutions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 정답 코드 목록 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSolution"][];
+                };
+            };
+            /** @description `id`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    replaceSolutions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SolutionInput"][];
+            };
+        };
+        responses: {
+            /** @description 저장됨. 저장된 버전을 준다 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        versionNo: number;
+                        status: components["schemas"]["ProblemVersionStatus"];
+                    };
+                };
+            };
+            /** @description 오류 `code`: `SOURCE_TOO_LONG`(64KB 초과). 그 밖의 규칙은 `code` 없는 400이다 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+            /** @description 오류 `code`: `PROBLEM_VALIDATING`(검증 중) */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    validateSolutions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 문제 번호 */
+                id: components["parameters"]["AdminProblemId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 검증을 시작함 */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description `id`가 정수가 아님 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["Problem"];
+            /**
+             * @description 오류 `code`: `PROBLEM_VALIDATING`(이미 검증 중), `NOT_DRAFT`(최신 버전이 초안이 아님. 공개·비공개 버전은 검증을 통과한 버전이다),
+             *     `NO_SOLUTION`(정답 코드가 없음), `NO_TEST_CASES`(테스트케이스가 없음),
+             *     `LANGUAGE_NOT_CONFIGURED`(정답 코드 언어의 시간·메모리 제한이 없음. `detail`에 언어를 적는다).
+             */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description 오류 `code`: `JUDGE_UNAVAILABLE`. 이 서버에 채점 서버가 설정되지 않아 검증할 수 없음(로컬 개발 등) */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
