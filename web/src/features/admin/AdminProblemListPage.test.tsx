@@ -6,7 +6,8 @@ import { createMemoryRouter, RouterProvider } from 'react-router'
 import { describe, expect, it } from 'vitest'
 
 import { createQueryClient } from '@/app/queryClient'
-import { adminProblems } from '@/mocks/fixtures/adminProblems'
+import { ME_QUERY_KEY } from '@/features/auth/authQuery'
+import { adminProblems, adminSummary } from '@/mocks/fixtures/adminProblems'
 import { server } from '@/mocks/server'
 import { ADMIN_PAGE_SIZE } from './adminProblemQuery'
 import { Component as AdminProblemListPage } from './AdminProblemListPage'
@@ -16,15 +17,19 @@ import { Component as AdminProblemListPage } from './AdminProblemListPage'
  * 목 핸들러는 세션을 보지 않으므로(handlers.ts) 여기서 403을 재현할 수도 없다.
  */
 function renderPage() {
+  const client = createQueryClient()
+  client.setQueryData(ME_QUERY_KEY, { id: 1, nickname: '코다리', role: 'ADMIN' })
   const router = createMemoryRouter([{ path: '/admin', Component: AdminProblemListPage }], {
     initialEntries: ['/admin'],
   })
 
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
+
+  return client
 }
 
 /** 제목으로 줄을 집는다. 줄의 접근성 이름에는 칸의 글자가 모두 들어간다. */
@@ -117,10 +122,14 @@ describe('AdminProblemListPage', () => {
     })
 
     /**
-     * 뒤 페이지를 보다가 검색하면 결과가 줄어 그 페이지는 빈 표가 된다. 1페이지로
-     * 되돌리므로 "결과보다 뒤인 페이지"를 응답을 받은 뒤 치유할 필요가 없다.
+     * 뒤 페이지를 보다가 검색하면 결과가 줄어 그 페이지는 빈 표가 된다. 검색어와 페이지를
+     * 한 번에 바꾸므로 "결과보다 뒤인 페이지"가 되지 않는다.
+     *
+     * 1페이지로 돌아온 것만 보면 안 된다 — 되돌린 직후에는 캐시된 전체 목록 1페이지가
+     * 그려지고 그 안에 이미 '두 수의 합'이 있어서, 디바운스된 검색어가 조회에 반영되지
+     * 않는 회귀가 생겨도 통과한다. 검색 결과 수와 걸러진 줄까지 본다.
      */
-    it('검색하면 1페이지로 돌아온다', async () => {
+    it('검색하면 1페이지의 검색 결과로 돌아온다', async () => {
       const user = userEvent.setup()
       renderPage()
       await screen.findByRole('row', { name: /두 수의 합/ })
@@ -133,8 +142,61 @@ describe('AdminProblemListPage', () => {
 
       await user.type(screen.getByLabelText('제목으로 검색'), '두')
 
-      await waitFor(() => expect(screen.getByRole('row', { name: /두 수의 합/ })).toBeVisible())
+      await waitFor(() => expect(screen.getByText('조건에 맞는 문제 1개')).toBeInTheDocument())
+      expect(screen.getByRole('row', { name: /두 수의 합/ })).toBeVisible()
+      expect(screen.queryByRole('row', { name: /연습 문제 9/ })).not.toBeInTheDocument()
+      // 한 페이지로 끝나면 이동할 곳이 없다.
+      expect(screen.queryByRole('navigation', { name: '페이지' })).not.toBeInTheDocument()
     })
+
+    /**
+     * 공백만 있는 검색어는 검색이 아니다. 서버는 `isBlank`로 보아 전체를 돌려주므로,
+     * 보내면 전체 목록을 '조건에 맞는 문제 25개'라고 말하게 된다.
+     */
+    it('공백만 있는 검색어는 검색으로 보지 않는다', async () => {
+      const user = userEvent.setup()
+      renderPage()
+      await screen.findByRole('row', { name: /두 수의 합/ })
+
+      await user.type(screen.getByLabelText('제목으로 검색'), '  ')
+
+      await waitFor(() =>
+        expect(screen.getByText(`문제 ${adminProblems.length}개`)).toBeInTheDocument(),
+      )
+    })
+  })
+
+  /**
+   * 결과보다 뒤인 페이지에 갇히지 않는다.
+   *
+   * 2페이지를 보는 중에 다른 관리자가 문제를 지우면 그 페이지는 빈 표가 된다. page는
+   * 주소에 없어 새로고침으로도 못 나가므로, 빈 표에서도 페이지 이동을 띄워야 한다.
+   */
+  it('결과 범위 밖 페이지에서 앞 페이지로 돌아갈 수 있다', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByRole('row', { name: /두 수의 합/ })
+
+    // 다른 관리자가 1페이지 분량만 남기고 지운 상황이다. 2페이지는 빈 응답이 된다.
+    server.use(
+      http.get('*/api/admin/problems', ({ request }) => {
+        const page = new URL(request.url).searchParams.get('page')
+        return HttpResponse.json({
+          content: page === '0' ? adminProblems.slice(0, ADMIN_PAGE_SIZE).map(adminSummary) : [],
+          totalElements: ADMIN_PAGE_SIZE,
+        })
+      }),
+    )
+    await user.click(screen.getByRole('button', { name: '다음' }))
+
+    expect(
+      await screen.findByRole('heading', { name: '이 페이지에는 문제가 없습니다' }),
+    ).toBeInTheDocument()
+
+    // 빈 표에서도 이동이 남아 있어야 나갈 수 있다.
+    await user.click(screen.getByRole('button', { name: '이전' }))
+
+    expect(await screen.findByRole('row', { name: /두 수의 합/ })).toBeInTheDocument()
   })
 
   it('다음 페이지로 넘어간다', async () => {
@@ -162,5 +224,20 @@ describe('AdminProblemListPage', () => {
     // createQueryClient의 retry:1 때문에 첫 실패 뒤 재시도 지연을 거쳐야 오류가 된다.
     expect(await screen.findByRole('alert', {}, { timeout: 3000 })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '다시 시도' })).toBeInTheDocument()
+  })
+
+  /**
+   * 화면을 띄워 둔 채 세션이 끊기는 일이 생긴다 — 다른 탭에서 로그아웃하거나 만료된
+   * 경우다. 문구만 띄우면 헤더와 RequireAuth는 계속 로그인 상태로 보아 길이 막힌다.
+   */
+  it('401이면 세션을 버린다', async () => {
+    server.use(
+      http.get('*/api/admin/problems', () =>
+        HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 }),
+      ),
+    )
+    const client = renderPage()
+
+    await waitFor(() => expect(client.getQueryData(ME_QUERY_KEY)).toBeNull(), { timeout: 3000 })
   })
 })
