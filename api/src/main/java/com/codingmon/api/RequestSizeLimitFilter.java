@@ -26,6 +26,7 @@ class RequestSizeLimitFilter extends OncePerRequestFilter {
 
     // 관리자 테스트케이스 저장·ZIP 읽기는 케이스 합 10MiB를 받는다(#34). 이 두 주소만 따로 둔다.
     // 저장은 JSON이 줄바꿈을 두 글자(\n)로 늘리므로 두 배에 여유를 더했고, ZIP은 파일 10MiB에 multipart 머리말 여유를 더했다.
+    // 그 밖의 제어 문자(U+001F 등)는 여섯 글자가 되지만 케이스 데이터에는 드물어 두 배로 잡는다.
     static final long MAX_TEST_CASES_BODY_BYTES = 24L * 1024 * 1024;
     static final long MAX_TEST_CASE_ZIP_BODY_BYTES = 11L * 1024 * 1024;
 

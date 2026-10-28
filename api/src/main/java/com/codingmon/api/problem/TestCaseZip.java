@@ -9,12 +9,14 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -40,6 +42,7 @@ final class TestCaseZip {
     // 맨 위에 감싼 폴더가 하나 있어도 된다(cases/sample/1.in).
     private static final Pattern CASE_FILE = Pattern.compile("(?:[^/]+/)?(sample|hidden)/(\\d{1,9})\\.(in|out)");
     private static final byte[] BOM = { (byte) 0xEF, (byte) 0xBB, (byte) 0xBF };
+    private static final Charset NAME_CHARSET = Charset.forName("x-windows-949");
 
     private record Key(CaseType type, int number) {
     }
@@ -59,13 +62,19 @@ final class TestCaseZip {
         Map<Key, CaseFile> outputs = new HashMap<>();
         int entries = 0;
         long total = 0;
-        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
+        // UTF-8 표시가 없는 이름은 CP949로 읽는다. 한국어 Windows 도구는 한글 폴더 이름을 CP949로 적는다.
+        try (ZipInputStream zip = new ZipInputStream(new ByteArrayInputStream(zipBytes), NAME_CHARSET)) {
             for (ZipEntry entry; (entry = zip.getNextEntry()) != null;) {
                 if (++entries > MAX_ENTRIES) {
                     throw invalid("ZIP 안 파일이 너무 많아요. " + MAX_ENTRIES + "개까지 읽을 수 있어요");
                 }
                 String name = entry.getName();
                 if (entry.isDirectory() || ignored(name)) {
+                    // 건너뛰는 항목도 다음 항목으로 넘어갈 때 끝까지 풀리므로 합계에 넣어 압축 폭탄을 막는다.
+                    total += zip.skip(MAX_TOTAL_BYTES - total + 1);
+                    if (total > MAX_TOTAL_BYTES) {
+                        throw AdminProblemController.totalTooLarge();
+                    }
                     continue;
                 }
                 Matcher matcher = CASE_FILE.matcher(name);
@@ -82,14 +91,15 @@ final class TestCaseZip {
                 if (total > MAX_TOTAL_BYTES) {
                     throw AdminProblemController.totalTooLarge();
                 }
-                Key key = new Key(CaseType.valueOf(matcher.group(1).toUpperCase()), Integer.parseInt(matcher.group(2)));
+                Key key = new Key(CaseType.valueOf(matcher.group(1).toUpperCase(Locale.ROOT)), Integer.parseInt(matcher.group(2)));
                 CaseFile file = new CaseFile(name, utf8(name, bytes));
                 CaseFile before = (input ? inputs : outputs).putIfAbsent(key, file);
                 if (before != null) {
                     throw invalid("번호가 같은 파일이 있어요: " + before.name() + ", " + name);
                 }
             }
-        } catch (IOException e) {
+        } catch (IOException | IllegalArgumentException e) {
+            // IllegalArgumentException: 항목 이름을 UTF-8로도 CP949로도 읽지 못함
             throw invalid("ZIP 파일을 읽을 수 없어요");
         }
         // 공개 예제 먼저, 그 안에서 번호 순서(CaseType 선언 순서가 SAMPLE, HIDDEN이다).
