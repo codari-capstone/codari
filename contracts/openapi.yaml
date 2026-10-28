@@ -1903,7 +1903,7 @@ components:
           type: [string, 'null']
           enum: [ACCEPTED, PRESENTATION_ERROR, WRONG_ANSWER, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED,
             OUTPUT_LIMIT_EXCEEDED, RUNTIME_ERROR, COMPILE_ERROR, null]
-          description: '`PASSED`·`FAILED`일 때 대표 판정(처음 틀린 케이스의 판정). 그 밖에는 null'
+          description: '`PASSED`면 `ACCEPTED`, `FAILED`면 처음 틀린 케이스의 판정. 그 밖에는 null'
         compilerMessage:
           type: [string, 'null']
           description: '`verdict`가 `COMPILE_ERROR`일 때 컴파일러 메시지'

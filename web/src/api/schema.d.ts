@@ -1110,7 +1110,7 @@ export interface components {
             /** @description 검증 전은 0, 검증 중은 진행률, 끝나면 100 */
             progress: number;
             /**
-             * @description `PASSED`·`FAILED`일 때 대표 판정(처음 틀린 케이스의 판정). 그 밖에는 null
+             * @description `PASSED`면 `ACCEPTED`, `FAILED`면 처음 틀린 케이스의 판정. 그 밖에는 null
              * @enum {string|null}
              */
             verdict: "ACCEPTED" | "PRESENTATION_ERROR" | "WRONG_ANSWER" | "TIME_LIMIT_EXCEEDED" | "MEMORY_LIMIT_EXCEEDED" | "OUTPUT_LIMIT_EXCEEDED" | "RUNTIME_ERROR" | "COMPILE_ERROR" | null;
