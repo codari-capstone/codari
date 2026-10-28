@@ -138,8 +138,14 @@ export function toForm(version: AdminProblemVersion): ProblemForm {
     tags: [...version.tags],
     languages: FORM_LANGUAGES.map((language) => {
       const saved = version.languages.find((entry) => entry.language === language)
+      if (saved) return { ...saved }
+      // 계약은 초안에 언어가 하나만 있어도 받는다(#144). C++만 있는 초안의 Python 줄을
+      // 전역 기본값으로 채우면 C++과 맞지 않는 제한이 저장돼, Python 제출이 전부 시간
+      // 초과가 된다 — 빈 줄은 저장된 C++에서 계산한다.
+      const cpp = version.languages.find((entry) => entry.language === 'CPP')
       const fallback = EMPTY_FORM.languages.find((entry) => entry.language === language)!
-      return saved ? { ...saved } : { ...fallback }
+      if (language === 'PYTHON' && cpp) return { ...fallback, ...pythonLimits(cpp) }
+      return { ...fallback }
     }),
   }
 }
@@ -153,8 +159,11 @@ export function toForm(version: AdminProblemVersion): ProblemForm {
 export function followsPythonFormula(languages: ProblemInput['languages']): boolean {
   const python = languages.find((entry) => entry.language === 'PYTHON')
   const cpp = languages.find((entry) => entry.language === 'CPP')
-  // 한쪽이 없으면 계산할 근거가 없다. 직접 입력으로 열어 둔다.
-  if (python === undefined || cpp === undefined) return false
+  // 계산할 근거가 없으면 직접 입력으로 열어 둔다.
+  if (cpp === undefined) return false
+  // Python 줄이 없는 초안은 아무도 값을 넣지 않은 것이다. 보정이 주인이어야 C++를
+  // 고칠 때 Python도 따라간다(`toForm`이 이 줄을 보정값으로 채워 놓는다).
+  if (python === undefined) return true
 
   const derived = pythonLimits(cpp)
   return (

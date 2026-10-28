@@ -182,7 +182,8 @@ describe('AdminProblemListPage', () => {
       http.get('*/api/admin/problems', ({ request }) => {
         const page = new URL(request.url).searchParams.get('page')
         return HttpResponse.json({
-          content: page === '0' ? buildAdminProblems().slice(0, ADMIN_PAGE_SIZE).map(adminSummary) : [],
+          content:
+            page === '0' ? buildAdminProblems().slice(0, ADMIN_PAGE_SIZE).map(adminSummary) : [],
           totalElements: ADMIN_PAGE_SIZE,
         })
       }),

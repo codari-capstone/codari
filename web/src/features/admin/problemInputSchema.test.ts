@@ -158,11 +158,21 @@ describe('toForm', () => {
     expect(form.license).toBe('')
   })
 
-  // 서버가 한 언어만 준 초안도 두 줄로 열려야 한다. 빠진 언어는 기본값으로 채운다.
+  // 서버가 한 언어만 준 초안도 두 줄로 열려야 한다(#144).
   it('언어를 폼의 순서로 두 줄 세운다', () => {
     const form = toForm(version)
 
     expect(form.languages.map((entry) => entry.language)).toEqual(['PYTHON', 'CPP'])
     expect(form.languages[1]?.timeLimitMs).toBe(2000)
+  })
+
+  // 전역 기본값(5000ms·512MB)으로 채우면 C++ 2000ms와 맞지 않는 제한이 저장돼
+  // 그 문제의 Python 제출이 전부 시간 초과가 된다.
+  it('C++만 있는 초안의 Python 줄을 저장된 C++에서 계산한다', () => {
+    const form = toForm(version)
+
+    expect(form.languages[0]).toMatchObject({ timeLimitMs: 8000, memoryLimitMb: 256 })
+    // 아무도 넣지 않은 값이라 보정이 주인이다 — C++를 고치면 Python도 따라간다
+    expect(followsPythonFormula(problemInputSchema.parse(form).languages)).toBe(true)
   })
 })
