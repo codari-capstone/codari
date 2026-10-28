@@ -1,6 +1,8 @@
 package com.codingmon.api.problem;
 
+import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.codingmon.api.ApiErrors;
@@ -29,11 +32,13 @@ import com.codingmon.api.problem.AdminProblemRepository.PublishCondition;
 import com.codingmon.api.problem.AdminProblemRepository.SaveResult;
 import com.codingmon.api.problem.AdminProblemRepository.Saved;
 import com.codingmon.api.problem.AdminProblemRepository.Summary;
+import com.codingmon.api.problem.AdminProblemRepository.TestCase;
+import com.codingmon.api.problem.AdminProblemRepository.TestCaseInput;
 import com.codingmon.api.problem.AdminProblemRepository.Version;
 import com.codingmon.api.problem.AdminProblemRepository.VersionSummary;
 import com.codingmon.api.problem.ProblemRepository.Page;
 
-// 관리자 문제 관리(ADM-01~03·06·07, #33). ADMIN 검사는 SecurityConfig의 /api/admin/**가 한다.
+// 관리자 문제 관리(ADM-01~03·06·07, #33)와 테스트케이스(ADM-04, #34). ADMIN 검사는 SecurityConfig의 /api/admin/**가 한다.
 @RestController
 @RequestMapping("/api/admin/problems")
 class AdminProblemController {
@@ -43,6 +48,13 @@ class AdminProblemController {
     static final int MAX_TIME_LIMIT_MS = 20_000;
     static final int MIN_MEMORY_LIMIT_MB = 2;
     static final int MAX_MEMORY_LIMIT_MB = 512;
+
+    // 케이스 수·크기 상한(#34 "정한 것", 추후 조정 필요). UTF-8 바이트로 센다.
+    // 기대 출력 상한은 채점 서버 출력 상한(Judge0Client.MAX_FILE_SIZE_KB)과 같다. 넘으면 정답 코드도 통과하지 못한다.
+    static final int MAX_TEST_CASES = 10;
+    static final int MAX_INPUT_BYTES = 2 * 1024 * 1024;
+    static final int MAX_OUTPUT_BYTES = 1024 * 1024;
+    static final int MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 
     private final AdminProblemRepository problems;
 
@@ -72,13 +84,27 @@ class AdminProblemController {
 
     @PutMapping("/{id}")
     Saved update(@PathVariable long id, @RequestBody ProblemInput input) {
-        SaveResult result = problems.update(id, input, validTagIds(input)).orElseThrow(AdminProblemController::notFound);
-        return switch (result) {
-            case SaveResult.Ok ok -> ok.saved();
-            case SaveResult.Validating v -> throw ApiErrors.error(HttpStatus.CONFLICT, "PROBLEM_VALIDATING",
-                    "정답 코드를 검증하는 중이에요. 검증이 끝난 뒤 다시 저장해 주세요");
-            case SaveResult.ConditionsBroken broken -> throw conditionsNotMet(broken.unmet());
-        };
+        return saved(problems.update(id, input, validTagIds(input)).orElseThrow(AdminProblemController::notFound));
+    }
+
+    @GetMapping("/{id}/test-cases")
+    List<TestCase> testCases(@PathVariable long id) {
+        return problems.testCases(id).orElseThrow(AdminProblemController::notFound);
+    }
+
+    @PutMapping("/{id}/test-cases")
+    Saved replaceTestCases(@PathVariable long id, @RequestBody List<TestCaseInput> cases) {
+        checkTestCases(cases);
+        return saved(problems.replaceTestCases(id, cases).orElseThrow(AdminProblemController::notFound));
+    }
+
+    // 읽기만 하고 저장하지 않는다. 화면이 표를 채운 뒤 PUT으로 저장한다.
+    @PostMapping("/{id}/test-cases/zip")
+    List<TestCaseInput> readTestCaseZip(@PathVariable long id, @RequestParam MultipartFile file) throws IOException {
+        if (!problems.exists(id)) {
+            throw notFound();
+        }
+        return TestCaseZip.read(file.getBytes());
     }
 
     @DeleteMapping("/{id}")
@@ -174,6 +200,57 @@ class AdminProblemController {
                         input.outputDescription(), input.constraintsMarkdown(), input.sourceName(), input.sourceUrl(),
                         input.license()), Stream.concat(input.tags().stream(), input.languages().stream().map(LanguageInput::starterCode)))
                 .anyMatch(value -> value != null && value.indexOf('\0') >= 0);
+    }
+
+    // 화면이 막는 규칙(null 칸, NUL 글자)은 code 없는 400이다.
+    private static void checkTestCases(List<TestCaseInput> cases) {
+        if (cases == null || cases.stream().anyMatch(c -> c == null || c.caseType() == null || c.input() == null
+                || c.output() == null || c.input().indexOf('\0') >= 0 || c.output().indexOf('\0') >= 0)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        if (cases.size() > MAX_TEST_CASES) {
+            throw tooManyTestCases();
+        }
+        long total = 0;
+        for (int i = 0; i < cases.size(); i++) {
+            int inputBytes = cases.get(i).input().getBytes(StandardCharsets.UTF_8).length;
+            int outputBytes = cases.get(i).output().getBytes(StandardCharsets.UTF_8).length;
+            if (inputBytes > MAX_INPUT_BYTES) {
+                throw limitExceeded((i + 1) + "번째 케이스의 입력이 " + mib(MAX_INPUT_BYTES) + "를 넘어요");
+            }
+            if (outputBytes > MAX_OUTPUT_BYTES) {
+                throw limitExceeded((i + 1) + "번째 케이스의 기대 출력이 " + mib(MAX_OUTPUT_BYTES) + "를 넘어요");
+            }
+            total += inputBytes + outputBytes;
+        }
+        if (total > MAX_TOTAL_BYTES) {
+            throw totalTooLarge();
+        }
+    }
+
+    static ErrorResponseException tooManyTestCases() {
+        return limitExceeded("케이스는 " + MAX_TEST_CASES + "개까지 넣을 수 있어요");
+    }
+
+    static ErrorResponseException totalTooLarge() {
+        return limitExceeded("케이스를 모두 합쳐 " + mib(MAX_TOTAL_BYTES) + "를 넘어요");
+    }
+
+    static ErrorResponseException limitExceeded(String detail) {
+        return ApiErrors.error(HttpStatus.BAD_REQUEST, "TEST_CASE_LIMIT_EXCEEDED", detail);
+    }
+
+    static String mib(int bytes) {
+        return bytes / (1024 * 1024) + "MiB";
+    }
+
+    private static Saved saved(SaveResult result) {
+        return switch (result) {
+            case SaveResult.Ok ok -> ok.saved();
+            case SaveResult.Validating v -> throw ApiErrors.error(HttpStatus.CONFLICT, "PROBLEM_VALIDATING",
+                    "정답 코드를 검증하는 중이에요. 검증이 끝난 뒤 다시 저장해 주세요");
+            case SaveResult.ConditionsBroken broken -> throw conditionsNotMet(broken.unmet());
+        };
     }
 
     private static ErrorResponseException conditionsNotMet(List<PublishCondition> unmet) {

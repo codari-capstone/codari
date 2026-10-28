@@ -1,6 +1,7 @@
 package com.codingmon.api;
 
 import java.io.IOException;
+import java.util.regex.Pattern;
 
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -23,13 +24,33 @@ class RequestSizeLimitFilter extends OncePerRequestFilter {
 
     static final long MAX_BODY_BYTES = 512 * 1024;
 
+    // 관리자 테스트케이스 저장·ZIP 읽기는 케이스 합 10MiB를 받는다(#34). 이 두 주소만 따로 둔다.
+    // 저장은 JSON이 줄바꿈을 두 글자(\n)로 늘리므로 두 배에 여유를 더했고, ZIP은 파일 10MiB에 multipart 머리말 여유를 더했다.
+    // 그 밖의 제어 문자(U+001F 등)는 여섯 글자가 되지만 케이스 데이터에는 드물어 두 배로 잡는다.
+    static final long MAX_TEST_CASES_BODY_BYTES = 24L * 1024 * 1024;
+    static final long MAX_TEST_CASE_ZIP_BODY_BYTES = 11L * 1024 * 1024;
+
+    private static final Pattern TEST_CASES = Pattern.compile("/api/admin/problems/[^/]+/test-cases");
+    private static final Pattern TEST_CASE_ZIP = Pattern.compile("/api/admin/problems/[^/]+/test-cases/zip");
+
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
-        if (request.getContentLengthLong() > MAX_BODY_BYTES) {
+        if (request.getContentLengthLong() > maxBodyBytes(request)) {
             ApiErrors.write(response, HttpStatus.CONTENT_TOO_LARGE);
             return;
         }
         chain.doFilter(request, response);
+    }
+
+    private static long maxBodyBytes(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        if ("PUT".equals(request.getMethod()) && TEST_CASES.matcher(path).matches()) {
+            return MAX_TEST_CASES_BODY_BYTES;
+        }
+        if ("POST".equals(request.getMethod()) && TEST_CASE_ZIP.matcher(path).matches()) {
+            return MAX_TEST_CASE_ZIP_BODY_BYTES;
+        }
+        return MAX_BODY_BYTES;
     }
 }

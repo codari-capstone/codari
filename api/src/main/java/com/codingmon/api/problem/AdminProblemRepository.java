@@ -21,7 +21,7 @@ import com.codingmon.api.problem.ProblemRepository.Page;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 
-// 관리자 문제 관리(#33). 버전 규칙은 #33 본문 "정한 것"과 openapi `updateProblem` 설명을 따른다.
+// 관리자 문제 관리(#33)와 테스트케이스·태그(#34). 버전 규칙은 #33·#34 본문 "정한 것"과 openapi `updateProblem`·`replaceTestCases` 설명을 따른다.
 // 바꾸는 작업은 problems 행을 잠가 같은 문제의 저장·공개·삭제가 한 번에 하나씩 돌게 한다.
 @Repository
 class AdminProblemRepository {
@@ -53,6 +53,14 @@ class AdminProblemRepository {
     }
 
     record Saved(int versionNo, Status status) {
+    }
+
+    enum CaseType { SAMPLE, HIDDEN }
+
+    record TestCaseInput(CaseType caseType, String input, String output) {
+    }
+
+    record TestCase(CaseType caseType, String input, String output, int inputBytes, int outputBytes) {
     }
 
     // 검증 중이거나 공개 조건이 깨져 저장하지 않은 경우. 컨트롤러가 409로 바꾼다.
@@ -198,15 +206,72 @@ class AdminProblemRepository {
             overwrite(latest.versionId(), input, tagIds);
             return Optional.of(new SaveResult.Ok(new Saved(latest.versionNo(), latest.status())));
         }
-        // 채점 기준이 바뀐다. 공개 중인 버전은 그대로 두고 새 초안에 케이스·정답 코드를 복사해 저장한다.
-        long draftId = insertVersion(problemId, latest.versionNo() + 1, input, tagIds);
-        jdbc.sql("insert into test_cases (problem_version_id, ordinal, case_type, input_data, expected_output)"
-                + " select :draftId, ordinal, case_type, input_data, expected_output from test_cases where problem_version_id = :fromId")
-                .param("draftId", draftId).param("fromId", latest.versionId()).update();
-        jdbc.sql("insert into reference_solutions (problem_version_id, language, solution_role, source_code)"
-                + " select :draftId, language, solution_role, source_code from reference_solutions where problem_version_id = :fromId")
-                .param("draftId", draftId).param("fromId", latest.versionId()).update();
+        // 채점 기준이 바뀐다. 공개 중인 버전은 그대로 두고 새 초안에 저장한다.
+        overwrite(newDraft(latest), input, tagIds);
         return Optional.of(new SaveResult.Ok(new Saved(latest.versionNo() + 1, Status.DRAFT)));
+    }
+
+    // 없는 문제면 비어 있다. 최신 버전(detail과 같은 버전)의 케이스를 순서대로 준다.
+    @Transactional(readOnly = true)
+    Optional<List<TestCase>> testCases(long problemId) {
+        return latestVersionId(problemId).map(versionId -> jdbc.sql("select case_type, input_data, expected_output,"
+                + " octet_length(input_data) as input_bytes, octet_length(expected_output) as output_bytes"
+                + " from test_cases where problem_version_id = :id order by ordinal")
+                .param("id", versionId)
+                .query((rs, n) -> new TestCase(CaseType.valueOf(rs.getString("case_type")), rs.getString("input_data"),
+                        rs.getString("expected_output"), rs.getInt("input_bytes"), rs.getInt("output_bytes")))
+                .list());
+    }
+
+    boolean exists(long problemId) {
+        return latestVersionId(problemId).isPresent();
+    }
+
+    // 없는 문제면 비어 있다. 버전 규칙은 openapi `replaceTestCases` 설명을 따른다.
+    @Transactional
+    Optional<SaveResult> replaceTestCases(long problemId, List<TestCaseInput> cases) {
+        Optional<Row> found = lockLatest(problemId);
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        Row latest = found.get();
+        if (latest.status() == Status.VALIDATING) {
+            return Optional.of(new SaveResult.Validating());
+        }
+        if (casesOf(latest.versionId()).equals(cases)) {
+            return Optional.of(new SaveResult.Ok(new Saved(latest.versionNo(), latest.status())));
+        }
+        long versionId;
+        int versionNo;
+        if (latest.status() == Status.DRAFT) {
+            // 케이스가 바뀌면 이전 검증은 의미가 없다(database-schema.md).
+            clearValidation(latest.versionId());
+            versionId = latest.versionId();
+            versionNo = latest.versionNo();
+        } else {
+            // 공개됐던 버전의 케이스는 사용자 제출 결과가 가리키므로 그대로 두고 새 초안에 저장한다.
+            versionId = newDraft(latest);
+            versionNo = latest.versionNo() + 1;
+        }
+        jdbc.sql("delete from test_cases where problem_version_id = :id").param("id", versionId).update();
+        for (int i = 0; i < cases.size(); i++) {
+            TestCaseInput testCase = cases.get(i);
+            jdbc.sql("insert into test_cases (problem_version_id, ordinal, case_type, input_data, expected_output)"
+                    + " values (:versionId, :ordinal, :type, :input, :output)")
+                    .param("versionId", versionId)
+                    .param("ordinal", i + 1)
+                    .param("type", testCase.caseType().name())
+                    .param("input", testCase.input())
+                    .param("output", testCase.output())
+                    .update();
+        }
+        return Optional.of(new SaveResult.Ok(new Saved(versionNo, Status.DRAFT)));
+    }
+
+    // 이름이나 slug가 이미 있으면 false. 두 유일 제약 중 어느 쪽에 걸려도 넣지 않는다.
+    boolean createTag(String slug, String name) {
+        return jdbc.sql("insert into concept_tags (slug, name) values (:slug, :name) on conflict do nothing")
+                .param("slug", slug).param("name", name).update() == 1;
     }
 
     // 없는 문제면 비어 있다. 공개했거나 이미 공개 중이면 빈 목록을 준다.
@@ -280,6 +345,46 @@ class AdminProblemRepository {
                 .single();
         insertTagsAndLanguages(versionId, input, tagIds);
         return versionId;
+    }
+
+    // 최신 버전을 내용·태그·언어·케이스·정답 코드까지 복사해 새 초안(+1)을 만든다.
+    // 정답 코드는 다시 검증해야 하므로 verified_at은 복사하지 않는다.
+    private long newDraft(Row latest) {
+        long draftId = jdbc.sql("insert into problem_versions (problem_id, version_no, title, difficulty, statement_markdown,"
+                + " input_description, output_description, constraints_markdown, source_name, source_url, license)"
+                + " select problem_id, version_no + 1, title, difficulty, statement_markdown, input_description,"
+                + " output_description, constraints_markdown, source_name, source_url, license"
+                + " from problem_versions where id = :fromId returning id")
+                .param("fromId", latest.versionId())
+                .query(Long.class)
+                .single();
+        for (String copy : List.of(
+                "insert into problem_version_tags (problem_version_id, concept_tag_id)"
+                        + " select :draftId, concept_tag_id from problem_version_tags where problem_version_id = :fromId",
+                "insert into problem_language_configs (problem_version_id, language, time_limit_ms, memory_limit_mb, starter_code)"
+                        + " select :draftId, language, time_limit_ms, memory_limit_mb, starter_code"
+                        + " from problem_language_configs where problem_version_id = :fromId",
+                "insert into test_cases (problem_version_id, ordinal, case_type, input_data, expected_output)"
+                        + " select :draftId, ordinal, case_type, input_data, expected_output from test_cases where problem_version_id = :fromId",
+                "insert into reference_solutions (problem_version_id, language, solution_role, source_code)"
+                        + " select :draftId, language, solution_role, source_code from reference_solutions where problem_version_id = :fromId")) {
+            jdbc.sql(copy).param("draftId", draftId).param("fromId", latest.versionId()).update();
+        }
+        return draftId;
+    }
+
+    private List<TestCaseInput> casesOf(long versionId) {
+        return jdbc.sql("select case_type, input_data, expected_output from test_cases where problem_version_id = :id order by ordinal")
+                .param("id", versionId)
+                .query((rs, n) -> new TestCaseInput(CaseType.valueOf(rs.getString("case_type")), rs.getString("input_data"),
+                        rs.getString("expected_output")))
+                .list();
+    }
+
+    // 버전은 문제를 만들 때 함께 생기므로 비어 있으면 없는 문제다.
+    private Optional<Long> latestVersionId(long problemId) {
+        return jdbc.sql("select id from problem_versions where problem_id = :id order by version_no desc limit 1")
+                .param("id", problemId).query(Long.class).optional();
     }
 
     private void overwrite(long versionId, ProblemInput input, List<Long> tagIds) {
