@@ -1242,9 +1242,11 @@ paths:
         어느 버전에 저장할지는 테스트케이스 저장(`replaceTestCases`)과 같다.
         - 검증 중(`VALIDATING`)이면 409 `PROBLEM_VALIDATING`이다.
         - 보낸 코드가 최신 버전과 똑같으면 아무것도 바꾸지 않는다.
-        - 최신 버전이 초안이면 그 초안에 저장한다. 정답 코드 검증 기록을 지우므로 다시 검증해야 한다.
+        - 최신 버전이 초안이면 그 초안에 저장한다.
         - 최신 버전이 공개 중이거나 비공개면 최신 버전을 복사해 새 초안(버전 번호 +1)을 만들고 거기에 저장한다.
           공개 버전은 검증된 정답 코드를 그대로 가진다.
+        정답 코드가 하나라도 바뀌면 그 초안의 검증 기록을 지우고 두 언어 모두 검증 전(`NOT_VALIDATED`)으로 돌린다.
+        고치지 않은 언어도 다시 검증해야 한다. 새 초안으로 복사할 때도 같다.
         코드는 하나당 64KB(65,536바이트, UTF-8)까지다. 넘으면 400 `SOURCE_TOO_LONG`이다.
         언어가 `PYTHON`·`CPP`가 아니거나, 같은 언어가 두 번 있거나, null 칸이나 NUL 글자가 있으면 `code` 없는 400이다.
       tags: [admin]
@@ -1301,7 +1303,8 @@ paths:
         검증 중에는 저장·삭제가 409 `PROBLEM_VALIDATING`이고, 공개는 `SOLUTIONS_VERIFIED`를 못 채워 409다.
         정답 코드마다 채점이 끝나면 모든 케이스를 통과한 코드만 검증 통과가 되고, 모두 끝나면 버전이 `DRAFT`로 돌아온다.
         채점이 실패해도(채점 불가) `DRAFT`로 돌아온다. 진행은 `GET /api/admin/problems/{id}/solutions`로 본다.
-        "저장하고 검증"은 화면이 `PUT .../solutions` 다음에 이 API를 부른다.
+        "저장하고 검증"은 화면이 `PUT .../solutions` 다음에 이 API를 부른다. `PUT` 응답의 `status`가 `DRAFT`일 때만 부른다.
+        바뀐 게 없어 공개·비공개 버전이 그대로면 이미 검증을 통과한 버전이라 부를 필요가 없다(부르면 409 `NOT_DRAFT`).
       tags: [admin]
       responses:
         '202':
@@ -1833,7 +1836,10 @@ components:
           properties:
             validation:
               type: object
-              description: 언어별 정답 코드 검증 결과. 그 언어의 검증 결과가 없으면(검증 전·정답 코드 없음·아직 이 케이스를 안 돌림) null
+              description: |
+                언어별 정답 코드 검증 결과. 그 언어의 검증 기록이 없으면(검증 전·정답 코드 없음) null이다.
+                검증 기록은 있는데 이 케이스의 판정이 없으면(검증 중이라 아직 안 돌림, 컴파일 에러·채점 불가로 실행 안 됨) `verdict`가 null인 객체다.
+                판정이 없는 이유는 `GET /api/admin/problems/{id}/solutions`의 그 언어 `status`가 알려 준다.
               required: [PYTHON, CPP]
               properties:
                 PYTHON:
@@ -1917,7 +1923,7 @@ components:
           type: [string, 'null']
           enum: [ACCEPTED, PRESENTATION_ERROR, WRONG_ANSWER, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED,
             OUTPUT_LIMIT_EXCEEDED, RUNTIME_ERROR, null]
-          description: 실행 전이거나 컴파일 에러·채점 불가로 이 케이스를 실행하지 않았으면 null
+          description: 검증 중이라 아직 안 돌렸거나 컴파일 에러·채점 불가로 이 케이스를 실행하지 않았으면 null
         executionTimeMs:
           type: [integer, 'null']
         memoryUsedKb:
