@@ -1097,7 +1097,7 @@ export interface components {
         };
         SolutionInput: {
             language: components["schemas"]["Language"];
-            /** @description 비어 있으면(공백뿐 포함) 그 언어의 정답 코드를 지운다 */
+            /** @description 받은 그대로(앞뒤 공백·줄바꿈 포함) 저장하고 그대로 비교한다. 비어 있으면(공백뿐 포함) 그 언어의 정답 코드를 지운다 */
             sourceCode: string;
         };
         /** @description 정답 코드 하나와 그 검증 상태. 관리자 API에만 있다 */
