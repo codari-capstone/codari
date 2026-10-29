@@ -76,4 +76,16 @@ describe('savedVersionNotice', () => {
   it('새로 만든 문제는 만들었다고 알린다', () => {
     expect(savedVersionNotice({ versionNo: 1, status: 'DRAFT' }, null)).toContain('만들었어요')
   })
+
+  // 공개를 내린 버전을 그 자리에서 고친 경우다. '초안'이라고 하면 없는 초안이 있는
+  // 것처럼 알리게 된다.
+  it('비공개 버전에 저장했으면 초안이라고 하지 않는다', () => {
+    const notice = savedVersionNotice(
+      { versionNo: 1, status: 'RETIRED' },
+      { latestVersionNo: 1, publishedVersionNo: null },
+    )
+
+    expect(notice).toContain('비공개')
+    expect(notice).not.toContain('초안')
+  })
 })

@@ -10,7 +10,7 @@ import { ErrorState } from '@/components/ErrorState'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { problemMessage } from '@/features/auth/problemCode'
+import { problemCode, problemMessage } from '@/features/auth/problemCode'
 import { forgetSessionIfUnauthorized } from '@/features/auth/session'
 import { parsePathId } from '@/lib/pathId'
 import { adminProblemQuery, adminProblemVersionQuery, saveProblem } from './adminProblemQuery'
@@ -58,7 +58,7 @@ function firstErrorTab(errors: FieldErrors<ProblemForm>): string {
  * 읽기 전용은 `fieldset`의 `disabled` 하나로 끝낸다 — 칸마다 `readOnly`를 넘기면 칸을
  * 더할 때마다 빠뜨릴 자리가 생긴다. 링크는 `disabled`에 걸리지 않아 버전 사이 이동은 된다.
  */
-export function Component() {
+function AdminProblemForm() {
   const params = useParams()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -104,6 +104,12 @@ export function Component() {
     form.reset(toForm(loaded))
   }, [loaded, form])
 
+  // 읽기도 401로 끝날 수 있다. 저장(mutation)만 세션을 정리하면, 화면을 띄워 둔 채
+  // 만료된 경우에 문구만 뜨고 로그인 화면으로 가지 않는다 (AdminProblemListPage와 같은 처리).
+  useEffect(() => {
+    forgetSessionIfUnauthorized(queryClient, detail.error ?? version.error)
+  }, [queryClient, detail.error, version.error])
+
   const before =
     detail.data === undefined
       ? null
@@ -120,9 +126,19 @@ export function Component() {
       // 접두사가 같아 버전 목록까지 함께 무효화된다.
       await queryClient.invalidateQueries({ queryKey: ['admin-problem', savedId] })
       await queryClient.invalidateQueries({ queryKey: ['admin-problems'] })
+      // 공개 중인 버전을 그 자리에서 고치면 사용자 화면에 바로 나간다(#33). 사용자용
+      // 캐시를 그대로 두면 staleTime(30초) 안에는 고치기 전 내용이 보인다 — 관리자가
+      // 자기 화면에서 확인할 때 가장 먼저 겪는다.
+      await queryClient.invalidateQueries({ queryKey: ['problem', savedId] })
+      await queryClient.invalidateQueries({ queryKey: ['problems'] })
       if (isNew) void navigate(`/admin/problems/${savedId}`, { replace: true })
     },
-    onError: (error) => forgetSessionIfUnauthorized(queryClient, error),
+    onError: (error) => {
+      // 지난 성공 안내를 지운다. 두면 '반영했어요'와 오류 문구가 함께 남아 두 번째
+      // 저장도 된 것처럼 읽힌다.
+      setNotice(null)
+      forgetSessionIfUnauthorized(queryClient, error)
+    },
   })
 
   if (!isNew && id === null) {
@@ -190,6 +206,12 @@ export function Component() {
       {save.error ? (
         <p role="alert" className="text-destructive text-sm">
           {problemMessage(save.error)}
+          {/* 상한을 넘긴 값이 잠긴 Python 칸일 수 있다. C++ 값은 범위 안인데 거절당하면
+              이유가 화면에 없다. 상한을 여기 적지 않고 서버 응답을 받아 덧붙인다 —
+              judge0 설정이 바뀌면 두 곳이 갈라진다. */}
+          {problemCode(save.error) === 'LIMIT_OUT_OF_RANGE' && !manualPython
+            ? ' Python 제한은 C++ 값에서 계산한 값이에요(시간 ×3+2초, 메모리 ×2). C++ 값을 줄이거나 지문 탭에서 직접 입력으로 바꿔 주세요.'
+            : null}
         </p>
       ) : null}
 
@@ -202,23 +224,26 @@ export function Component() {
           (errors) => setTab(firstErrorTab(errors)),
         )}
       >
-        {/* disabled 하나로 모든 입력칸이 잠긴다. 링크는 걸리지 않는다 */}
-        <fieldset disabled={locked} className="flex flex-col gap-4">
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList aria-label="문제 작성 영역" className="min-h-11">
-              <TabsTrigger value="basic" className="min-h-11">
-                기본 정보
+        <Tabs value={tab} onValueChange={setTab}>
+          {/* 탭 버튼은 fieldset 밖에 둔다. 안에 두면 disabled가 버튼까지 잠가, 읽기
+              전용·검증 중 화면에서 '기본 정보'에 갇혀 지문도 버전도 볼 수 없다. */}
+          <TabsList aria-label="문제 작성 영역" className="min-h-11">
+            <TabsTrigger value="basic" className="min-h-11">
+              기본 정보
+            </TabsTrigger>
+            <TabsTrigger value="statement" className="min-h-11">
+              지문
+            </TabsTrigger>
+            {id === null ? null : (
+              <TabsTrigger value="versions" className="min-h-11">
+                버전
               </TabsTrigger>
-              <TabsTrigger value="statement" className="min-h-11">
-                지문
-              </TabsTrigger>
-              {id === null ? null : (
-                <TabsTrigger value="versions" className="min-h-11">
-                  버전
-                </TabsTrigger>
-              )}
-            </TabsList>
+            )}
+          </TabsList>
 
+          {/* disabled 하나로 모든 입력칸이 잠긴다. 링크는 걸리지 않는다.
+              TabsContent는 Tabs의 context로 동작해 fieldset을 사이에 끼워도 된다. */}
+          <fieldset disabled={locked} className="contents">
             <TabsContent value="basic">
               <BasicInfoTab form={form} />
             </TabsContent>
@@ -234,8 +259,8 @@ export function Component() {
                 <VersionsTab problemId={id} />
               </TabsContent>
             )}
-          </Tabs>
-        </fieldset>
+          </fieldset>
+        </Tabs>
 
         {locked ? null : (
           <div>
@@ -247,4 +272,18 @@ export function Component() {
       </form>
     </section>
   )
+}
+
+/**
+ * 수정 화면과 버전 보기는 형제 라우트라 React가 같은 인스턴스를 유지한다. 그러면 저장
+ * 안내·'직접 입력' 선택·`save.isSuccess`가 다음 화면으로 넘어가, v1 보기에 방금 저장
+ * 문구가 남고 스켈레톤을 건너뛰어 최신 버전 내용이 v1인 척 보인다. key로 새로 만든다.
+ *
+ * id는 key에 넣지 않는다. 등록을 마치면 `/admin/problems/:id`로 바꿔치기하는데(replace),
+ * 그때 새로 만들면 방금 띄운 저장 안내가 사라진다. 두 문제의 수정 화면 사이는 목록을
+ * 지나야 오갈 수 있어, 같은 인스턴스가 이어질 일이 없다.
+ */
+export function Component() {
+  const { versionNo } = useParams()
+  return <AdminProblemForm key={versionNo ?? 'form'} />
 }

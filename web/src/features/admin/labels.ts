@@ -58,5 +58,11 @@ export function savedVersionNotice(
     return published === null ? made : `${made}. 공개하기 전까지 사용자는 v${published}를 풀어요`
   }
 
+  // 내렸던 버전을 그 자리에서 고친 경우다. '초안'이라고 하면 없는 초안이 있는 것처럼
+  // 알리게 된다 — 공개를 내린 버전이라 사용자에게는 보이지 않는다.
+  if (saved.status === 'RETIRED') {
+    return `비공개 상태인 v${saved.versionNo}에 저장했어요. 사용자에게는 보이지 않아요`
+  }
+
   return `초안 v${saved.versionNo}에 저장했어요`
 }

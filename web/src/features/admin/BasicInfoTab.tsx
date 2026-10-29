@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { DIFFICULTIES } from '@/api/types'
+import { ErrorState } from '@/components/ErrorState'
 import { Input } from '@/components/ui/input'
 import { DIFFICULTY_LABEL } from '@/features/problems/labels'
 import { conceptTagsQuery } from '@/features/problems/problemsQuery'
@@ -61,7 +62,11 @@ export function BasicInfoTab({ form }: { form: ProblemFormApi }) {
           {`${MAX_TAGS}개까지 고를 수 있어요. 공개하려면 1개 이상이어야 해요.`}
         </p>
 
-        {tags.data === undefined ? (
+        {/* 실패를 '불러오는 중…'으로 두면 영원히 그 문구다. 태그 없이는 공개도 못 하니
+            이유와 다시 시도를 함께 보여 준다 (ErrorState의 버튼은 type="button"이다). */}
+        {tags.error ? (
+          <ErrorState problem={tags.error} onRetry={() => void tags.refetch()} />
+        ) : tags.data === undefined ? (
           <p className="text-muted-foreground text-sm">태그를 불러오는 중…</p>
         ) : (
           <div className="flex flex-wrap gap-x-4">

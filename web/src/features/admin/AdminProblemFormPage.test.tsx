@@ -1,4 +1,4 @@
-import { QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { ProblemInput } from '@/api/types'
 import { createQueryClient } from '@/app/queryClient'
+import { ME_QUERY_KEY } from '@/features/auth/authQuery'
 import { resetAdminProblems } from '@/mocks/handlers'
 import { server } from '@/mocks/server'
 import { Component as AdminProblemFormPage } from './AdminProblemFormPage'
@@ -16,7 +17,11 @@ import { Component as AdminProblemFormPage } from './AdminProblemFormPage'
  * 수정 주소가 라우터에 있어야 한다. RequireAdmin은 끼우지 않는다 — 권한으로 막는 것은
  * 그쪽 테스트가 보고, 목 핸들러는 세션을 보지 않는다.
  */
-function renderPage(path: string) {
+function renderPage(path: string, seed?: (client: QueryClient) => void) {
+  const client = createQueryClient()
+  // 그리기 전에 심는다. 쿼리는 첫 렌더에 바로 떠나므로, 뒤에 심으면 401 처리가 먼저 돈다.
+  seed?.(client)
+
   const router = createMemoryRouter(
     [
       { path: '/admin/problems/new', Component: AdminProblemFormPage },
@@ -28,12 +33,12 @@ function renderPage(path: string) {
   )
 
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   )
 
-  return router
+  return { router, client }
 }
 
 function field(label: string) {
@@ -175,13 +180,176 @@ describe('AdminProblemFormPage', () => {
 
   it('새 문제를 저장하면 수정 주소로 넘어간다', async () => {
     const user = userEvent.setup()
-    const router = renderPage('/admin/problems/new')
+    const { router } = renderPage('/admin/problems/new')
 
     await user.type(field('제목'), '새로 만든 문제')
     const notice = await save(user)
 
     expect(notice).toHaveTextContent('만들었어요')
     expect(router.state.location.pathname).toMatch(/^\/admin\/problems\/\d+$/)
+  })
+
+  /**
+   * `fieldset disabled`는 안에 있는 **버튼까지** 잠근다. 탭 버튼이 그 안에 있으면 읽기
+   * 전용 화면이 '기본 정보'에 갇혀, 지난 버전의 지문도 버전 목록도 볼 수 없다.
+   */
+  it('읽기 전용 화면에서도 탭을 바꿀 수 있다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/9/versions/1')
+    await waitForLoaded('연습 문제 9')
+
+    await user.click(screen.getByRole('tab', { name: '지문' }))
+
+    // 탭은 열리지만 칸은 그대로 잠겨 있어야 한다.
+    const cppTime = limits('C++').getByLabelText('시간 제한 (ms)')
+    expect(cppTime).toBeVisible()
+    expect(cppTime).toBeDisabled()
+
+    await user.click(screen.getByRole('tab', { name: '버전' }))
+    expect(await screen.findByRole('link', { name: 'v2' })).toBeInTheDocument()
+  })
+
+  /**
+   * 버전 탭은 `<form>` 안에 있다. `type` 없는 버튼은 기본값이 submit이라, 버전 목록이
+   * 실패해 뜬 '다시 시도'를 누르면 **작성 중인 수정이 공개 중인 버전에 저장된다.**
+   */
+  it("버전 목록의 '다시 시도'는 저장을 일으키지 않는다", async () => {
+    const user = userEvent.setup()
+    const sent: unknown[] = []
+    server.use(
+      http.get('*/api/admin/problems/:id/versions', () =>
+        HttpResponse.json({ status: 503, title: 'Service Unavailable' }, { status: 503 }),
+      ),
+      http.put('*/api/admin/problems/:id', async ({ request }) => {
+        sent.push(await request.json())
+        return HttpResponse.json({ versionNo: 1, status: 'PUBLISHED' })
+      }),
+    )
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.type(field('제목'), ' (고치던 중)')
+    await user.click(screen.getByRole('tab', { name: '버전' }))
+
+    // retry:1이라 첫 시도 실패 뒤 재시도 지연을 거쳐야 '다시 시도'가 뜬다.
+    await user.click(await screen.findByRole('button', { name: '다시 시도' }, { timeout: 3000 }))
+
+    expect(sent).toHaveLength(0)
+    // role=status는 다시 불러오는 스켈레톤도 쓴다. 저장 안내인지 글로 가린다.
+    expect(screen.queryByText(/저장했어요|반영했어요/)).not.toBeInTheDocument()
+  })
+
+  /**
+   * 수정 화면과 버전 보기는 형제 라우트라, key가 없으면 같은 인스턴스가 이어진다. 그러면
+   * 'v1 보기'에 방금 저장 문구가 남아, 지난 버전을 저장한 것처럼 읽힌다.
+   */
+  it('저장한 뒤 버전 보기로 가면 저장 안내가 남지 않는다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/9')
+    await waitForLoaded('연습 문제 9')
+
+    await user.type(field('제목'), ' (수정)')
+    expect(await save(user)).toHaveTextContent('저장했어요')
+
+    await user.click(screen.getByRole('tab', { name: '버전' }))
+    await user.click(await screen.findByRole('link', { name: 'v1' }))
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'v1 보기' })).toBeInTheDocument()
+    expect(screen.queryByText(/저장했어요/)).not.toBeInTheDocument()
+  })
+
+  it('저장이 실패하면 지난 성공 안내를 지운다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.type(field('제목'), ' (수정)')
+    await save(user)
+
+    server.use(
+      http.put('*/api/admin/problems/:id', () =>
+        HttpResponse.json({ status: 409, title: 'Conflict' }, { status: 409 }),
+      ),
+    )
+    await user.click(screen.getByRole('button', { name: '저장' }))
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  /** 공개 중인 버전을 고치면 사용자 화면에 바로 나간다. 그 캐시를 두면 옛 글이 보인다. */
+  it('저장하면 사용자 화면 캐시도 버린다', async () => {
+    const user = userEvent.setup()
+    const { client } = renderPage('/admin/problems/1', (seeded) => {
+      seeded.setQueryData(['problem', 1], { id: 1, title: '옛 제목' })
+    })
+    await waitForLoaded('두 수의 합')
+
+    await user.type(field('제목'), ' (수정)')
+    await save(user)
+
+    await waitFor(() => expect(client.getQueryState(['problem', 1])?.isInvalidated).toBe(true))
+  })
+
+  /** 읽기도 401로 끝날 수 있다. 저장만 세션을 정리하면 로그인 화면으로 가지 않는다. */
+  it('상세 조회가 401이면 세션을 버린다', async () => {
+    server.use(
+      http.get('*/api/admin/problems/:id', () =>
+        HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 }),
+      ),
+    )
+    const { client } = renderPage('/admin/problems/1', (seeded) => {
+      seeded.setQueryData(ME_QUERY_KEY, { id: 1, nickname: '코다리', role: 'ADMIN' })
+    })
+
+    await waitFor(() => expect(client.getQueryData(ME_QUERY_KEY)).toBeNull(), { timeout: 3000 })
+  })
+
+  it('태그를 못 불러오면 이유와 다시 시도를 보여 준다', async () => {
+    server.use(
+      http.get('*/api/concept-tags', () =>
+        HttpResponse.json({ status: 503, title: 'Service Unavailable' }, { status: 503 }),
+      ),
+    )
+    renderPage('/admin/problems/new')
+
+    // retry:1이라 첫 시도 실패 뒤 재시도 지연을 거쳐야 error 상태가 된다.
+    expect(
+      await screen.findByRole('button', { name: '다시 시도' }, { timeout: 3000 }),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('태그를 불러오는 중…')).not.toBeInTheDocument()
+  })
+
+  /**
+   * C++ 값은 범위 안인데 보정된 Python 값이 상한을 넘어 거절되는 경우다. 서버 문구는
+   * 범위만 알려 주므로, 잠긴 칸이 원인이라는 말을 화면이 해야 한다.
+   *
+   * 새 문제로 본다 — 기존 fixture의 Python 값은 보정식과 달라 '직접 입력'으로 열리고,
+   * 그때는 관리자가 넣은 값이라 이 안내가 틀린 말이 된다.
+   */
+  it('상한을 넘겼다는 응답이면 잠긴 Python 칸을 짚어 준다', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.post('*/api/admin/problems', () =>
+        HttpResponse.json(
+          { status: 400, title: 'Bad Request', code: 'LIMIT_OUT_OF_RANGE' },
+          { status: 400 },
+        ),
+      ),
+    )
+    renderPage('/admin/problems/new')
+
+    await user.type(field('제목'), '제한이 큰 문제')
+    await user.click(screen.getByRole('tab', { name: '지문' }))
+    const cppTime = limits('C++').getByLabelText('시간 제한 (ms)')
+    await user.clear(cppTime)
+    await user.type(cppTime, '7000')
+    // 잠긴 칸이 상한(20초)을 넘겼다. 화면은 상한을 모르고, 서버가 거절해야 안다.
+    expect(limits('Python').getByLabelText('시간 제한 (ms)')).toHaveValue(23000)
+
+    await user.click(screen.getByRole('button', { name: '저장' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('직접 입력')
   })
 
   it('버전 탭은 버전을 최신부터 보여 준다', async () => {
