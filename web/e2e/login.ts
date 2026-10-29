@@ -3,6 +3,9 @@ import { expect, type Page } from '@playwright/test'
 /** 목 계정이다. web/src/mocks/fixtures/users.ts와 같은 값을 쓴다. */
 export const USER = { email: 'user@codari.test', password: 'Codari!test1' }
 
+/** 관리자 계정. 관리자 화면(COM-05)에 들어가려면 이 계정이어야 한다. */
+export const ADMIN = { email: 'admin@codari.test', password: 'Codari!admin1' }
+
 /**
  * 로그인해 둔다. 보호된 화면(COM-05, RequireAuth)에 닿기 위한 준비다.
  *
@@ -10,11 +13,11 @@ export const USER = { email: 'user@codari.test', password: 'Codari!test1' }
  * 이 헬퍼를 쓰지 않는다. 여기 모은 것은 solve·result가 글자 하나까지 같은 절차를 각각
  * 복사해 두고 있던 것이다. 폼 라벨이나 도착 주소가 바뀌면 고칠 자리가 하나여야 한다.
  */
-export async function login(page: Page) {
+export async function login(page: Page, account = USER) {
   await page.goto('/login')
   await expect(page.getByRole('form', { name: '로그인' })).toBeVisible()
-  await page.getByLabel('이메일').fill(USER.email)
-  await page.getByLabel('비밀번호').fill(USER.password)
+  await page.getByLabel('이메일').fill(account.email)
+  await page.getByLabel('비밀번호').fill(account.password)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
   await expect(page).toHaveURL(/\/problems$/)
 }

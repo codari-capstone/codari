@@ -128,10 +128,10 @@ test('ADMIN에게는 관리자 메뉴가 보인다', async ({ page }) => {
 
   await expect(page.getByRole('banner').getByRole('link', { name: '관리자' })).toBeVisible()
 
-  // 메뉴가 보이는 것과 화면에 들어가지는 것은 별개다. 관리자 화면은 아직 자리표시라
-  // 제목이 가장 단단한 단서다.
+  // 메뉴가 보이는 것과 화면에 들어가지는 것은 별개다. 여기서 보는 것은 권한뿐이고,
+  // 목록 자체는 admin.spec.ts가 잰다.
   await page.goto('/admin')
-  await expect(page.getByRole('heading', { name: '관리자 문제 제작' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '문제 관리' })).toBeVisible()
   await expect(page).toHaveURL(/\/admin$/)
 })
 
