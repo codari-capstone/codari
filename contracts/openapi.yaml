@@ -1923,7 +1923,9 @@ components:
           type: [string, 'null']
           enum: [ACCEPTED, PRESENTATION_ERROR, WRONG_ANSWER, TIME_LIMIT_EXCEEDED, MEMORY_LIMIT_EXCEEDED,
             OUTPUT_LIMIT_EXCEEDED, RUNTIME_ERROR, COMPILE_ERROR, null]
-          description: '`PASSED`면 `ACCEPTED`, `FAILED`면 처음 틀린 케이스의 판정. 그 밖에는 null'
+          description: |
+            `PASSED`면 `ACCEPTED`, `FAILED`면 처음 틀린 케이스의 판정. 그 밖에는 null.
+            '처음'은 채점 순서(공개 예제 먼저, 그 안에서 표 순서) 기준이다. 학생 채점 결과와 같다.
         compilerMessage:
           type: [string, 'null']
           description: |
