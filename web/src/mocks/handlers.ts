@@ -1,6 +1,6 @@
 import { http, HttpResponse, type RequestHandler } from 'msw'
 
-import type { Language, LoginRequest } from '@/api/types'
+import type { Language, LoginRequest, ProblemInput } from '@/api/types'
 import { DIFFICULTY_RANK, type Difficulty, type SolveStatus } from '@/api/types'
 import { EMAIL_PATTERN, isValidNickname, isValidPassword } from '@/features/auth/accountRules'
 import {
@@ -12,7 +12,16 @@ import {
   verifyMockCode,
   type VerifyResult,
 } from './fixtures/emailCodes'
-import { adminProblems, adminSummary, latestVersion } from './fixtures/adminProblems'
+import {
+  adminDetail,
+  adminSummary,
+  adminVersion,
+  buildAdminProblems,
+  latestVersion,
+  brokenTextConditions,
+  versionSummary,
+  type MockProblemVersion,
+} from './fixtures/adminProblems'
 import { problemDetails } from './fixtures/problemDetails'
 import { conceptTags, problems } from './fixtures/problems'
 import { mockAccessToken, mockAccounts, REFRESH_COOKIE, userIdFromToken } from './fixtures/users'
@@ -63,6 +72,101 @@ const mockSubmissions = new Map<number, MockSubmission>()
 export function resetSubmissions(): void {
   mockSubmissions.clear()
   nextSubmissionId = 1
+}
+
+/**
+ * 관리자 문제 상태. 등록·수정 핸들러가 이 배열과 그 안의 버전을 고친다.
+ *
+ * 사용자 쪽 fixture(`problems`·`problemDetails`)와 달리 상수가 아니다. 상수로 두면
+ * 한 테스트가 만든 문제가 다음 테스트의 목록 개수를 바꾼다.
+ */
+let adminProblems = buildAdminProblems()
+
+/** 테스트 사이에 만든 문제·고친 버전이 새지 않게 처음 모양으로 되돌린다. */
+export function resetAdminProblems(): void {
+  adminProblems = buildAdminProblems()
+}
+
+/**
+ * 채점 서버가 받는 제한값의 상한. `judge/README.md`의 `MAX_CPU_TIME_LIMIT`(20초)과
+ * `MAX_MEMORY_LIMIT`(512MB)이다. 넘으면 서버가 `LIMIT_OUT_OF_RANGE`로 거절한다(계약).
+ */
+const MAX_TIME_LIMIT_MS = 20_000
+const MIN_MEMORY_LIMIT_MB = 2
+const MAX_MEMORY_LIMIT_MB = 512
+
+/**
+ * 등록·수정 본문 검사. 맞으면 null, 틀리면 응답을 돌려준다.
+ *
+ * 계약이 가른 두 묶음을 그대로 나눈다. **앞쪽 넷은 `code` 없는 400이다** — "화면이
+ * 막으므로"라고 적힌 규칙이라 서버가 사용자 문구를 담지 않는다. 그래도 목이 검사하는
+ * 까닭은, 화면에 구멍이 생기면 목에서도 막혀야 하기 때문이다. 뒤쪽 둘은 화면이 알 수
+ * 없는 것이라 `code`와 문구가 온다.
+ */
+function checkProblemInput(body: ProblemInput) {
+  if (body.title.trim() === '') return badRequest('제목은 공백뿐이면 안 된다')
+  if (body.tags.length > 3) return badRequest('태그는 3개까지다')
+  if (new Set(body.tags).size !== body.tags.length)
+    return badRequest('같은 태그를 두 번 보낼 수 없다')
+  if (body.sourceUrl !== null && !/^https?:\/\//.test(body.sourceUrl)) {
+    return badRequest('sourceUrl은 http:// 또는 https://로 시작해야 한다')
+  }
+  const languages = body.languages.map((entry) => entry.language)
+  if (new Set(languages).size !== languages.length) {
+    return badRequest('같은 언어를 두 번 보낼 수 없다')
+  }
+
+  const outOfRange = body.languages.some(
+    (entry) =>
+      !Number.isInteger(entry.timeLimitMs) ||
+      entry.timeLimitMs < 1 ||
+      entry.timeLimitMs > MAX_TIME_LIMIT_MS ||
+      !Number.isInteger(entry.memoryLimitMb) ||
+      entry.memoryLimitMb < MIN_MEMORY_LIMIT_MB ||
+      entry.memoryLimitMb > MAX_MEMORY_LIMIT_MB,
+  )
+  if (outOfRange) {
+    return problem(
+      400,
+      'LIMIT_OUT_OF_RANGE',
+      `시간 제한은 1~${MAX_TIME_LIMIT_MS}ms, 메모리 제한은 ${MIN_MEMORY_LIMIT_MB}~${MAX_MEMORY_LIMIT_MB}MB로 정해 주세요`,
+    )
+  }
+
+  const unknown = body.tags.find((slug) => !conceptTags.some((tag) => tag.slug === slug))
+  if (unknown !== undefined) {
+    return problem(400, 'TAG_NOT_FOUND', `없는 개념 태그예요: ${unknown}`)
+  }
+
+  return null
+}
+
+/** 주소의 문제. 정수가 아니면 400, 없으면 404 `PROBLEM_NOT_FOUND`다(계약). */
+function findAdminProblem(raw: string | readonly string[] | undefined) {
+  const id = Number(raw)
+  if (!Number.isSafeInteger(id)) return badRequest('id는 정수여야 한다')
+
+  const found = adminProblems.find((item) => item.id === id)
+  if (!found) return problem(404, 'PROBLEM_NOT_FOUND', '문제를 찾을 수 없어요')
+  return found
+}
+
+/**
+ * 언어별 시간·메모리 제한이 모두 같은지. **언어 목록까지 같아야 한다**(계약).
+ *
+ * 이 판정이 "그 자리에서 고치기"와 "새 초안 만들기"를 가른다. 시작 코드와 글은 보지
+ * 않는다 — 채점 기준이 아니라서 새 버전을 만들 이유가 아니다(#33).
+ */
+function sameLimits(a: ProblemInput['languages'], b: ProblemInput['languages']): boolean {
+  if (a.length !== b.length) return false
+  return a.every((entry) => {
+    const other = b.find((item) => item.language === entry.language)
+    return (
+      other !== undefined &&
+      other.timeLimitMs === entry.timeLimitMs &&
+      other.memoryLimitMb === entry.memoryLimitMb
+    )
+  })
 }
 
 /** 예제 실행 번호. 제출과 따로 센다 — 계약이 서로 404로 가리는 다른 자원이다. */
@@ -344,6 +448,136 @@ export const handlers: RequestHandler[] = [
       content: matched.slice(page * size, page * size + size).map(adminSummary),
       totalElements: matched.length,
     })
+  }),
+
+  /**
+   * 문제 등록 (ADM-02·03).
+   *
+   * 문제와 1번 버전을 초안으로 만든다. `slug`는 서버가 만든다(`p-{id}`) — 계약이 그 모양을
+   * 적어 뒀다. 케이스는 없이 시작하므로 공개 조건 두 개(`SAMPLE_COUNT`·`HIDDEN_COUNT`)가
+   * 비어 있고, 채우는 API는 #34다.
+   */
+  http.post('*/api/admin/problems', async ({ request }) => {
+    const body = (await request.json()) as ProblemInput
+    const invalid = checkProblemInput(body)
+    if (invalid) return invalid
+
+    // 번호를 세어 두지 않고 그때그때 구한다. 세어 두면 resetAdminProblems가 되돌릴
+    // 상태가 둘이 되고, 한쪽만 되돌리면 새 문제가 기존 번호를 덮는다.
+    const id = Math.max(0, ...adminProblems.map((item) => item.id)) + 1
+
+    adminProblems.push({
+      id,
+      slug: `p-${id}`,
+      versions: [
+        {
+          versionNo: 1,
+          status: 'DRAFT',
+          createdAt: new Date().toISOString(),
+          publishedAt: null,
+          input: body,
+        },
+      ],
+      sampleCount: 0,
+      hiddenCount: 0,
+    })
+
+    return HttpResponse.json(
+      { id },
+      { status: 201, headers: { Location: `/api/admin/problems/${id}` } },
+    )
+  }),
+
+  /** 관리자 문제 상세 (ADM-02·03·06). 최신 버전 + 못 채운 공개 조건. */
+  http.get('*/api/admin/problems/:id', ({ params }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    return HttpResponse.json(adminDetail(found))
+  }),
+
+  /**
+   * 문제 수정 (ADM-02·03·07).
+   *
+   * **어느 버전에 저장할지는 서버가 정한다**(계약). 분기를 계약 문장 순서대로 옮겼다:
+   *   1. 검증 중이면 409 `PROBLEM_VALIDATING` — 진행 중인 채점을 취소하지 않는다
+   *   2. 초안이 있으면 초안을 고친다
+   *   3. 초안이 없고 제한·언어가 모두 같으면 최신 버전을 그 자리에서 고친다.
+   *      공개 중이면 사용자 화면에 바로 반영된다
+   *   4. 제한·언어가 다르면 최신 버전을 복사해 새 초안(+1)을 만들어 거기 저장한다
+   *
+   * 3에서 공개 조건이 깨지면(태그를 모두 빼거나 출처를 비움) 409
+   * `PUBLISH_CONDITIONS_NOT_MET`이다 — 공개 중인 문제가 조건 미달로 남는 것을 막는다.
+   */
+  http.put('*/api/admin/problems/:id', async ({ params, request }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    const body = (await request.json()) as ProblemInput
+    const invalid = checkProblemInput(body)
+    if (invalid) return invalid
+
+    const latest = latestVersion(found)
+    if (latest.status === 'VALIDATING') {
+      return problem(
+        409,
+        'PROBLEM_VALIDATING',
+        '정답 코드를 검증하는 중이에요. 끝난 뒤 고쳐 주세요',
+      )
+    }
+
+    if (latest.status === 'DRAFT' || sameLimits(body.languages, latest.input.languages)) {
+      if (latest.status === 'PUBLISHED') {
+        const unmet = brokenTextConditions(body)
+        if (unmet.length > 0) {
+          return HttpResponse.json(
+            {
+              status: 409,
+              code: 'PUBLISH_CONDITIONS_NOT_MET',
+              detail: '공개 중인 문제라 공개 조건을 비울 수 없어요',
+              unmetConditions: unmet,
+            },
+            { status: 409 },
+          )
+        }
+      }
+
+      latest.input = body
+      return HttpResponse.json({ versionNo: latest.versionNo, status: latest.status })
+    }
+
+    const created: MockProblemVersion = {
+      versionNo: latest.versionNo + 1,
+      status: 'DRAFT',
+      createdAt: new Date().toISOString(),
+      publishedAt: null,
+      input: body,
+    }
+    found.versions.push(created)
+
+    return HttpResponse.json({ versionNo: created.versionNo, status: created.status })
+  }),
+
+  /** 버전 목록 (ADM-07). 최신 버전부터 준다(계약). */
+  http.get('*/api/admin/problems/:id/versions', ({ params }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    return HttpResponse.json([...found.versions].reverse().map(versionSummary))
+  }),
+
+  /** 고른 버전의 내용 (ADM-07). 없는 버전도 404 `PROBLEM_NOT_FOUND`다(계약). */
+  http.get('*/api/admin/problems/:id/versions/:versionNo', ({ params }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    const versionNo = Number(params.versionNo)
+    if (!Number.isSafeInteger(versionNo)) return badRequest('versionNo는 정수여야 한다')
+
+    const version = found.versions.find((item) => item.versionNo === versionNo)
+    if (!version) return problem(404, 'PROBLEM_NOT_FOUND', '그 버전을 찾을 수 없어요')
+
+    return HttpResponse.json(adminVersion(found, version))
   }),
 
   /**

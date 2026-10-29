@@ -114,3 +114,19 @@ export type ProblemVersionStatus = components['schemas']['ProblemVersionStatus']
 
 /** 문제 등록·수정 본문 (ADM-02·03). 수정은 폼 전체를 보낸다(계약). */
 export type ProblemInput = components['schemas']['ProblemInput']
+
+/** 버전 하나의 요약 (ADM-07). 내용은 없고 상태·시각만 있다. */
+export type ProblemVersionSummary = components['schemas']['ProblemVersionSummary']
+
+/** 읽기 전용으로 보는 과거 버전의 내용 (ADM-07). */
+export type AdminProblemVersion = components['schemas']['AdminProblemVersion']
+
+/**
+ * 관리자 문제 상세 (ADM-02·03·06) — 최신 버전의 내용 + 못 채운 공개 조건.
+ *
+ * 계약: "최신 버전은 초안이 있으면 초안, 없으면 가장 최근 버전이다."
+ */
+export type AdminProblemDetail = components['schemas']['AdminProblemDetail']
+
+/** 못 채운 공개 조건 (ADM-06). 비어 있으면 공개할 수 있다(계약). 화면은 #37이 만든다. */
+export type PublishCondition = components['schemas']['PublishCondition']

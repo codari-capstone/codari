@@ -32,3 +32,37 @@ export function problemStateLabel(
   const work = latestStatus === 'DRAFT' ? '수정 중' : VERSION_STATUS_LABEL[latestStatus]
   return `공개 v${publishedVersionNo} · ${work}`
 }
+
+/**
+ * 저장이 어느 버전에 들어갔는지 알리는 문구 (ADM-07).
+ *
+ * **이 문구가 필요한 까닭이 정책이 바뀌었기 때문이다.** 모든 수정이 새 버전을 만들지
+ * 않는다 — 글만 고치면 최신 버전을 그 자리에서 고치고, 그 버전이 공개 중이면 **사용자
+ * 화면에 바로 반영된다**(#33). 관리자가 그걸 모르고 공개된 지문을 고치면 안 되므로,
+ * 저장 응답의 `versionNo`·`status`로 어느 경우였는지 알려 준다.
+ */
+export function savedVersionNotice(
+  saved: { versionNo: number; status: ProblemVersionStatus },
+  /** 저장 전 상태. 새로 만든 문제면 null이다. */
+  before: { latestVersionNo: number; publishedVersionNo: number | null } | null,
+): string {
+  if (before === null) return `문제를 만들었어요. 초안 v${saved.versionNo}입니다`
+
+  if (saved.status === 'PUBLISHED') {
+    return `공개 중인 v${saved.versionNo}에 바로 반영했어요. 사용자 화면에 지금 보여요`
+  }
+
+  if (saved.versionNo > before.latestVersionNo) {
+    const published = before.publishedVersionNo
+    const made = `채점 기준이 바뀌어 새 초안 v${saved.versionNo}을 만들었어요`
+    return published === null ? made : `${made}. 공개하기 전까지 사용자는 v${published}를 풀어요`
+  }
+
+  // 내렸던 버전을 그 자리에서 고친 경우다. '초안'이라고 하면 없는 초안이 있는 것처럼
+  // 알리게 된다 — 공개를 내린 버전이라 사용자에게는 보이지 않는다.
+  if (saved.status === 'RETIRED') {
+    return `비공개 상태인 v${saved.versionNo}에 저장했어요. 사용자에게는 보이지 않아요`
+  }
+
+  return `초안 v${saved.versionNo}에 저장했어요`
+}

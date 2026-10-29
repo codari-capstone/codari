@@ -1,10 +1,12 @@
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router'
 
 import { EmptyState } from '@/components/EmptyState'
 import { ErrorState } from '@/components/ErrorState'
 import { ListSkeleton } from '@/components/ListSkeleton'
+import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
   Table,
@@ -23,11 +25,7 @@ import { problemStateLabel } from './labels'
 /** 검색어를 조회에 반영하기까지 기다리는 시간. 사용자 목록과 같은 값이다. */
 const SEARCH_DEBOUNCE_MS = 300
 
-/**
- * 관리자 문제 관리 목록 (ADM-01, COM-05).
- *
- * 제목에 링크가 없다. 기본 정보·지문 탭(ADM-02·03)이 바로 뒤 PR이라 아직 갈 곳이 없다.
- */
+/** 관리자 문제 관리 목록 (ADM-01, COM-05). */
 export function Component() {
   const [draft, setDraft] = useState('')
   /**
@@ -76,7 +74,12 @@ export function Component() {
 
   return (
     <section className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold">문제 관리</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-semibold">문제 관리</h1>
+        <Button asChild className="min-h-11">
+          <Link to="/admin/problems/new">새 문제</Link>
+        </Button>
+      </div>
 
       <div className="relative">
         <Search
@@ -137,7 +140,15 @@ export function Component() {
                       <TableCell className="text-muted-foreground tabular-nums">
                         {problem.id}
                       </TableCell>
-                      <TableCell className="font-medium">{problem.title}</TableCell>
+                      <TableCell className="font-medium">
+                        {/* 셀 전체를 누를 수 있게 둔다 (ProblemTable과 같은 선택) */}
+                        <Link
+                          to={`/admin/problems/${problem.id}`}
+                          className="hover:text-primary hover:underline"
+                        >
+                          {problem.title}
+                        </Link>
+                      </TableCell>
                       <TableCell>{DIFFICULTY_LABEL[problem.difficulty]}</TableCell>
                       <TableCell>
                         {problemStateLabel(problem.latestStatus, problem.publishedVersionNo)}
