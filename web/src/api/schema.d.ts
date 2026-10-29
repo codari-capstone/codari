@@ -560,6 +560,7 @@ export interface paths {
         /**
          * 공개 (ADM-06)
          * @description 최신 버전을 공개한다. 이전 공개 버전은 지난 버전(`RETIRED`)이 된다. 비공개로 내린 버전이 최신이면 다시 공개한다.
+         *     정답 코드를 검증하는 중(`VALIDATING`)이면 공개 조건을 보기 전에 409 `PROBLEM_VALIDATING`이다.
          *     공개 조건을 모두 채워야 한다. 못 채우면 409 `PUBLISH_CONDITIONS_NOT_MET`과 `unmetConditions`를 준다.
          *     이미 최신 버전이 공개 중이면 아무것도 바꾸지 않고 204다.
          */
@@ -766,7 +767,7 @@ export interface paths {
          * 정답 코드 검증 시작 (ADM-05)
          * @description 최신 초안의 정답 코드를 모두 그 초안의 테스트케이스로 채점한다. 학생 제출과 같은 채점 대기열을 쓰고 바로 `202`로 답한다.
          *     시작하면 이전 검증 기록을 지우고 정답 코드의 검증 통과 표시를 비운 뒤, 버전을 `VALIDATING`으로 바꾼다.
-         *     검증 중에는 저장·삭제가 409 `PROBLEM_VALIDATING`이고, 공개는 `SOLUTIONS_VERIFIED`를 못 채워 409다.
+         *     검증 중에는 저장·삭제·공개가 409 `PROBLEM_VALIDATING`이다.
          *     정답 코드마다 채점이 끝나면 모든 케이스를 통과한 코드만 검증 통과가 되고, 모두 끝나면 버전이 `DRAFT`로 돌아온다.
          *     채점이 실패해도(채점 불가) `DRAFT`로 돌아온다. 진행은 `GET /api/admin/problems/{id}/solutions`로 본다.
          *     "저장하고 검증"은 화면이 `PUT .../solutions` 다음에 이 API를 부른다. `PUT` 응답의 `status`가 `DRAFT`일 때만 부른다.
@@ -1121,7 +1122,7 @@ export interface components {
              * @enum {string|null}
              */
             verdict: "ACCEPTED" | "PRESENTATION_ERROR" | "WRONG_ANSWER" | "TIME_LIMIT_EXCEEDED" | "MEMORY_LIMIT_EXCEEDED" | "OUTPUT_LIMIT_EXCEEDED" | "RUNTIME_ERROR" | "COMPILE_ERROR" | null;
-            /** @description `verdict`가 `COMPILE_ERROR`일 때 컴파일러 메시지 */
+            /** @description `verdict`가 `COMPILE_ERROR`일 때 컴파일러 메시지. 정답 코드가 그대로 들어간 문자열이라 글자 그대로 보여 준다(HTML로 렌더링하지 않는다). */
             compilerMessage: string | null;
         };
         /** @description 케이스 하나를 정답 코드 하나로 돌린 결과. 필드 뜻은 `SubmissionResult`와 같다 */
@@ -1216,17 +1217,6 @@ export interface components {
             };
             content: {
                 "application/problem+json": components["schemas"]["ProblemDetail"];
-            };
-        };
-        /** @description 오류 `code`: `PUBLISH_CONDITIONS_NOT_MET`. 못 채운 공개 조건을 `unmetConditions`로 준다. */
-        PublishConditionsNotMet: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/problem+json": components["schemas"]["ProblemDetail"] & {
-                    unmetConditions: components["schemas"]["PublishCondition"][];
-                };
             };
         };
     };
@@ -2078,7 +2068,18 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["Problem"];
-            409: components["responses"]["PublishConditionsNotMet"];
+            /** @description 오류 `code`: `PROBLEM_VALIDATING`(검증 중), `PUBLISH_CONDITIONS_NOT_MET`(공개 조건 미충족. `unmetConditions`를 준다). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"] & {
+                        /** @description `PUBLISH_CONDITIONS_NOT_MET`일 때만 있다 */
+                        unmetConditions?: components["schemas"]["PublishCondition"][];
+                    };
+                };
+            };
         };
     };
     unpublishProblem: {
