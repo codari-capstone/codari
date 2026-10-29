@@ -114,7 +114,7 @@
 - `id` (PK): 정답 코드 행의 내부 번호.
 - `problem_version_id` (FK): 코드가 검증하는 문제 버전. 버전을 삭제하면 코드도 삭제된다.
 - `language`: 코드 언어. `PYTHON`, `CPP` 중 하나다.
-- `solution_role`: 코드의 용도. `REFERENCE` 또는 `BRUTE`다.
+- `solution_role`: 코드의 용도. `REFERENCE` 또는 `BRUTE`다. 관리자 API는 지금 `REFERENCE`만 받는다 — 화면에서 용도를 고를 수 없고, `BRUTE`를 쓸지는 #157에서 정한다.
 - `source_code`: 내부 검증용 코드. 사용자에게 제공하지 않는다.
 - `verified_at` (비어도 됨): 정답 코드가 모든 케이스를 통과한 시각. 케이스나 코드가 바뀌면 비운다.
 - `(problem_version_id, language, solution_role)` 중복 불가: 한 버전·언어·역할 조합에 같은 종류의 코드를 하나만 둔다.
