@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.codingmon.api.Language;
+import com.codingmon.api.problem.SolutionValidationRepository;
 import com.codingmon.api.submission.UserProblemStatsRepository;
 
 // 채점 처리기의 DB 읽기·쓰기. Judge0를 부르는 동안 잠금을 잡지 않도록 함수마다 짧게 끝난다.
@@ -30,10 +31,12 @@ class JudgeRepository {
 
     private final JdbcClient jdbc;
     private final UserProblemStatsRepository stats;
+    private final SolutionValidationRepository validations;
 
-    JudgeRepository(JdbcClient jdbc, UserProblemStatsRepository stats) {
+    JudgeRepository(JdbcClient jdbc, UserProblemStatsRepository stats, SolutionValidationRepository validations) {
         this.jdbc = jdbc;
         this.stats = stats;
+        this.validations = validations;
     }
 
     // 가장 오래 기다린 제출을 COMPILING으로 바꿔 선점한다. 다른 트랜잭션이 잡고 있는 행은 건너뛴다.
@@ -143,7 +146,8 @@ class JudgeRepository {
                 .update();
     }
 
-    // 판정을 기록하고, 이 갱신으로 COMPLETED가 됐을 때만 풀이 통계를 올린다. 두 번 부르면 시도 횟수가 두 번 오른다.
+    // 판정을 기록하고, 이 갱신으로 COMPLETED가 됐을 때만 풀이 통계를 올리고 정답 코드 검증을 반영한다(#35).
+    // 두 번 부르면 시도 횟수가 두 번 오른다.
     @Transactional
     void complete(long id, Verdict verdict, RuntimeErrorType errorType, String compilerMessage, Integer timeMs,
             Integer memoryKb) {
@@ -159,15 +163,21 @@ class JudgeRepository {
                 .update();
         if (updated == 1) {
             stats.recordJudged(id);
+            validations.recordJudged(id);
         }
     }
 
     // 채점 불가. 판정이 빈 케이스가 남아도 진행률은 100으로 둔다(judge-verdict-mapping.md 제출 판정 합치기 6번).
+    // 정답 코드 검증이면 채점 불가로 끝나도 버전의 검증 중 잠금을 풀어야 한다(#35).
+    @Transactional
     void fail(long id) {
-        jdbc.sql("update submissions set job_status = 'JUDGE_ERROR', progress = 100, judged_at = now()"
+        int updated = jdbc.sql("update submissions set job_status = 'JUDGE_ERROR', progress = 100, judged_at = now()"
                 + " where id = :id and job_status in " + ACTIVE)
                 .param("id", id)
                 .update();
+        if (updated == 1) {
+            validations.recordJudged(id);
+        }
     }
 
     private static <E extends Enum<E>> E enumOrNull(Class<E> type, String name) {

@@ -29,9 +29,12 @@ class RequestSizeLimitFilter extends OncePerRequestFilter {
     // 그 밖의 제어 문자(U+001F 등)는 여섯 글자가 되지만 케이스 데이터에는 드물어 두 배로 잡는다.
     static final long MAX_TEST_CASES_BODY_BYTES = 24L * 1024 * 1024;
     static final long MAX_TEST_CASE_ZIP_BODY_BYTES = 11L * 1024 * 1024;
+    // 정답 코드 저장은 64KB 코드 두 개라 JSON 이스케이프 6배 최악이면 약 768KB다(#35). nginx 기본 1MB와 맞춘다.
+    static final long MAX_SOLUTIONS_BODY_BYTES = 1024L * 1024;
 
     private static final Pattern TEST_CASES = Pattern.compile("/api/admin/problems/[^/]+/test-cases");
     private static final Pattern TEST_CASE_ZIP = Pattern.compile("/api/admin/problems/[^/]+/test-cases/zip");
+    private static final Pattern SOLUTIONS = Pattern.compile("/api/admin/problems/[^/]+/solutions");
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -50,6 +53,9 @@ class RequestSizeLimitFilter extends OncePerRequestFilter {
         }
         if ("POST".equals(request.getMethod()) && TEST_CASE_ZIP.matcher(path).matches()) {
             return MAX_TEST_CASE_ZIP_BODY_BYTES;
+        }
+        if ("PUT".equals(request.getMethod()) && SOLUTIONS.matcher(path).matches()) {
+            return MAX_SOLUTIONS_BODY_BYTES;
         }
         return MAX_BODY_BYTES;
     }

@@ -3,14 +3,20 @@ package com.codingmon.api.problem;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.ErrorResponseException;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,20 +31,26 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import com.codingmon.api.ApiErrors;
+import com.codingmon.api.Language;
+import com.codingmon.api.problem.AdminProblemRepository.DeleteResult;
 import com.codingmon.api.problem.AdminProblemRepository.Detail;
 import com.codingmon.api.problem.AdminProblemRepository.LanguageInput;
 import com.codingmon.api.problem.AdminProblemRepository.ProblemInput;
 import com.codingmon.api.problem.AdminProblemRepository.PublishCondition;
 import com.codingmon.api.problem.AdminProblemRepository.SaveResult;
 import com.codingmon.api.problem.AdminProblemRepository.Saved;
+import com.codingmon.api.problem.AdminProblemRepository.Solution;
+import com.codingmon.api.problem.AdminProblemRepository.SolutionInput;
 import com.codingmon.api.problem.AdminProblemRepository.Summary;
 import com.codingmon.api.problem.AdminProblemRepository.TestCase;
 import com.codingmon.api.problem.AdminProblemRepository.TestCaseInput;
+import com.codingmon.api.problem.AdminProblemRepository.ValidateResult;
 import com.codingmon.api.problem.AdminProblemRepository.Version;
 import com.codingmon.api.problem.AdminProblemRepository.VersionSummary;
 import com.codingmon.api.problem.ProblemRepository.Page;
+import com.codingmon.api.submission.SubmissionQueued;
 
-// 관리자 문제 관리(ADM-01~03·06·07, #33)와 테스트케이스(ADM-04, #34). ADMIN 검사는 SecurityConfig의 /api/admin/**가 한다.
+// 관리자 문제 관리(ADM-01~03·06·07, #33), 테스트케이스(ADM-04, #34), 정답 코드·검증(ADM-05, #35). ADMIN 검사는 SecurityConfig의 /api/admin/**가 한다.
 @RestController
 @RequestMapping("/api/admin/problems")
 class AdminProblemController {
@@ -56,10 +68,19 @@ class AdminProblemController {
     static final int MAX_OUTPUT_BYTES = 1024 * 1024;
     static final int MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 
-    private final AdminProblemRepository problems;
+    // 정답 코드 하나의 상한. 학생 제출과 같다(SubmissionController.MAX_SOURCE_BYTES, database-tables.md).
+    static final int MAX_SOLUTION_BYTES = 64 * 1024;
 
-    AdminProblemController(AdminProblemRepository problems) {
+    private final AdminProblemRepository problems;
+    private final ApplicationEventPublisher events;
+    // 채점 서버가 없으면 검증 제출이 끝나지 않아 버전이 VALIDATING에 갇힌다. 채점 처리기와 같은 설정을 본다(Judge0Client).
+    private final boolean judgeConfigured;
+
+    AdminProblemController(AdminProblemRepository problems, ApplicationEventPublisher events,
+            @Value("${app.judge0.url:}") String judge0Url) {
         this.problems = problems;
+        this.events = events;
+        this.judgeConfigured = !judge0Url.isBlank();
     }
 
     @GetMapping
@@ -98,6 +119,35 @@ class AdminProblemController {
         return saved(problems.replaceTestCases(id, cases).orElseThrow(AdminProblemController::notFound));
     }
 
+    @GetMapping("/{id}/solutions")
+    List<Solution> solutions(@PathVariable long id) {
+        return problems.solutions(id).orElseThrow(AdminProblemController::notFound);
+    }
+
+    @PutMapping("/{id}/solutions")
+    Saved replaceSolutions(@PathVariable long id, @RequestBody List<SolutionInput> solutions) {
+        return saved(problems.replaceSolutions(id, validSolutions(solutions)).orElseThrow(AdminProblemController::notFound));
+    }
+
+    // 저장된 정답 코드를 채점 대기열에 넣는다. 이벤트는 커밋 뒤 리스너로 가므로 트랜잭션 안에서 발행한다(SubmissionController와 같다).
+    @PostMapping("/{id}/validate")
+    @Transactional
+    ResponseEntity<Void> validate(@PathVariable long id, @AuthenticationPrincipal Jwt jwt) {
+        if (!judgeConfigured) {
+            throw ApiErrors.error(HttpStatus.SERVICE_UNAVAILABLE, "JUDGE_UNAVAILABLE", "지금은 검증할 수 없어요");
+        }
+        switch (problems.validate(id, Long.parseLong(jwt.getSubject())).orElseThrow(AdminProblemController::notFound)) {
+            case ValidateResult.Started started -> started.submissionIds().forEach(s -> events.publishEvent(new SubmissionQueued(s)));
+            case ValidateResult.Validating v -> throw validatingRetry();
+            case ValidateResult.NotDraft n -> throw conflict("NOT_DRAFT", "초안만 검증할 수 있어요");
+            case ValidateResult.NoSolution n -> throw conflict("NO_SOLUTION", "정답 코드를 먼저 저장해 주세요");
+            case ValidateResult.NoTestCases n -> throw conflict("NO_TEST_CASES", "공개 예제를 먼저 저장해 주세요");
+            case ValidateResult.LanguageNotConfigured n -> throw conflict("LANGUAGE_NOT_CONFIGURED",
+                    (n.language() == Language.PYTHON ? "Python" : "C++") + " 시간·메모리 제한을 먼저 정해 주세요");
+        }
+        return ResponseEntity.accepted().build();
+    }
+
     // 읽기만 하고 저장하지 않는다. 화면이 표를 채운 뒤 PUT으로 저장한다.
     @PostMapping("/{id}/test-cases/zip")
     List<TestCaseInput> readTestCaseZip(@PathVariable long id, @RequestParam MultipartFile file) throws IOException {
@@ -109,24 +159,26 @@ class AdminProblemController {
 
     @DeleteMapping("/{id}")
     ResponseEntity<Void> delete(@PathVariable long id) {
-        boolean found;
+        DeleteResult result;
         try {
-            found = problems.delete(id);
+            result = problems.delete(id).orElseThrow(AdminProblemController::notFound);
         } catch (DataIntegrityViolationException e) {
             throw ApiErrors.error(HttpStatus.CONFLICT, "PROBLEM_IN_USE",
                     "사용자 기록이 있는 문제는 지울 수 없어요. 사용자에게서 내리려면 비공개로 바꿔 주세요");
         }
-        if (!found) {
-            throw notFound();
+        if (result == DeleteResult.VALIDATING) {
+            throw validatingRetry();
         }
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/publish")
     ResponseEntity<Void> publish(@PathVariable long id) {
-        List<PublishCondition> unmet = problems.publish(id).orElseThrow(AdminProblemController::notFound);
-        if (!unmet.isEmpty()) {
-            throw conditionsNotMet(unmet);
+        switch (problems.publish(id).orElseThrow(AdminProblemController::notFound)) {
+            case SaveResult.Ok ok -> {
+            }
+            case SaveResult.Validating v -> throw validatingRetry();
+            case SaveResult.ConditionsBroken broken -> throw conditionsNotMet(broken.unmet());
         }
         return ResponseEntity.noContent().build();
     }
@@ -202,6 +254,27 @@ class AdminProblemController {
                 .anyMatch(value -> value != null && value.indexOf('\0') >= 0);
     }
 
+    // 언어별 정답 코드. 빈 코드(공백뿐 포함)는 없는 것으로 보고 빼서, 저장할 때 그 언어 정답 코드가 지워진다.
+    // 화면이 막는 규칙(null 칸, 같은 언어 두 번, NUL 글자)은 code 없는 400이다.
+    private static Map<Language, String> validSolutions(List<SolutionInput> solutions) {
+        if (solutions == null || solutions.stream().anyMatch(s -> s == null || s.language() == null || s.sourceCode() == null
+                || s.sourceCode().indexOf('\0') >= 0)
+                || solutions.stream().map(SolutionInput::language).distinct().count() != solutions.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST);
+        }
+        Map<Language, String> wanted = new EnumMap<>(Language.class);
+        for (SolutionInput solution : solutions) {
+            if (solution.sourceCode().isBlank()) {
+                continue;
+            }
+            if (solution.sourceCode().getBytes(StandardCharsets.UTF_8).length > MAX_SOLUTION_BYTES) {
+                throw ApiErrors.error(HttpStatus.BAD_REQUEST, "SOURCE_TOO_LONG", "정답 코드는 64KB까지 넣을 수 있어요");
+            }
+            wanted.put(solution.language(), solution.sourceCode());
+        }
+        return wanted;
+    }
+
     // 화면이 막는 규칙(null 칸, NUL 글자)은 code 없는 400이다.
     private static void checkTestCases(List<TestCaseInput> cases) {
         if (cases == null || cases.stream().anyMatch(c -> c == null || c.caseType() == null || c.input() == null
@@ -257,6 +330,14 @@ class AdminProblemController {
         ErrorResponseException error = ApiErrors.error(HttpStatus.CONFLICT, "PUBLISH_CONDITIONS_NOT_MET", "공개 조건을 모두 채워 주세요");
         error.getBody().setProperty("unmetConditions", unmet);
         return error;
+    }
+
+    private static ErrorResponseException validatingRetry() {
+        return ApiErrors.error(HttpStatus.CONFLICT, "PROBLEM_VALIDATING", "정답 코드를 검증하는 중이에요. 검증이 끝난 뒤 다시 시도해 주세요");
+    }
+
+    private static ErrorResponseException conflict(String code, String detail) {
+        return ApiErrors.error(HttpStatus.CONFLICT, code, detail);
     }
 
     private static ErrorResponseException notFound() {
