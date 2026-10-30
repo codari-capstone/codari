@@ -7,6 +7,8 @@ import java.util.List;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 // 개념 태그별 학습 통계(LEARNING-001·002, REP-01·02). 식과 규칙은 docs/AI_FEATURES.md 7절이 기준이다.
 // 리포트(#85)와 추천(#44)도 이 값을 쓴다.
@@ -34,6 +36,8 @@ public class LearningStatsRepository {
             .thenComparing(Comparator.comparingInt(ConceptStat::problemCount).reversed())
             .thenComparing(ConceptStat::slug);
 
+    // 맞힌 문제 수와 개념별 통계가 같은 시점을 보게 묶는다. 그 사이에 채점이 끝나도 두 값이 어긋나지 않는다.
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public LearningStats find(long userId) {
         int solved = jdbc.sql("select count(*) from user_problem_stats where user_id = :userId and solved")
                 .param("userId", userId).query(Integer.class).single();
