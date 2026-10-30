@@ -871,7 +871,7 @@ export interface components {
              */
             concepts: components["schemas"]["ConceptStat"][];
         };
-        /** @description 개념 태그 하나의 통계. 소수는 서버가 소수 둘째 자리에서 반올림한 값이며, 화면은 그대로 표시한다 (REP-02). */
+        /** @description 개념 태그 하나의 통계. 소수는 서버가 소수 둘째 자리까지 사사오입한 값(예: 0.483 → 0.48, 0.485 → 0.49)이며, 화면은 그대로 표시한다 (REP-02). */
         ConceptStat: {
             slug: string;
             name: string;
@@ -885,7 +885,7 @@ export interface components {
             averageAttempts: number;
             /** @description 문제마다 첫 정답까지 연 가장 높은 힌트 단계(열지 않았으면 0)의 평균 */
             averageHintLevel: number;
-            /** @description 취약 점수 `0.5 × (1 − 해결률) + 0.3 × (평균 힌트 단계 / 3) + 0.2 × (min(평균 시도 − 1, 4) / 4)` */
+            /** @description 취약 점수 `0.5 × (1 − 해결률) + 0.3 × (평균 힌트 단계 / 3) + 0.2 × (min(평균 시도 − 1, 4) / 4)`. 식에는 반올림한 `solveRate`·`averageHintLevel`·`averageAttempts`를 넣는다 */
             weaknessScore: number;
             /** @description 취약 개념인지. 취약 점수 상위 2개 태그이면서 반올림한 취약 점수가 0보다 크면 참이다 */
             weak: boolean;
