@@ -887,7 +887,7 @@ export interface components {
             averageHintLevel: number;
             /** @description 취약 점수 `0.5 × (1 − 해결률) + 0.3 × (평균 힌트 단계 / 3) + 0.2 × (min(평균 시도 − 1, 4) / 4)` */
             weaknessScore: number;
-            /** @description 취약 개념인지. 취약 점수 상위 2개 태그이면서 점수가 0보다 크면 참이다 */
+            /** @description 취약 개념인지. 취약 점수 상위 2개 태그이면서 반올림한 취약 점수가 0보다 크면 참이다 */
             weak: boolean;
         };
         ProblemSummary: {
