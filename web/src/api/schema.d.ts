@@ -313,6 +313,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users/me/learning-stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 개념별 학습 통계·취약 개념 (REP-01, REP-02)
+         * @description 서버가 풀이 기록으로 계산한 개념 태그별 통계다. AI가 판단하지 않는다. 식과 규칙은 `docs/AI_FEATURES.md` 7절이 기준이다.
+         *     맞힌 서로 다른 문제가 `requiredProblemCount`(5)개 미만이면 `concepts`는 빈 배열이고 `remainingProblemCount`로 남은 개수를 알려 준다.
+         *     조건을 채우면 맞히지 못한 문제를 포함해 제출한 모든 문제로 계산한다. 예제 실행·채점 불가·채점 중인 제출은 세지 않는다.
+         *     문제의 태그는 공개 중인 버전을 따르고, 공개가 내려간 문제는 마지막으로 공개됐던 버전을 따른다.
+         *     요청할 때마다 다시 계산한다. 하루 1회 저장하는 리포트(#85)와 다르다.
+         */
+        get: operations["getMyLearningStats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/problems": {
         parameters: {
             query?: never;
@@ -833,6 +857,38 @@ export interface components {
         ConceptTag: {
             slug: string;
             name: string;
+        };
+        LearningStats: {
+            /** @description 맞힌 서로 다른 문제 수. 공개가 내려간 문제도 센다 */
+            solvedProblemCount: number;
+            /** @description 통계와 리포트를 만드는 데 필요한 맞힌 문제 수. 지금은 5 */
+            requiredProblemCount: number;
+            /** @description 더 맞혀야 할 문제 수. 조건을 채우면 0 */
+            remainingProblemCount: number;
+            /**
+             * @description `remainingProblemCount`가 0보다 크면 빈 배열이다.
+             *     취약 점수가 높은 순이다. 같으면 `problemCount`가 많은 순, 그다음 `slug` 순이다. 비교는 반올림한 값으로 한다.
+             */
+            concepts: components["schemas"]["ConceptStat"][];
+        };
+        /** @description 개념 태그 하나의 통계. 소수는 서버가 소수 둘째 자리까지 사사오입한 값(예: 0.483 → 0.48, 0.485 → 0.49)이며, 화면은 그대로 표시한다 (REP-02). */
+        ConceptStat: {
+            slug: string;
+            name: string;
+            /** @description 이 태그가 붙은 문제 중 제출한 문제 수 */
+            problemCount: number;
+            /** @description 그중 맞힌 문제 수 */
+            solvedCount: number;
+            /** @description 해결률 `solvedCount / problemCount` (0~1) */
+            solveRate: number;
+            /** @description 문제마다 첫 정답까지의 제출 수(맞히지 못했으면 지금까지의 제출 수)의 평균 */
+            averageAttempts: number;
+            /** @description 문제마다 첫 정답까지 연 가장 높은 힌트 단계(열지 않았으면 0)의 평균 */
+            averageHintLevel: number;
+            /** @description 취약 점수 `0.5 × (1 − 해결률) + 0.3 × (평균 힌트 단계 / 3) + 0.2 × (min(평균 시도 − 1, 4) / 4)`. 식에는 반올림한 `solveRate`·`averageHintLevel`·`averageAttempts`를 넣는다 */
+            weaknessScore: number;
+            /** @description 취약 개념인지. 취약 점수 상위 2개 태그이면서 반올림한 취약 점수가 0보다 크면 참이다 */
+            weak: boolean;
         };
         ProblemSummary: {
             /**
@@ -1576,6 +1632,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CurrentUser"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    getMyLearningStats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description 개념별 학습 통계 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LearningStats"];
                 };
             };
             401: components["responses"]["Unauthorized"];
