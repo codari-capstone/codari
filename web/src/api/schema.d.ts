@@ -2430,7 +2430,7 @@ export interface operations {
             404: components["responses"]["Problem"];
             /**
              * @description 오류 `code`: `PROBLEM_VALIDATING`(이미 검증 중), `NOT_DRAFT`(최신 버전이 초안이 아님. 공개·비공개 버전은 검증을 통과한 버전이다),
-             *     `NO_SOLUTION`(정답 코드가 없음), `NO_TEST_CASES`(테스트케이스가 없음),
+             *     `NO_SOLUTION`(정답 코드가 없음), `NO_TEST_CASES`(공개 예제(SAMPLE)가 없음. 컴파일 에러는 공개 예제에서만 확정한다),
              *     `LANGUAGE_NOT_CONFIGURED`(정답 코드 언어의 시간·메모리 제한이 없음. `detail`에 언어를 적는다).
              */
             409: {

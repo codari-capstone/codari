@@ -381,7 +381,9 @@ class AdminProblemRepository {
         if (references.isEmpty()) {
             return Optional.of(new ValidateResult.NoSolution());
         }
-        if (jdbc.sql("select count(*) from test_cases where problem_version_id = :id").param("id", versionId).query(Long.class).single() == 0) {
+        // 컴파일 에러는 SAMPLE 케이스에서만 확정해 SAMPLE이 없으면 채점 불가로 보인다(judge-verdict-mapping.md 3절).
+        if (jdbc.sql("select count(*) from test_cases where problem_version_id = :id and case_type = 'SAMPLE'")
+                .param("id", versionId).query(Long.class).single() == 0) {
             return Optional.of(new ValidateResult.NoTestCases());
         }
         List<Language> configured = jdbc.sql("select language from problem_language_configs where problem_version_id = :id")

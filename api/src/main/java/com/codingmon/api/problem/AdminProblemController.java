@@ -141,7 +141,7 @@ class AdminProblemController {
             case ValidateResult.Validating v -> throw validatingRetry();
             case ValidateResult.NotDraft n -> throw conflict("NOT_DRAFT", "초안만 검증할 수 있어요");
             case ValidateResult.NoSolution n -> throw conflict("NO_SOLUTION", "정답 코드를 먼저 저장해 주세요");
-            case ValidateResult.NoTestCases n -> throw conflict("NO_TEST_CASES", "테스트케이스를 먼저 저장해 주세요");
+            case ValidateResult.NoTestCases n -> throw conflict("NO_TEST_CASES", "공개 예제를 먼저 저장해 주세요");
             case ValidateResult.LanguageNotConfigured n -> throw conflict("LANGUAGE_NOT_CONFIGURED",
                     (n.language() == Language.PYTHON ? "Python" : "C++") + " 시간·메모리 제한을 먼저 정해 주세요");
         }
