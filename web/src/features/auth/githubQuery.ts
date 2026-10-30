@@ -18,16 +18,8 @@ const FROM_KEY = 'github-login:from'
 /**
  * GitHub 로그인 시작 (COM-02).
  *
- * **찔러보지 않고 바로 이동한다.** 계약은 설정이 없는 서버가 503 `GITHUB_UNAVAILABLE`을
- * 주도록 했는데, 그 조건은 `GITHUB_CLIENT_ID`·`SECRET`이 있나 없나뿐이다
- * (GitHubLoginController.start) — 사용자별·일시적 조건이 아니라 배포 전체가 가지는 고정
- * 성질이라, 설정이 있으면 영원히 안 나고 없으면 모두에게 항상 난다. 미리 fetch로 확인하면
- * 정상 서버에서 매 클릭마다 요청 한 번과 state 한 개를 버리는 값을 치르고, 막는 상황은
- * "배포가 잘못됐다" 하나다. 그 경우엔 날것 JSON이 보이고 즉시 드러난다.
- *
- * 한 번만 보내면서 503을 잡을 길은 지금 계약에 없다 — 브라우저 이동의 응답 본문은 SPA로
- * 돌아오지 않고, fetch로는 브라우저를 이동시킬 수 없다. 올바른 자리는 서버다: start가
- * 503 대신 `/login/github?result=error`로 보내면 이 흐름의 다른 모든 실패와 같은 길을 탄다.
+ * **찔러보지 않고 바로 이동한다.** 서버에 GitHub 설정이 없어도 서버가
+ * `/login/github?result=error`로 돌려보내므로(#132), 이 흐름의 다른 실패와 같은 화면을 탄다.
  */
 export function startGitHubLogin(from: string): void {
   rememberGitHubReturn(from)

@@ -330,14 +330,12 @@ paths:
       description: |
         브라우저를 이 주소로 이동시킨다(fetch가 아님). GitHub 인증 화면으로 보낸다. 이메일 권한은 요청하지 않는다.
         원래 보던 페이지는 웹이 이동 전에 기억해 두었다가, 돌아온 뒤 그 페이지로 보낸다.
-        서버에 GitHub 설정(`GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET`)이 없으면 503 `GITHUB_UNAVAILABLE`.
+        서버에 GitHub 설정(`GITHUB_CLIENT_ID`·`GITHUB_CLIENT_SECRET`)이 없으면 GitHub 대신 웹의 `/login/github?result=error`로 보낸다.
       tags: [auth]
       security: []
       responses:
         '302':
-          description: GitHub 인증 화면으로 이동
-        '503':
-          $ref: '#/components/responses/Problem'
+          description: GitHub 인증 화면으로 이동. 서버에 GitHub 설정이 없으면 웹의 `/login/github?result=error`로 이동
 
   /api/auth/github/callback:
     get:

@@ -46,8 +46,10 @@ class GitHubLoginController {
 
     @GetMapping
     ResponseEntity<Void> start() {
+        // 브라우저가 주소창째로 이동해 오므로 오류 JSON을 주면 웹이 받지 못한다. 콜백 실패와 같은 화면으로 보낸다.
         if (!github.isConfigured()) {
-            throw AuthErrors.error(HttpStatus.SERVICE_UNAVAILABLE, "GITHUB_UNAVAILABLE", "지금은 GitHub 로그인을 쓸 수 없어요");
+            log.warn("GitHub 설정(GITHUB_CLIENT_ID·GITHUB_CLIENT_SECRET)이 없어 로그인을 시작하지 못함");
+            return ResponseEntity.status(HttpStatus.FOUND).location(web("error")).build();
         }
         byte[] bytes = new byte[16];
         RANDOM.nextBytes(bytes);
