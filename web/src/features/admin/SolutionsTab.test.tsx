@@ -307,28 +307,32 @@ describe('SolutionsTab (ADM-05)', () => {
       },
     ]
 
-    it.each(cases)('$code는 서버 문구를 보여 준다', async ({ code, status, detail, hint }) => {
-      const user = userEvent.setup()
-      server.use(
-        http.put('*/api/admin/problems/:id/solutions', () =>
-          HttpResponse.json({ versionNo: 2, status: 'DRAFT' }),
-        ),
-        http.post('*/api/admin/problems/:id/validate', () =>
-          HttpResponse.json({ status, code, detail }, { status }),
-        ),
-      )
-      renderTab()
-      await screen.findAllByText(/검증 통과/)
+    // 제목에 code가 들어가야 실패했을 때 어느 거절인지 보인다.
+    it.each(cases.map((item) => [item.code, item] as const))(
+      '%s는 서버 문구를 보여 준다',
+      async (code, { status, detail, hint }) => {
+        const user = userEvent.setup()
+        server.use(
+          http.put('*/api/admin/problems/:id/solutions', () =>
+            HttpResponse.json({ versionNo: 2, status: 'DRAFT' }),
+          ),
+          http.post('*/api/admin/problems/:id/validate', () =>
+            HttpResponse.json({ status, code, detail }, { status }),
+          ),
+        )
+        renderTab()
+        await screen.findAllByText(/검증 통과/)
 
-      await retype(user, 'PYTHON', 'print(1)')
-      await user.click(validateButton())
+        await retype(user, 'PYTHON', 'print(1)')
+        await user.click(validateButton())
 
-      const alert = await screen.findByRole('alert')
-      expect(alert).toHaveTextContent(detail)
-      if (hint !== null) expect(alert).toHaveTextContent(hint)
-      // 저장은 끝났다. 그 말을 하지 않으면 코드가 날아간 줄 알고 다시 쓴다.
-      expect(screen.getByRole('status')).toHaveTextContent('검증은 시작하지 못했어요')
-    })
+        const alert = await screen.findByRole('alert')
+        expect(alert).toHaveTextContent(detail)
+        if (hint !== null) expect(alert).toHaveTextContent(hint)
+        // 저장은 끝났다. 그 말을 하지 않으면 코드가 날아간 줄 알고 다시 쓴다.
+        expect(screen.getByRole('status')).toHaveTextContent('검증은 시작하지 못했어요')
+      },
+    )
   })
 
   it('저장이 실패하면 고치던 코드를 지우지 않는다', async () => {
