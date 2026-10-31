@@ -5,12 +5,15 @@ import { fail } from '@/api/fail'
 import type {
   AdminProblemDetail,
   AdminProblemVersion,
+  AdminSolution,
   AdminTestCase,
   ProblemInput,
   ProblemVersionStatus,
   ProblemVersionSummary,
+  SolutionInput,
   TestCaseInput,
 } from '@/api/types'
+import { POLL_INTERVAL_MS } from '@/app/queryClient'
 
 /**
  * 한 페이지에 보여 주는 문제 수 (ADM-01).
@@ -185,4 +188,61 @@ export function readTestCaseZip(id: number, file: File): Promise<TestCaseInput[]
       if (result.data === undefined) fail(result)
       return result.data
     })
+}
+
+/**
+ * 정답 코드와 검증 상태 (ADM-05).
+ *
+ * 계약: "검증 중에는 화면이 이 API만 다시 불러 진행을 보여 주고, 끝나면
+ * `GET .../test-cases`를 한 번 받아 케이스별 결과를 그린다." 그래서 폴링은 여기 하나만
+ * 걸고, 케이스 목록은 끝나는 순간 한 번 무효화한다(`SolutionsTab`).
+ *
+ * 간격은 제출 채점과 같은 `POLL_INTERVAL_MS`를 쓴다 — e2e가 기다리는 시간을 줄이려고
+ * `VITE_POLL_INTERVAL_MS`로 바꿀 수 있게 둔 값이다. 검증에만 쓰는 값을 따로 두면 그
+ * 조절이 이 화면만 비껴간다.
+ */
+export function adminSolutionsQuery(id: number) {
+  return queryOptions({
+    queryKey: ['admin-problem', id, 'solutions'] as const,
+    queryFn: async (): Promise<AdminSolution[]> => {
+      const result = await api.GET('/api/admin/problems/{id}/solutions', {
+        params: { path: { id } },
+      })
+      if (result.data === undefined) fail(result)
+      return result.data
+    },
+    refetchInterval: (query) =>
+      query.state.data?.some((solution) => solution.status === 'VALIDATING')
+        ? POLL_INTERVAL_MS
+        : false,
+  })
+}
+
+/**
+ * 정답 코드 저장 (ADM-05·07). 탭 전체를 보낸다(계약).
+ *
+ * **저장만 하고 실행하지 않는다.** 검증은 `startValidation`이 따로 부른다.
+ *
+ * 코드가 하나라도 바뀌면 그 초안의 검증 기록이 지워지고 **두 언어 모두** 검증 전으로
+ * 돌아간다 — 고치지 않은 언어도 다시 검증해야 한다(계약).
+ */
+export function saveSolutions(id: number, body: SolutionInput[]): Promise<SavedVersion> {
+  return api
+    .PUT('/api/admin/problems/{id}/solutions', { params: { path: { id } }, body })
+    .then((result) => {
+      if (result.data === undefined) fail(result)
+      return result.data
+    })
+}
+
+/**
+ * 검증 시작 (ADM-05). 바로 202로 답하고, 진행은 `adminSolutionsQuery`로 본다.
+ *
+ * 계약: "'저장하고 검증'은 화면이 `PUT .../solutions` 다음에 이 API를 부른다. `PUT`
+ * 응답의 `status`가 `DRAFT`일 때만 부른다." 공개·비공개 버전이 그대로면 이미 검증을
+ * 통과한 버전이라, 부르면 409 `NOT_DRAFT`다.
+ */
+export async function startValidation(id: number): Promise<void> {
+  const result = await api.POST('/api/admin/problems/{id}/validate', { params: { path: { id } } })
+  if (result.error !== undefined) fail(result)
 }

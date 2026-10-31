@@ -96,7 +96,8 @@ describe('TestCasesTab', () => {
     expect(await screen.findByText(/공개 예제 2개/)).toBeInTheDocument()
     // 바이트는 서버가 준 값이다. 화면이 세지 않는다 — 1번 예제의 입력은 두 줄 14바이트다.
     expect(screen.getByText('입력 14B · 출력 4B')).toBeInTheDocument()
-    expect(screen.getAllByText('검증 전')).toHaveLength(7)
+    // 공개 중인 문제라 목이 검증까지 끝난 상태로 준다(ADM-05). 두 언어가 다 통과했다.
+    expect(screen.getAllByText('검증 2/2 통과')).toHaveLength(7)
   })
 
   it('케이스가 없으면 안내를 보여 준다', async () => {

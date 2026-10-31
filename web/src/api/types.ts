@@ -151,3 +151,28 @@ export type AdminTestCase = components['schemas']['AdminTestCase']
 
 /** 케이스 하나를 정답 코드 하나로 돌린 결과 (ADM-04 상태 칸·ADM-05 결과 표). */
 export type CaseValidation = components['schemas']['CaseValidation']
+
+/**
+ * 정답 코드 하나를 보낼 때의 모양 (ADM-05).
+ *
+ * 코드가 비어 있으면(공백뿐 포함) **그 언어의 정답 코드를 지운다**(계약). 그래서 화면은
+ * 빈 칸을 목록에서 빼지 않고 빈 문자열로 보낸다 — 지우는 뜻이 분명해진다.
+ */
+export type SolutionInput = components['schemas']['SolutionInput']
+
+/**
+ * 불러온 정답 코드와 그 검증 상태 (ADM-05).
+ *
+ * `verdict`는 `PASSED`면 `ACCEPTED`, `FAILED`면 **처음 틀린 케이스의 판정**이다(계약).
+ * `compilerMessage`는 "정답 코드가 그대로 들어간 문자열이라 글자 그대로 보여 준다
+ * (HTML로 렌더링하지 않는다)".
+ */
+export type AdminSolution = components['schemas']['AdminSolution']
+
+/**
+ * 정답 코드 하나의 검증 상태.
+ *
+ * `JUDGE_ERROR`는 채점 불가다 — 서버 문제라 다시 검증한다(계약). 사람 탓이 아니라고
+ * 말해 주어야 코드를 고치려 들지 않는다.
+ */
+export type SolutionStatus = AdminSolution['status']
