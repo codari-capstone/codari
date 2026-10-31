@@ -1,10 +1,12 @@
 import { http, HttpResponse, type RequestHandler } from 'msw'
 
 import type {
+  AdminSolution,
   AdminTestCase,
   Language,
   LoginRequest,
   ProblemInput,
+  SolutionInput,
   TestCaseInput,
 } from '@/api/types'
 import { DIFFICULTY_RANK, type Difficulty, type SolveStatus } from '@/api/types'
@@ -23,7 +25,10 @@ import {
   adminSummary,
   adminVersion,
   buildAdminProblems,
+  clearValidation,
+  countCases,
   latestVersion,
+  passedCaseValidation,
   brokenTextConditions,
   versionSummary,
   type MockProblemVersion,
@@ -103,18 +108,75 @@ function checkTestCases(body: TestCaseInput[]) {
 }
 
 /** 불러올 때의 케이스 한 줄. 바이트 수를 서버가 세어 준다(계약) — 화면은 세지 않는다. */
-function adminTestCase(item: TestCaseInput): AdminTestCase {
+function adminTestCase(
+  item: TestCaseInput,
+  index: number,
+  validation: MockProblemVersion['caseValidation'],
+): AdminTestCase {
   return {
     ...item,
     inputBytes: utf8Bytes(item.input),
     outputBytes: utf8Bytes(item.output),
-    // 정답 코드와 검증은 PR B에서 담는다. 기록이 없으면 null이 계약의 모양이다.
-    validation: { PYTHON: null, CPP: null },
+    // 기록이 없으면 null이 계약의 모양이다 — 검증 전이거나, 컴파일 에러·채점 불가로 이
+    // 케이스를 실행하지 않은 경우다.
+    validation: {
+      PYTHON: validation?.PYTHON[index] ?? null,
+      CPP: validation?.CPP[index] ?? null,
+    },
   }
 }
 
 /** 코드 길이 한도. 계약의 SOURCE_TOO_LONG과 같은 값이다(UTF-8 64KB). */
 const MAX_SOURCE_BYTES = 64 * 1024
+
+/** 정답 코드 하나의 한도 (ADM-05). 제출 코드와 값은 같지만 다른 계약의 다른 상한이다. */
+const MAX_SOLUTION_BYTES = 64 * 1024
+
+/** 저장한 코드를 비교할 때 보는 것. 검증 상태는 비교에 넣지 않는다. */
+function sourceOf(solution: AdminSolution | SolutionInput) {
+  return { language: solution.language, sourceCode: solution.sourceCode }
+}
+
+/** 막 저장한 정답 코드. 저장은 실행하지 않으므로 늘 검증 전이다(계약). */
+function newSolution(input: SolutionInput): AdminSolution {
+  return {
+    language: input.language,
+    sourceCode: input.sourceCode,
+    verifiedAt: null,
+    status: 'NOT_VALIDATED',
+    progress: 0,
+    verdict: null,
+    compilerMessage: null,
+  }
+}
+
+/**
+ * 검증을 한 걸음 진행시킨다. `GET .../solutions`를 부를 때마다 불린다.
+ *
+ * **성공 경로 하나만 둔다.** `FAILED`·`JUDGE_ERROR`·컴파일 에러는 목에 분기를 넣지 않고
+ * 테스트에서 `server.use`로 꽂는다 — 목이 계약에 없는 규칙("3번 문제는 실패한다")을
+ * 가지면 그 거짓말을 믿는 테스트가 생기고, 서버와 갈라져도 아무도 모른다.
+ */
+function advanceValidation(version: MockProblemVersion) {
+  const progress = Math.min(100, (version.solutions[0]?.progress ?? 0) + 50)
+  if (progress < 100) {
+    version.solutions = version.solutions.map((solution) => ({ ...solution, progress }))
+    return
+  }
+
+  version.status = 'DRAFT'
+  version.caseValidation = passedCaseValidation(
+    version.cases,
+    version.solutions.map((solution) => solution.language),
+  )
+  version.solutions = version.solutions.map((solution) => ({
+    ...solution,
+    status: 'PASSED' as const,
+    progress: 100,
+    verdict: 'ACCEPTED' as const,
+    verifiedAt: new Date().toISOString(),
+  }))
+}
 
 /** 제출 번호. */
 let nextSubmissionId = 1
@@ -540,9 +602,11 @@ export const handlers: RequestHandler[] = [
           createdAt: new Date().toISOString(),
           publishedAt: null,
           input: body,
-          // 케이스는 없이 시작한다. 등록 본문(`ProblemInput`)에 케이스가 없고,
-          // 넣는 길은 `PUT .../test-cases`뿐이다(계약).
+          // 케이스와 정답 코드는 없이 시작한다. 등록 본문(`ProblemInput`)에 둘 다 없고,
+          // 넣는 길은 `PUT .../test-cases`·`PUT .../solutions`뿐이다(계약).
           cases: [],
+          solutions: [],
+          caseValidation: null,
         },
       ],
     })
@@ -620,10 +684,115 @@ export const handlers: RequestHandler[] = [
       // 계약: "최신 버전을 복사해 새 초안을 만든다." 케이스도 함께 복사한다 — 글을 고쳤다고
       // 케이스가 사라지면 공개 조건이 뒤로 간다.
       cases: latest.cases.map((item) => ({ ...item })),
+      // 계약: "예제·테스트케이스와 정답 코드도 복사하고, 정답 코드는 다시 검증해야 한다."
+      // 제한이 달라져 새 초안이 생긴 경우라, 통과 기록을 그대로 물려주면 안 된다.
+      solutions: clearValidation(latest.solutions),
+      caseValidation: null,
     }
     found.versions.push(created)
 
     return HttpResponse.json({ versionNo: created.versionNo, status: created.status })
+  }),
+
+  /**
+   * 정답 코드와 검증 상태 (ADM-05).
+   *
+   * 검증 중이면 부를 때마다 진행률을 올린다 — 폴링이 도는 화면을 `npm run dev`에서
+   * 손으로 볼 수 있어야 한다. 두 번 부르면 끝난다(0 → 50 → 100).
+   */
+  http.get('*/api/admin/problems/:id/solutions', ({ params }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    const version = latestVersion(found)
+    if (version.status === 'VALIDATING') advanceValidation(version)
+    return HttpResponse.json(version.solutions)
+  }),
+
+  /**
+   * 정답 코드 저장 (ADM-05·07).
+   *
+   * 저장 자리 규칙은 테스트케이스와 **같다**(계약). 코드가 하나라도 바뀌면 두 언어 모두
+   * 검증 전으로 돌아간다 — 고치지 않은 언어도 그렇다.
+   */
+  http.put('*/api/admin/problems/:id/solutions', async ({ params, request }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    const body = (await request.json()) as SolutionInput[]
+    const tooLong = body.find((item) => utf8Bytes(item.sourceCode) > MAX_SOLUTION_BYTES)
+    if (tooLong) {
+      return problem(400, 'SOURCE_TOO_LONG', `${tooLong.language} 코드가 64KB를 넘어요`)
+    }
+
+    const latest = latestVersion(found)
+    if (latest.status === 'VALIDATING') {
+      return problem(409, 'PROBLEM_VALIDATING', '검증하는 중이에요. 끝난 뒤 고쳐 주세요')
+    }
+
+    // 계약: "코드가 비어 있으면(공백뿐 포함) 그 언어의 정답 코드를 지운다."
+    const saved = body
+      .filter((item) => item.sourceCode.trim() !== '')
+      .map((item) => newSolution(item))
+    // 계약: "보낸 코드가 최신 버전과 똑같으면 아무것도 바꾸지 않는다."
+    const unchanged =
+      JSON.stringify(saved.map(sourceOf)) === JSON.stringify(latest.solutions.map(sourceOf))
+
+    if (unchanged || latest.status === 'DRAFT') {
+      if (!unchanged) {
+        latest.solutions = saved
+        latest.caseValidation = null
+      }
+      return HttpResponse.json({ versionNo: latest.versionNo, status: latest.status })
+    }
+
+    const created: MockProblemVersion = {
+      versionNo: latest.versionNo + 1,
+      status: 'DRAFT',
+      createdAt: new Date().toISOString(),
+      publishedAt: null,
+      input: { ...latest.input },
+      cases: latest.cases.map((item) => ({ ...item })),
+      solutions: saved,
+      caseValidation: null,
+    }
+    found.versions.push(created)
+    return HttpResponse.json({ versionNo: created.versionNo, status: created.status })
+  }),
+
+  /**
+   * 검증 시작 (ADM-05).
+   *
+   * 409 다섯 가지 중 화면이 막을 수 없는 것만 둔다. `LANGUAGE_NOT_CONFIGURED`와
+   * `JUDGE_UNAVAILABLE`은 목에 분기를 넣지 않고 테스트에서 `server.use`로 꽂는다 —
+   * 목이 계약에 없는 조건을 지어내면 그 거짓말을 믿는 테스트가 생긴다.
+   */
+  http.post('*/api/admin/problems/:id/validate', ({ params }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    const latest = latestVersion(found)
+    if (latest.status === 'VALIDATING') {
+      return problem(409, 'PROBLEM_VALIDATING', '이미 검증하는 중이에요')
+    }
+    if (latest.status !== 'DRAFT') {
+      return problem(409, 'NOT_DRAFT', '이미 검증을 통과한 버전이에요')
+    }
+    if (latest.solutions.length === 0) {
+      return problem(409, 'NO_SOLUTION', '정답 코드가 없어요')
+    }
+    if (countCases(latest.cases, 'SAMPLE') === 0) {
+      return problem(409, 'NO_TEST_CASES', '공개 예제가 없어요')
+    }
+
+    // 계약: "시작하면 이전 검증 기록을 지우고 ... 버전을 VALIDATING으로 바꾼다."
+    latest.status = 'VALIDATING'
+    latest.caseValidation = null
+    latest.solutions = clearValidation(latest.solutions).map((solution) => ({
+      ...solution,
+      status: 'VALIDATING' as const,
+    }))
+    return new HttpResponse(null, { status: 202 })
   }),
 
   /**
@@ -636,7 +805,10 @@ export const handlers: RequestHandler[] = [
     const found = findAdminProblem(params.id)
     if (found instanceof HttpResponse) return found
 
-    return HttpResponse.json(latestVersion(found).cases.map(adminTestCase))
+    const version = latestVersion(found)
+    return HttpResponse.json(
+      version.cases.map((item, index) => adminTestCase(item, index, version.caseValidation)),
+    )
   }),
 
   /**
@@ -666,7 +838,13 @@ export const handlers: RequestHandler[] = [
     // 계약: "보낸 목록이 최신 버전의 케이스와 똑같으면 아무것도 바꾸지 않는다."
     const unchanged = JSON.stringify(body) === JSON.stringify(latest.cases)
     if (unchanged || latest.status === 'DRAFT') {
-      if (!unchanged) latest.cases = body
+      if (!unchanged) {
+        latest.cases = body
+        // 계약: "정답 코드 검증 기록을 지우므로 다시 검증해야 한다." 채점 기준이 바뀌었으니
+        // 고치지 않은 언어도 통과 표시를 잃는다.
+        latest.solutions = clearValidation(latest.solutions)
+        latest.caseValidation = null
+      }
       return HttpResponse.json({ versionNo: latest.versionNo, status: latest.status })
     }
 
@@ -677,6 +855,9 @@ export const handlers: RequestHandler[] = [
       publishedAt: null,
       input: { ...latest.input },
       cases: body,
+      // 계약: "정답 코드도 복사하고, 정답 코드는 다시 검증해야 한다."
+      solutions: clearValidation(latest.solutions),
+      caseValidation: null,
     }
     found.versions.push(created)
 

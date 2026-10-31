@@ -2,7 +2,10 @@ import type {
   AdminProblemDetail,
   AdminProblemSummary,
   AdminProblemVersion,
+  AdminSolution,
   CaseType,
+  CaseValidation,
+  Language,
   ProblemDetailView,
   ProblemInput,
   ProblemVersionStatus,
@@ -10,6 +13,7 @@ import type {
   PublishCondition,
   TestCaseInput,
 } from '@/api/types'
+import { SOLUTION_LANGUAGES } from '@/features/admin/solutionsState'
 import { problemDetails } from './problemDetails'
 
 export interface MockProblemVersion {
@@ -23,6 +27,16 @@ export interface MockProblemVersion {
    * 케이스를 저장하면 새 초안이 생기고, 기존 버전의 케이스는 그대로 남는다.
    */
   cases: TestCaseInput[]
+  /** 그 버전의 정답 코드 (ADM-05). 케이스와 같은 이유로 버전에 달려 있다. */
+  solutions: AdminSolution[]
+  /**
+   * 케이스별 검증 결과 (ADM-05 결과 표). `cases`와 **같은 순서**의 배열이다.
+   *
+   * `cases`에 섞지 않는 까닭: `cases`는 `TestCaseInput[]`로 PUT 본문과 같은 모양이어야
+   * 한다. 섞으면 저장 핸들러가 본문과 상태를 같은 타입으로 다루게 되고, 보낸 것과 서버가
+   * 아는 것의 경계가 사라진다.
+   */
+  caseValidation: Record<Language, CaseValidation[]> | null
 }
 
 export interface MockAdminProblem {
@@ -89,6 +103,68 @@ function filledCases(detail: ProblemDetailView): TestCaseInput[] {
   ]
 }
 
+/** 검증을 통과한 정답 코드 한 쌍. 공개한 적 있는 버전은 이 상태여야 공개 조건이 채워진다. */
+function verifiedSolutions(detail: ProblemDetailView): AdminSolution[] {
+  // 언어 순서는 계약이 정했다 — Python 먼저, C++ 다음.
+  return SOLUTION_LANGUAGES.map((language) => ({
+    language,
+    sourceCode: detail.languages.find((entry) => entry.language === language)?.starterCode ?? '',
+    verifiedAt: '2026-10-12T09:00:00Z',
+    status: 'PASSED' as const,
+    progress: 100,
+    verdict: 'ACCEPTED' as const,
+    compilerMessage: null,
+  }))
+}
+
+/**
+ * 모든 케이스를 통과한 기록. 표가 판정·시간·메모리를 그린다.
+ *
+ * **정답 코드가 있는 언어만 채운다.** 계약은 정답 코드가 없는 언어의 결과를 null로 정했다 —
+ * 둘 다 채우면 Python만 저장한 초안에서 C++ 칸이 '정답 코드가 없어요'와 통과 결과표를 함께
+ * 보여 주고, 케이스 탭은 '검증 2/2 통과'가 된다. 목을 믿는 테스트가 서버와 갈라진다.
+ */
+export function passedCaseValidation(
+  cases: TestCaseInput[],
+  languages: readonly Language[],
+): Record<Language, CaseValidation[]> {
+  const passed = cases.map((_, index) => ({
+    verdict: 'ACCEPTED' as const,
+    // 번호마다 조금씩 다르게 둬서 표의 칸이 한 값으로 뭉치지 않게 한다.
+    executionTimeMs: 10 + index * 3,
+    memoryUsedKb: 1024 + index * 32,
+    runtimeErrorType: null,
+  }))
+  // 빈 배열이면 핸들러가 케이스마다 null을 준다 — 계약의 '기록 없음'과 같은 모양이다.
+  return {
+    PYTHON: languages.includes('PYTHON') ? passed : [],
+    CPP: languages.includes('CPP') ? passed.map((item) => ({ ...item })) : [],
+  }
+}
+
+/** 검증이 도는 중인 정답 코드. `npm run dev`에서 폴링 화면을 볼 수 있어야 한다. */
+export function validatingSolutions(detail: ProblemDetailView): AdminSolution[] {
+  return verifiedSolutions(detail).map((solution) => ({
+    ...solution,
+    verifiedAt: null,
+    status: 'VALIDATING' as const,
+    progress: 0,
+    verdict: null,
+  }))
+}
+
+/** 검증 전 상태로 돌린 정답 코드. 코드는 남고 기록만 지워진다(계약). */
+export function clearValidation(solutions: AdminSolution[]): AdminSolution[] {
+  return solutions.map((solution) => ({
+    ...solution,
+    verifiedAt: null,
+    status: 'NOT_VALIDATED' as const,
+    progress: 0,
+    verdict: null,
+    compilerMessage: null,
+  }))
+}
+
 /**
  * 공개한 적이 있는 버전인지. `RETIRED`도 한 번은 공개했던 버전이라 시각이 있다
  * (계약: "마지막으로 공개한 시각. 공개한 적이 없으면 null").
@@ -113,6 +189,12 @@ export function buildAdminProblems(): MockAdminProblem[] {
       slug: detail.slug,
       versions: states.map((status, index) => {
         const versionNo = index + 1
+        const filled =
+          status === 'PUBLISHED' || status === 'RETIRED' || states.includes('PUBLISHED')
+        // 검증 중인 버전은 케이스와 정답 코드가 **있어야 한다** — 둘 중 하나라도 없으면
+        // 서버가 검증을 시작하지 않는다(409 `NO_SOLUTION`·`NO_TEST_CASES`). 목이 그
+        // 상태를 만들면 있을 수 없는 문제를 화면이 그리게 된다.
+        const validating = status === 'VALIDATING'
         return {
           versionNo,
           status,
@@ -121,12 +203,17 @@ export function buildAdminProblems(): MockAdminProblem[] {
           // 버전마다 같은 내용으로 둔다. 버전끼리 글이 다른 것을 보여 줄 이유가 생기면
           // 그때 손본다 — ADM-07 화면은 어느 버전을 고르느냐만 보면 된다.
           input: inputFrom(detail),
-          // 공개한 적이 있는 문제만 케이스를 채운 것으로 둔다. 초안만 있는 문제(10~12번)는
-          // 비어 있어야 ADM-06 체크리스트(#37)와 빈 표가 볼 거리가 된다.
-          cases:
-            status === 'PUBLISHED' || status === 'RETIRED' || states.includes('PUBLISHED')
-              ? filledCases(detail)
+          cases: filled || validating ? filledCases(detail) : [],
+          // 공개한 적이 있는 버전만 검증까지 끝난 것으로 둔다. 초안만 있는 문제(10~12번)는
+          // 비어 있어야 ADM-05 빈 화면과 ADM-06 체크리스트가 볼 거리가 된다.
+          solutions: filled
+            ? verifiedSolutions(detail)
+            : validating
+              ? validatingSolutions(detail)
               : [],
+          caseValidation: filled
+            ? passedCaseValidation(filledCases(detail), SOLUTION_LANGUAGES)
+            : null,
         }
       }),
     }
@@ -177,7 +264,7 @@ export function countCases(cases: TestCaseInput[], caseType: CaseType): number {
  * 비공개 5개 이상, 태그 1~3개, 출처(`sourceName`) 입력, 두 언어 설정.
  *
  * **버전 하나만 본다.** 케이스도 정답 코드도 버전에 달려 있어, 공개 버전 위에 초안이
- * 있으면 둘의 조건이 다르다. `SOLUTIONS_VERIFIED`는 정답 코드를 담은 뒤(PR B) 더한다.
+ * 있으면 둘의 조건이 다르다.
  */
 export function unmetConditions(version: MockProblemVersion): PublishCondition[] {
   const unmet: PublishCondition[] = []
@@ -191,6 +278,11 @@ export function unmetConditions(version: MockProblemVersion): PublishCondition[]
 
   const languages = input.languages.map((entry) => entry.language)
   if (!languages.includes('PYTHON') || !languages.includes('CPP')) unmet.push('LANGUAGES')
+
+  // 두 언어가 다 검증을 통과해야 채워진다. 한쪽만 통과한 문제를 공개하면 그 언어로 푼
+  // 사람이 틀린 채점을 받는다.
+  const verified = version.solutions.filter((solution) => solution.status === 'PASSED')
+  if (verified.length < 2) unmet.push('SOLUTIONS_VERIFIED')
 
   return unmet
 }

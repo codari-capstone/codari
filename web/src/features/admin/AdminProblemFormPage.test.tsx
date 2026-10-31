@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import type { ProblemInput } from '@/api/types'
 import { createQueryClient } from '@/app/queryClient'
+import { ThemeProvider } from '@/app/ThemeProvider'
 import { ME_QUERY_KEY } from '@/features/auth/authQuery'
 import { resetAdminProblems } from '@/mocks/handlers'
 import { server } from '@/mocks/server'
@@ -32,10 +33,13 @@ function renderPage(path: string, seed?: (client: QueryClient) => void) {
     { initialEntries: [path] },
   )
 
+  // 정답 코드 탭의 CodeEditor가 앱 테마를 읽는다. 실제 앱은 루트에 두고 있다.
   render(
-    <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <ThemeProvider>
+      <QueryClientProvider client={client}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </ThemeProvider>,
   )
 
   return { router, client }
@@ -419,6 +423,50 @@ describe('AdminProblemFormPage', () => {
 
     expect(screen.getByText(/공개 예제 2개 · 비공개 1개/)).toBeInTheDocument()
     expect(screen.getByText(/저장을 눌러야/)).toBeInTheDocument()
+  })
+
+  it('정답 코드 탭에서는 문제 저장 버튼이 보이지 않는다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+    expect(screen.getByRole('button', { name: '저장' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: '정답 코드' }))
+
+    expect(await screen.findByRole('button', { name: '정답 코드 저장' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '저장' })).not.toBeInTheDocument()
+  })
+
+  /**
+   * Radix는 보이지 않는 패널을 언마운트한다. 케이스 탭과 같은 이유로 한 번 열면
+   * `forceMount`로 붙잡아 둔다 — 그러지 않으면 쓰던 정답 코드가 안내도 없이 사라진다.
+   */
+  it('탭을 옮겨도 고치던 정답 코드가 남는다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.click(screen.getByRole('tab', { name: '정답 코드' }))
+    const editor = await screen.findByRole('textbox', { name: 'Python 코드 편집기' })
+    await user.click(editor)
+    await user.keyboard('{Control>}a{/Control}{Delete}')
+    await user.paste('print(살려주세요)')
+
+    await user.click(screen.getByRole('tab', { name: '지문' }))
+    await user.click(screen.getByRole('tab', { name: '정답 코드' }))
+
+    expect(screen.getByRole('textbox', { name: 'Python 코드 편집기' })).toHaveTextContent(
+      'print(살려주세요)',
+    )
+  })
+
+  // 케이스 탭과 같은 이유다. GET .../solutions도 버전을 받지 않아 최신 버전만 준다 —
+  // v1 화면에 v2 초안의 코드가 v1 것처럼 보인다.
+  it('지난 버전 보기에는 정답 코드 탭이 없다', async () => {
+    renderPage('/admin/problems/1/versions/1')
+    await waitForLoaded('두 수의 합')
+
+    expect(screen.queryByRole('tab', { name: '정답 코드' })).not.toBeInTheDocument()
   })
 
   // 리뷰 지적(major): GET .../test-cases는 버전을 받지 않아 최신 버전만 준다. 지난 버전
