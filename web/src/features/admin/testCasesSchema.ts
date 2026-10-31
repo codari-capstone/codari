@@ -83,6 +83,28 @@ export function totalBytesError(cases: TestCaseInput[]): string | null {
   return `모든 케이스의 합이 10MiB를 넘어요 (지금 ${formatBytes(total)})`
 }
 
+/**
+ * 보낼 목록이 서버가 준 목록과 같은지.
+ *
+ * 서버는 목록이 같으면 아무것도 바꾸지 않는다(계약). 그걸 '반영했어요'로 알리면 공개
+ * 버전이 바뀐 줄 알고 쓸데없이 다시 검증하게 된다.
+ *
+ * 폼의 `isDirty`로는 알 수 없다. rhf는 값 전체를 깊게 비교하므로, 글을 고쳤다 되돌려도
+ * 비워 둔 `meta` 때문에 계속 '고쳐진' 상태로 남는다. 저장할 때 한 번만 보는 비교라
+ * 글자 비교 비용은 문제가 되지 않는다(합계 바이트는 이미 매번 센다).
+ */
+export function sameAsSaved(cases: TestCaseInput[], saved: AdminTestCase[]): boolean {
+  return (
+    cases.length === saved.length &&
+    cases.every(
+      (row, index) =>
+        row.caseType === saved[index]?.caseType &&
+        row.input === saved[index]?.input &&
+        row.output === saved[index]?.output,
+    )
+  )
+}
+
 /** 불러온 케이스를 폼 모양으로. 서버가 세어 준 크기와 검증 상태를 행에 달아 둔다. */
 export function toForm(cases: AdminTestCase[]): TestCasesForm {
   return {

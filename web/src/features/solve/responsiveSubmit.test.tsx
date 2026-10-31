@@ -104,8 +104,5 @@ describe('폭 전환 중 제출', () => {
 
     expect(await screen.findByRole('heading', { name: '제출 결과 도착' })).toBeInTheDocument()
     expect(calls).toBe(1)
-    // 기본 5초로는 모자라다. 솔브 페이지를 두 번 마운트하는 테스트라 혼자 돌면 1.5초지만,
-    // 전체 스위트와 함께 돌면 3배가 넘는다 — 파일이 하나 늘 때마다 깨질 자리였다.
-    // SubmissionResultPage.test.tsx의 무거운 테스트들과 같은 여유를 준다.
-  }, 15_000)
+  })
 })

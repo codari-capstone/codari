@@ -396,4 +396,114 @@ describe('TestCasesTab', () => {
     })
     await screen.findByText(/1개를 읽었어요/)
   })
+  // 2차 리뷰(minor): busy가 버튼에만 걸려 있어, ZIP을 읽는 동안 행을 고치면 완료 시
+  // form이 표를 바꿔 그 편집이 사라졌다.
+  it('ZIP을 읽는 동안에는 행도 고칠 수 없다', async () => {
+    const user = userEvent.setup()
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.use(
+      http.post('*/api/admin/problems/:id/test-cases/zip', async () => {
+        await gate
+        return HttpResponse.json([{ caseType: 'SAMPLE', input: '1', output: '2' }])
+      }),
+    )
+    renderTab()
+    await screen.findByText(/공개 예제 2개/)
+    await expand(user, '1. 공개 예제')
+
+    uploadZip(zipFile(100))
+
+    await waitFor(() => expect(screen.getByLabelText('1번 입력')).toBeDisabled())
+    expect(screen.getByRole('button', { name: '1번 케이스 지우기' })).toBeDisabled()
+
+    await act(async () => {
+      release()
+    })
+    await screen.findByText(/1개를 읽었어요/)
+  })
+
+  // 2차 리뷰(minor): 서버가 아무것도 바꾸지 않은 저장에도 '반영했어요'와 '다시 검증'을
+  // 띄웠고, 비워 둔 meta가 돌아오지 않아 크기가 계속 '저장하면'으로 남았다.
+  it('바뀐 내용이 없으면 그렇게 알리고 크기를 되돌려 준다', async () => {
+    const user = userEvent.setup()
+    renderTab()
+    await screen.findByText('입력 14B · 출력 4B')
+
+    // 고쳤다가 되돌린다 — 폼은 깨끗해지지만 그 행의 meta는 비어 있다.
+    await expand(user, '1. 공개 예제')
+    await user.type(screen.getByLabelText('1번 입력'), 'x')
+    expect(screen.queryByText('입력 14B · 출력 4B')).not.toBeInTheDocument()
+    await user.type(screen.getByLabelText('1번 입력'), '{backspace}')
+
+    await user.click(screen.getByRole('button', { name: '케이스 저장' }))
+
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveTextContent('바뀐 내용이 없어')
+    expect(notice).not.toHaveTextContent('다시 검증')
+    // 저장에 성공했으면 서버가 세어 준 값이 다시 보여야 한다.
+    expect(await screen.findByText('입력 14B · 출력 4B')).toBeInTheDocument()
+  })
+
+  // 2차 리뷰(minor): save.error·readZip.error·zipError가 서로의 성공에서 지워지지 않아
+  // 어느 결과가 지금 상태인지 알 수 없었다.
+  it('ZIP 읽기가 성공하면 저장 오류를 지운다', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.put('*/api/admin/problems/:id/test-cases', () =>
+        HttpResponse.json(
+          { status: 400, code: 'TEST_CASE_LIMIT_EXCEEDED', detail: '3번 입력이 2MiB를 넘어요' },
+          { status: 400 },
+        ),
+      ),
+    )
+    renderTab()
+    await screen.findByText(/공개 예제 2개/)
+
+    await user.click(screen.getByRole('button', { name: '케이스 더하기' }))
+    await user.click(screen.getByRole('button', { name: '케이스 저장' }))
+    await screen.findByText('3번 입력이 2MiB를 넘어요')
+
+    uploadZip(zipFile(100))
+
+    await screen.findByText(/3개를 읽었어요/)
+    expect(screen.queryByText('3번 입력이 2MiB를 넘어요')).not.toBeInTheDocument()
+  })
+
+  it('저장이 성공하면 ZIP 크기 오류를 지운다', async () => {
+    const user = userEvent.setup()
+    renderTab()
+    await screen.findByText(/공개 예제 2개/)
+
+    uploadZip(zipFile(10 * 1024 * 1024 + 1))
+    await screen.findByText(/ZIP 파일은 10MiB까지예요/)
+
+    await user.click(screen.getByRole('button', { name: '케이스 더하기' }))
+    await user.click(screen.getByRole('button', { name: '케이스 저장' }))
+
+    await screen.findByText(/정답 코드를 다시 검증해야 해요/)
+    expect(screen.queryByText(/ZIP 파일은 10MiB까지예요/)).not.toBeInTheDocument()
+  })
+
+  // 2차 리뷰(minor): 행별 오류는 접힌 <details> 안에만 그려져, 저장을 눌러도 아무 일도
+  // 없는 것처럼 보였다.
+  it('접힌 행에 오류가 있으면 어느 행인지 알려 주고 펼친다', async () => {
+    const user = userEvent.setup()
+    renderTab()
+    await screen.findByText(/공개 예제 2개/)
+
+    // 2번 행의 기대 출력을 1MiB 넘게 만든다. 접은 채로 저장을 누른다.
+    await expand(user, '2. 공개 예제')
+    fireEvent.change(screen.getByLabelText('2번 기대 출력'), {
+      target: { value: 'a'.repeat(1024 * 1024 + 1) },
+    })
+    await user.click(screen.getByText('2. 공개 예제').closest('summary')!)
+    await user.click(screen.getByRole('button', { name: '케이스 저장' }))
+
+    expect(await screen.findByText('2번 케이스를 고쳐 주세요')).toBeInTheDocument()
+    // 그 행은 펼쳐져 오류 문구를 읽을 수 있어야 한다.
+    expect(screen.getByText('기대 출력이 1MiB를 넘어요')).toBeVisible()
+  })
 })

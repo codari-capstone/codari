@@ -461,6 +461,73 @@ describe('AdminProblemFormPage', () => {
     expect(field('제목')).toHaveValue('세 수의 합')
   })
 
+  // 2차 리뷰(major): 케이스 탭을 forceMount로 붙잡아 두자, 반대 방향이 열렸다 — 문제
+  // 저장이 ['admin-problem', id]를 무효화하면 접두사가 같아 케이스 목록까지 다시 불린다.
+  it('문제를 저장해도 저장 전 케이스 편집은 남는다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    fireEvent.change(await screen.findByLabelText('ZIP 파일'), {
+      target: { files: [new File([new Uint8Array(10)], 'cases.zip', { type: 'application/zip' })] },
+    })
+    await screen.findByText(/3개를 읽었어요/)
+
+    // 문제를 고쳐 저장한다 — 상세가 달라져야 케이스 목록까지 다시 불린다.
+    await user.click(screen.getByRole('tab', { name: '기본 정보' }))
+    await user.clear(field('제목'))
+    await user.type(field('제목'), '세 수의 합')
+    await user.click(screen.getByRole('button', { name: '저장' }))
+    await screen.findByText(/반영했어요|저장했어요/)
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    // ZIP으로 읽은 3개가 그대로여야 한다. 서버 목록으로 돌아가면 7개(비공개 5개)다.
+    expect(screen.getByText(/공개 예제 2개 · 비공개 1개/)).toBeInTheDocument()
+  })
+
+  // 2차 리뷰(major): keepDirtyValues는 '고친 칸'만 남긴다. 파생된 Python 제한은
+  // shouldDirty 없이 써넣고 있어 혼자 서버 값으로 되돌아갔다 — C++과 짝이 깨진다.
+  it('케이스를 저장해도 보정된 Python 제한이 C++와 어긋나지 않는다', async () => {
+    const user = userEvent.setup()
+    const sent: ProblemInput[] = []
+    server.use(
+      http.put('*/api/admin/problems/:id', async ({ request }) => {
+        sent.push((await request.json()) as ProblemInput)
+        return HttpResponse.json({ versionNo: 3, status: 'DRAFT' })
+      }),
+    )
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.click(screen.getByRole('tab', { name: '지문' }))
+    // 이 fixture의 Python 값(2000)은 보정식과 달라 '직접 입력'으로 열린다. 보정을 켠다.
+    await user.click(screen.getByLabelText('Python 제한을 직접 입력'))
+    const cppTime = limits('C++').getByLabelText('시간 제한 (ms)')
+    await user.clear(cppTime)
+    await user.type(cppTime, '2000')
+    expect(limits('Python').getByLabelText('시간 제한 (ms)')).toHaveValue(8000)
+
+    // 케이스를 저장해 상세를 다시 받게 한다.
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    await user.click(await screen.findByRole('button', { name: '케이스 더하기' }))
+    await user.click(screen.getByRole('button', { name: '케이스 저장' }))
+    await screen.findByText(/정답 코드를 다시 검증해야 해요/)
+
+    // **기본 정보 탭에서** 저장한다. 지문 탭으로 돌아가면 StatementTab이 새로 마운트돼
+    // 값이 다시 계산되므로 화면만 봐서는 드러나지 않는다 — 보낸 본문을 봐야 한다.
+    await user.click(screen.getByRole('tab', { name: '기본 정보' }))
+    await user.click(screen.getByRole('button', { name: '저장' }))
+
+    await waitFor(() => expect(sent).toHaveLength(1))
+    // Python이 서버 값(2000)으로 되돌아간 채 C++ 2000과 함께 저장되면, 그 문제의 Python
+    // 제출은 전부 시간 초과가 된다. 다음에 열 때는 공식과 달라 '직접 입력'으로 굳는다.
+    expect(sent[0]?.languages.find((entry) => entry.language === 'PYTHON')).toMatchObject({
+      timeLimitMs: 8000,
+      memoryLimitMb: 512,
+    })
+  })
+
   it('버전 탭은 버전을 최신부터 보여 준다', async () => {
     const user = userEvent.setup()
     renderPage('/admin/problems/9')

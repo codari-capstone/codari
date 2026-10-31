@@ -45,12 +45,19 @@ export function StatementTab({
   /**
    * 잠겨 있으면 계산한 값을 **폼에 써 넣는다.** 보여 주기만 하면 저장되는 것은 그대로
    * 옛 값이라, 화면에는 보정값이 떠 있는데 C++과 같은 값이 저장된다.
+   *
+   * `shouldDirty`가 있어야 한다. 이 값은 C++ 칸을 고쳐서 생긴 **고친 값**인데, 표시를
+   * 안 하면 폼이 '안 고쳐진 칸'으로 알고 있다가 상세를 다시 받을 때 서버 값으로
+   * 되돌린다(`keepDirtyValues`). 그러면 C++는 2000, Python은 5000처럼 공식과 어긋난
+   * 짝이 저장되고, 다음에 열 때는 '직접 입력'으로 굳어 보정도 되지 않는다.
+   *
+   * 불러온 직후에는 더럽혀지지 않는다 — 계산값이 기본값과 같으면 rhf가 표시하지 않는다.
    */
   const { timeLimitMs, memoryLimitMb } = derived
   useEffect(() => {
     if (manualPython) return
-    setValue(`languages.${PYTHON}.timeLimitMs`, timeLimitMs)
-    setValue(`languages.${PYTHON}.memoryLimitMb`, memoryLimitMb)
+    setValue(`languages.${PYTHON}.timeLimitMs`, timeLimitMs, { shouldDirty: true })
+    setValue(`languages.${PYTHON}.memoryLimitMb`, memoryLimitMb, { shouldDirty: true })
   }, [manualPython, timeLimitMs, memoryLimitMb, setValue])
 
   return (

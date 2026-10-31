@@ -16,6 +16,7 @@ import {
   formatBytes,
   MAX_CASES,
   MAX_ZIP_BYTES,
+  sameAsSaved,
   testCasesSchema,
   toForm,
   toRows,
@@ -85,25 +86,55 @@ export function TestCasesTab({
   })
   const rows = useFieldArray({ control: form.control, name: 'cases' })
 
+  /**
+   * 폼이 불러온 값과 다른지.
+   *
+   * 글을 고쳤다 되돌려도 `meta`를 비워 둔 탓에 true로 남는다 — 여기 쓰임(배경 재조회가
+   * 표를 덮지 않게 막는 것)에는 그래도 된다. 덜 덮는 쪽이 안전하고, 다음 저장에서 풀린다.
+   * '정말 바뀌었는지'는 `sameAsSaved`로 따로 본다.
+   */
+  const dirty = form.formState.isDirty
+
   useEffect(() => {
     if (cases.data === undefined) return
+    // 고치던 표를 덮지 않는다. 다른 탭에서 문제를 저장하면 공개 조건이 바뀌어 상세가
+    // 무효화되는데, 접두사가 같아 케이스 목록까지 다시 불린다 — 이 탭은 forceMount로
+    // 살아 있으니 그때 ZIP으로 읽은 내용과 고친 행이 안내도 없이 사라졌다.
+    // 저장이 끝난 뒤 맞추는 일은 저장 쪽(onSuccess)이 한다.
+    if (dirty) return
     form.reset(toForm(cases.data))
-  }, [cases.data, form])
+  }, [cases.data, dirty, form])
 
   useEffect(() => {
     forgetSessionIfUnauthorized(queryClient, cases.error)
   }, [queryClient, cases.error])
 
   const save = useMutation({
-    mutationFn: (body: TestCasesBody) => saveTestCases(problemId, body.cases),
-    onSuccess: async (saved) => {
-      // 저장하면 검증 기록이 지워진다(계약). 그 말을 하지 않으면 공개 조건이 왜 뒤로
-      // 갔는지 알 수 없다.
-      setNotice(`${savedVersionNotice(saved, before)}. 정답 코드를 다시 검증해야 해요`)
+    mutationFn: ({ cases: body }: { cases: TestCasesBody['cases']; changed: boolean }) =>
+      saveTestCases(problemId, body),
+    onSuccess: async (saved, { changed }) => {
+      // 다른 작업의 묵은 오류를 지운다. 두면 성공 안내 옆에 남아 어느 쪽이 지금
+      // 상태인지 알 수 없다.
+      setZipError(null)
+      readZip.reset()
+      setNotice(
+        changed
+          ? // 저장하면 검증 기록이 지워진다(계약). 그 말을 하지 않으면 공개 조건이 왜
+            // 뒤로 갔는지 알 수 없다.
+            `${savedVersionNotice(saved, before)}. 정답 코드를 다시 검증해야 해요`
+          : // 서버는 목록이 같으면 아무것도 바꾸지 않는다(계약). 그걸 '반영했어요'로
+            // 알리면 공개 버전이 바뀐 줄 알고 쓸데없이 다시 검증하게 된다.
+            '바뀐 내용이 없어 그대로예요',
+      )
       // 공개 조건(`unmetConditions`)이 케이스 수로 바뀐다. 접두사가 같아 케이스 목록도
       // 함께 무효화된다.
       await queryClient.invalidateQueries({ queryKey: ['admin-problem', problemId] })
       await queryClient.invalidateQueries({ queryKey: ['admin-problems'] })
+      // 서버가 다시 세어 준 크기와 검증 상태를 표에 넣는다. 위 effect에 맡기면 두 군데서
+      // 놓친다 — 폼이 아직 dirty라 건너뛰거나, 서버가 아무것도 바꾸지 않아 재조회 결과가
+      // 같은 참조로 와서(구조적 공유) effect가 돌지 않는다.
+      const fresh = queryClient.getQueryData(adminTestCasesQuery(problemId).queryKey)
+      if (fresh !== undefined) form.reset(toForm(fresh))
     },
     onError: (error) => {
       setNotice(null)
@@ -116,7 +147,13 @@ export function TestCasesTab({
     onSuccess: (read) => {
       // 읽기만 한다 — 저장은 따로 누른다(계약). 표를 바꿨으니 저장해야 한다고 알린다.
       // 읽어 온 행은 `meta`가 null이라 크기·검증 자리에 '저장하면' 문구가 뜬다.
-      form.reset({ cases: toRows(read) })
+      //
+      // `reset`이 아니라 `replace`를 쓴다. reset은 기본값까지 바꿔 폼이 '고친 게 없는'
+      // 상태가 되는데, 그러면 다른 탭의 저장이 일으킨 재조회가 읽어 온 내용을 덮어쓴다.
+      rows.replace(toRows(read))
+      form.clearErrors()
+      save.reset()
+      setZipError(null)
       setNotice(`ZIP에서 ${read.length}개를 읽었어요. 저장을 눌러야 저장돼요`)
     },
     onError: (error) => {
@@ -163,7 +200,8 @@ export function TestCasesTab({
       form.setError('cases', { message: tooBig })
       return
     }
-    save.mutate(values)
+    // 바뀐 게 없는 저장은 서버가 아무것도 하지 않는다. 안내를 가르는 데 쓴다.
+    save.mutate({ cases: values.cases, changed: !sameAsSaved(values.cases, cases.data ?? []) })
   }
 
   // `watch`가 아니라 `useWatch`를 쓴다. `watch`는 React Compiler가 메모이즈할 수 없는
@@ -175,6 +213,15 @@ export function TestCasesTab({
   // ZIP 읽기와 저장이 같이 돌면, 저장의 재조회가 방금 읽어 온 표를 덮어쓴다. 어느 쪽이든
   // 도는 동안에는 둘 다 막는다.
   const busy = save.isPending || readZip.isPending
+  /**
+   * 오류가 있는 행 번호.
+   *
+   * 행별 오류는 접힌 `<details>` 안에만 그려진다. 그대로 두면 2MiB를 넘긴 행이 접혀
+   * 있을 때 저장을 눌러도 아무 일도 없는 것처럼 보이고, 어느 행인지 찾을 길이 없다.
+   */
+  const rowsWithError = rows.fields
+    .map((_, index) => index)
+    .filter((index) => form.formState.errors.cases?.[index] !== undefined)
 
   if (cases.error) return <ErrorState problem={cases.error} onRetry={() => void cases.refetch()} />
   if (cases.isPending) return <ListSkeleton rows={4} />
@@ -217,13 +264,21 @@ export function TestCasesTab({
         </p>
       ) : null}
 
+      {rowsWithError.length > 0 ? (
+        <p role="alert" className="text-destructive text-sm">
+          {`${rowsWithError.map((index) => `${index + 1}번`).join('·')} 케이스를 고쳐 주세요`}
+        </p>
+      ) : null}
+
       {form.formState.errors.cases?.message ? (
         <p role="alert" className="text-destructive text-sm">
           {form.formState.errors.cases.message}
         </p>
       ) : null}
 
-      <fieldset disabled={locked} className="contents">
+      {/* busy까지 보는 까닭: ZIP 읽기와 저장은 끝나면서 표를 새 값으로 바꾼다. 그
+          사이에 고친 행이나 지운 행은 안내도 없이 사라진다. */}
+      <fieldset disabled={locked || busy} className="contents">
         {rows.fields.length === 0 ? (
           <p className="text-muted-foreground border-border rounded-xl border border-dashed p-6 text-center text-sm">
             케이스가 없어요. ZIP을 올리거나 행을 더해 주세요.
@@ -236,7 +291,7 @@ export function TestCasesTab({
 
               return (
                 <li key={field.id} className="border-border rounded-xl border">
-                  <details>
+                  <details open={form.formState.errors.cases?.[index] !== undefined || undefined}>
                     <summary className="flex min-h-11 cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
                       <span className="font-medium">{`${index + 1}. ${CASE_TYPE_LABEL[row.caseType]}`}</span>
                       <span className="text-muted-foreground text-xs">
@@ -329,7 +384,7 @@ export function TestCasesTab({
               type="button"
               variant="outline"
               className="min-h-11"
-              disabled={busy || rows.fields.length >= MAX_CASES}
+              disabled={rows.fields.length >= MAX_CASES}
               onClick={() => rows.append(EMPTY_CASE, { shouldFocus: false })}
             >
               케이스 더하기
@@ -338,7 +393,6 @@ export function TestCasesTab({
               type="button"
               variant="outline"
               className="min-h-11"
-              disabled={busy}
               onClick={() => fileInput.current?.click()}
             >
               {readZip.isPending ? 'ZIP 읽는 중…' : 'ZIP 올리기'}
@@ -353,7 +407,7 @@ export function TestCasesTab({
               className="hidden"
               onChange={handleZipChange}
             />
-            <Button type="submit" className="min-h-11" disabled={busy}>
+            <Button type="submit" className="min-h-11">
               {save.isPending ? '저장 중…' : '케이스 저장'}
             </Button>
           </div>
