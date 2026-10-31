@@ -128,6 +128,17 @@ export function passedCaseValidation(cases: TestCaseInput[]): Record<Language, C
   return { PYTHON: passed, CPP: passed.map((item) => ({ ...item })) }
 }
 
+/** 검증이 도는 중인 정답 코드. `npm run dev`에서 폴링 화면을 볼 수 있어야 한다. */
+export function validatingSolutions(detail: ProblemDetailView): AdminSolution[] {
+  return verifiedSolutions(detail).map((solution) => ({
+    ...solution,
+    verifiedAt: null,
+    status: 'VALIDATING' as const,
+    progress: 0,
+    verdict: null,
+  }))
+}
+
 /** 검증 전 상태로 돌린 정답 코드. 코드는 남고 기록만 지워진다(계약). */
 export function clearValidation(solutions: AdminSolution[]): AdminSolution[] {
   return solutions.map((solution) => ({
@@ -166,6 +177,10 @@ export function buildAdminProblems(): MockAdminProblem[] {
         const versionNo = index + 1
         const filled =
           status === 'PUBLISHED' || status === 'RETIRED' || states.includes('PUBLISHED')
+        // 검증 중인 버전은 케이스와 정답 코드가 **있어야 한다** — 둘 중 하나라도 없으면
+        // 서버가 검증을 시작하지 않는다(409 `NO_SOLUTION`·`NO_TEST_CASES`). 목이 그
+        // 상태를 만들면 있을 수 없는 문제를 화면이 그리게 된다.
+        const validating = status === 'VALIDATING'
         return {
           versionNo,
           status,
@@ -174,10 +189,14 @@ export function buildAdminProblems(): MockAdminProblem[] {
           // 버전마다 같은 내용으로 둔다. 버전끼리 글이 다른 것을 보여 줄 이유가 생기면
           // 그때 손본다 — ADM-07 화면은 어느 버전을 고르느냐만 보면 된다.
           input: inputFrom(detail),
-          cases: filled ? filledCases(detail) : [],
+          cases: filled || validating ? filledCases(detail) : [],
           // 공개한 적이 있는 버전만 검증까지 끝난 것으로 둔다. 초안만 있는 문제(10~12번)는
           // 비어 있어야 ADM-05 빈 화면과 ADM-06 체크리스트가 볼 거리가 된다.
-          solutions: filled ? verifiedSolutions(detail) : [],
+          solutions: filled
+            ? verifiedSolutions(detail)
+            : validating
+              ? validatingSolutions(detail)
+              : [],
           caseValidation: filled ? passedCaseValidation(filledCases(detail)) : null,
         }
       }),

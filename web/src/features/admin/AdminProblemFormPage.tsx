@@ -24,6 +24,7 @@ import {
   type ProblemForm,
   type ProblemInputBody,
 } from './problemInputSchema'
+import { SolutionsTab } from './SolutionsTab'
 import { StatementTab } from './StatementTab'
 import { TestCasesTab } from './TestCasesTab'
 import { VersionsTab } from './VersionsTab'
@@ -94,6 +95,8 @@ function AdminProblemForm() {
    * 케이스 조회가 한 번 더 나가지는 않는다.
    */
   const [openedCases, setOpenedCases] = useState(false)
+  /** 정답 코드 탭도 같은 이유로 붙잡아 둔다 — 고치던 코드가 탭을 옮기면 사라진다. */
+  const [openedSolutions, setOpenedSolutions] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
   const loaded = version.data ?? detail.data
@@ -237,6 +240,7 @@ function AdminProblemForm() {
         onValueChange={(next) => {
           setTab(next)
           if (next === 'cases') setOpenedCases(true)
+          if (next === 'solutions') setOpenedSolutions(true)
         }}
       >
         {/* 탭 버튼은 fieldset 밖에 둔다. 안에 두면 disabled가 버튼까지 잠가, 읽기
@@ -255,6 +259,13 @@ function AdminProblemForm() {
           {id === null || readOnly ? null : (
             <TabsTrigger value="cases" className="min-h-11">
               테스트케이스
+            </TabsTrigger>
+          )}
+          {/* 정답 코드도 같다. `GET .../solutions`는 최신 버전만 준다(계약에 버전별 조회가
+              없다) — v1 화면에 v2 초안의 코드가 v1 것처럼 보인다. */}
+          {id === null || readOnly ? null : (
+            <TabsTrigger value="solutions" className="min-h-11">
+              정답 코드
             </TabsTrigger>
           )}
           {id === null ? null : (
@@ -306,6 +317,11 @@ function AdminProblemForm() {
           // forceMount면 Radix가 hidden을 끄지만, 뒤에 오는 prop이 이겨 우리가 다시 건다.
           <TabsContent value="cases" forceMount hidden={tab !== 'cases'}>
             <TestCasesTab problemId={id} locked={locked} before={before} />
+          </TabsContent>
+        )}
+        {id === null || readOnly || !openedSolutions ? null : (
+          <TabsContent value="solutions" forceMount hidden={tab !== 'solutions'}>
+            <SolutionsTab problemId={id} locked={locked} before={before} />
           </TabsContent>
         )}
         {id === null ? null : (

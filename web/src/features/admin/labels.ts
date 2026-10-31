@@ -1,4 +1,4 @@
-import type { ProblemVersionStatus } from '@/api/types'
+import type { ProblemVersionStatus, SolutionStatus } from '@/api/types'
 
 /** 버전 하나의 상태. 기능명세 ADM-01의 '작성 중·검증 중·공개' 문구를 쓴다. */
 export const VERSION_STATUS_LABEL: Record<ProblemVersionStatus, string> = {
@@ -65,4 +65,19 @@ export function savedVersionNotice(
   }
 
   return `초안 v${saved.versionNo}에 저장했어요`
+}
+
+/**
+ * 정답 코드 하나의 검증 상태 (ADM-05).
+ *
+ * `JUDGE_ERROR`를 '검증 실패'로 적지 않는다. 계약이 "채점이 실패해도(채점 불가)"를 따로
+ * 둔 것은 코드가 틀린 게 아니라 채점 서버가 못 돌린 경우라서다 — '실패'로 적으면 멀쩡한
+ * 코드를 뜯어보게 된다.
+ */
+export const SOLUTION_STATUS_LABEL: Record<SolutionStatus, string> = {
+  NOT_VALIDATED: '검증 전',
+  VALIDATING: '검증 중',
+  PASSED: '검증 통과',
+  FAILED: '검증 실패',
+  JUDGE_ERROR: '채점 불가',
 }

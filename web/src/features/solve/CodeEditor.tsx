@@ -19,10 +19,16 @@ export function CodeEditor({
   language,
   value,
   onChange,
+  label = '코드 편집기',
 }: {
   language: Language
   value: string
   onChange: (next: string) => void
+  /**
+   * 편집 영역의 이름. 한 화면에 에디터가 둘 이상이면 넘겨야 한다 (ADM-05는 Python·C++를
+   * 나란히 둔다) — 같은 이름이 둘이면 스크린 리더로는 어느 칸이 어느 언어인지 알 수 없다.
+   */
+  label?: string
 }) {
   const { theme } = useTheme()
 
@@ -30,8 +36,8 @@ export function CodeEditor({
   // aria-label은 편집 영역(contenteditable)에 붙어야 한다. 바깥 div에 붙이면
   // 스크린 리더가 textbox의 이름으로 읽지 않는다.
   const extensions = useMemo(
-    () => [SYNTAX[language](), EditorView.contentAttributes.of({ 'aria-label': '코드 편집기' })],
-    [language],
+    () => [SYNTAX[language](), EditorView.contentAttributes.of({ 'aria-label': label })],
+    [language, label],
   )
 
   return (
