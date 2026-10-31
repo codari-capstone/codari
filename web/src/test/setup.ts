@@ -1,8 +1,19 @@
 import '@testing-library/jest-dom/vitest'
-import { cleanup } from '@testing-library/react'
+import { cleanup, configure } from '@testing-library/react'
 import { afterAll, afterEach, beforeAll } from 'vitest'
 
 import { server } from '@/mocks/server'
+
+/**
+ * findBy·waitFor의 기본 제한 1초는 전체 스위트에서 모자라다.
+ *
+ * vite.config.ts의 testTimeout과 **다른 값이다** — 그쪽은 테스트 하나 전체의 제한이고,
+ * 이건 단언 하나가 기다리는 시간이다. 그래서 15초를 줘도 1.3초쯤에 findBy가 먼저 포기해
+ * 파일 56개를 함께 돌릴 때마다 **매번 다른 테스트가** 깨졌다(실패 시점이 모두 1.3~1.6초로
+ * 같은 것이 단서였다). 파일을 더할 때마다 다른 사람이 같은 함정을 다시 밟지 않게 한 자리에서
+ * 정한다.
+ */
+configure({ asyncUtilTimeout: 5000 })
 
 // 브라우저와 같은 MSW handlers를 테스트에서도 재사용한다.
 beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))

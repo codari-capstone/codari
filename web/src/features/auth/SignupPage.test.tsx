@@ -235,11 +235,19 @@ describe('회원가입 화면', () => {
   it('가입 요청 중에는 중복 확인을 눌러도 가입이 다시 열리지 않는다', async () => {
     // 중복 확인의 onSuccess가 submit.reset()을 부른다. 진행 중까지 지워 버리면 [가입 완료]가
     // 다시 켜지고, 한 번 더 누르면 두 번째 POST가 나가 이미 가입된 사람이 409를 본다.
+    //
+    // 응답을 **테스트가 풀어 줄 때까지** 붙잡는다. 80ms 같은 시간에 기대면, 전체 스위트가
+    // 함께 돌 때 아래 클릭 두 번이 그보다 오래 걸려 가입이 먼저 끝난다 — 로그인 화면으로
+    // 넘어간 뒤 [가입 완료]를 찾아 깨졌다(스위트에 파일을 더할 때마다 다시 나타났다).
     let calls = 0
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
     server.use(
       http.post('*/api/auth/signup', async () => {
         calls += 1
-        await new Promise((resolve) => setTimeout(resolve, 80))
+        await held
         return new HttpResponse(null, { status: 204 })
       }),
     )
@@ -258,6 +266,7 @@ describe('회원가입 화면', () => {
     expect(submitButton()).toBeDisabled()
     await user.click(submitButton())
 
+    release()
     await screen.findByRole('heading', { name: '로그인 화면' })
     expect(calls).toBe(1)
   })
