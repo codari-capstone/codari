@@ -10,6 +10,7 @@ import type {
   ProblemInput,
   ProblemVersionStatus,
   ProblemVersionSummary,
+  PublishCondition,
   SolutionInput,
   TestCaseInput,
 } from '@/api/types'
@@ -253,4 +254,48 @@ export async function startValidation(id: number): Promise<void> {
   // 본문 없는 5xx를 주면 openapi-fetch의 `error`가 undefined라, '검증을 시작했어요'라고
   // 알리고는 폴링도 돌지 않는 화면이 된다.
   if (!result.response.ok) fail(result)
+}
+
+/**
+ * 공개 (ADM-06). 최신 버전을 공개하고, 전에 공개하던 버전은 지난 버전이 된다.
+ *
+ * **이미 최신 버전이 공개 중이면 아무것도 바꾸지 않고 204다**(계약). 그래서 화면은 그
+ * 경우에 이 버튼을 아예 두지 않는다 — 두면 아무 일도 없는 204를 받고 '공개했어요'라고
+ * 알리게 된다(`PublishTab`).
+ *
+ * 409가 둘이고 **순서가 있다.** 검증 중이면 공개 조건을 보기 **전에**
+ * `PROBLEM_VALIDATING`이고, 조건을 못 채우면 `PUBLISH_CONDITIONS_NOT_MET`과 함께
+ * 그때의 `unmetConditions`를 준다.
+ */
+export async function publishProblem(id: number): Promise<void> {
+  const result = await api.POST('/api/admin/problems/{id}/publish', { params: { path: { id } } })
+  // 본문 없는 204라 `error`가 아니라 상태로 가른다 (`startValidation`과 같다).
+  if (!result.response.ok) fail(result)
+}
+
+/**
+ * 비공개 (ADM-06). 공개 중인 버전을 지난 버전으로 바꾼다.
+ *
+ * 사용자 목록에서 사라지고 상세·제출·예제 실행이 404가 된다. 기존 제출 기록은 남고,
+ * 초안이 있으면 초안은 그대로 둔다(계약). 공개 중인 버전이 없어도 204다.
+ */
+export async function unpublishProblem(id: number): Promise<void> {
+  const result = await api.POST('/api/admin/problems/{id}/unpublish', { params: { path: { id } } })
+  if (!result.response.ok) fail(result)
+}
+
+/**
+ * 공개 거절이 함께 준 못 채운 조건 (ADM-06). 다른 오류면 undefined다.
+ *
+ * `fail`이 본문을 그대로 펼쳐 던지므로 오류 객체에 실려 온다. 이걸 읽는 까닭은 조건이
+ * **내 화면 밖에서 바뀔 수 있기** 때문이다 — 보는 사이 다른 관리자가 케이스를 지웠거나,
+ * 저장으로 검증 기록이 지워졌을 수 있다. 상세를 다시 받기 전에 이 값으로 먼저 고쳐 그린다.
+ */
+export function unmetFromError(error: unknown): PublishCondition[] | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const value = (error as { unmetConditions?: unknown }).unmetConditions
+  // 모양을 믿지 않는다. 문자열 배열이 아니면 없는 것으로 다룬다 — 조건 줄을 그리다 깨지면
+  // 거절 이유를 아예 못 보게 된다.
+  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return undefined
+  return value as PublishCondition[]
 }
