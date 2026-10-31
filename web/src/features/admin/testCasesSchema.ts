@@ -1,5 +1,4 @@
 import { z } from 'zod'
-import type { UseFormReturn } from 'react-hook-form'
 
 import type { AdminTestCase, TestCaseInput } from '@/api/types'
 
@@ -31,23 +30,46 @@ export function formatBytes(bytes: number): string {
  * 바이트 상한은 행마다 검사한다 — 어느 행이 넘쳤는지 말해 주어야 고칠 수 있다.
  * 합(10MiB)은 행 하나로는 알 수 없어 저장 직전에 `totalBytesError`로 본다.
  */
-const caseSchema = z.object({
-  caseType: z.enum(['SAMPLE', 'HIDDEN']),
-  input: z.string().refine((value) => utf8Bytes(value) <= MAX_INPUT_BYTES, '입력이 2MiB를 넘어요'),
-  output: z
-    .string()
-    .refine((value) => utf8Bytes(value) <= MAX_OUTPUT_BYTES, '기대 출력이 1MiB를 넘어요'),
-})
+/**
+ * 서버가 그 케이스에 대해 알려 준 것.
+ *
+ * **행과 함께 들고 다닌다.** 표의 위치로 맞추면 행을 지우거나 ZIP으로 바꿀 때 밀려서
+ * 다른 케이스의 크기와 검증 상태가 붙는다 — 검증 통과한 케이스를 지우면 그 아래 행이
+ * '검증 통과'를 물려받는다.
+ */
+export type CaseMeta = Pick<AdminTestCase, 'inputBytes' | 'outputBytes' | 'validation'>
+
+const caseSchema = z
+  .object({
+    caseType: z.enum(['SAMPLE', 'HIDDEN']),
+    input: z
+      .string()
+      .refine((value) => utf8Bytes(value) <= MAX_INPUT_BYTES, '입력이 2MiB를 넘어요'),
+    output: z
+      .string()
+      .refine((value) => utf8Bytes(value) <= MAX_OUTPUT_BYTES, '기대 출력이 1MiB를 넘어요'),
+    // 화면만 쓰는 값이라 검사하지 않는다. 다만 빠뜨리면 거절되므로, 메타 없는 행을
+    // 만들어 두고 다른 케이스의 크기를 보여 주는 일은 생기지 않는다.
+    meta: z.custom<CaseMeta | null>(),
+  })
+  // 저장 본문에서 meta를 뺀다. 서버 `TestCaseInput`에 없는 칸이라 보내면 안 된다.
+  .transform(({ caseType, input, output }) => ({ caseType, input, output }))
 
 export const testCasesSchema = z.object({
   cases: z.array(caseSchema).max(MAX_CASES, `케이스는 ${MAX_CASES}개까지예요`),
 })
 
-export type TestCasesForm = z.infer<typeof testCasesSchema>
-export type TestCasesFormApi = UseFormReturn<TestCasesForm>
+/** 폼이 들고 있는 한 줄. 서버가 모르는 행(새로 더한 행·ZIP으로 읽은 행)은 `meta`가 null이다. */
+export type CaseRow = z.input<typeof caseSchema>
+
+/** 폼이 들고 있는 값. `meta`가 붙어 있다. */
+export type TestCasesForm = z.input<typeof testCasesSchema>
+
+/** 검사를 지난 저장 본문. transform이 `meta`를 떼어 낸 모양이다. */
+export type TestCasesBody = z.output<typeof testCasesSchema>
 
 /** 빈 행. 종류는 공개 예제가 먼저 필요해(공개 조건 2개·검증의 전제) 그쪽을 기본값으로 둔다. */
-export const EMPTY_CASE: TestCaseInput = { caseType: 'SAMPLE', input: '', output: '' }
+export const EMPTY_CASE: CaseRow = { caseType: 'SAMPLE', input: '', output: '', meta: null }
 
 /**
  * 합계 상한을 넘겼는지. 넘겼으면 문구, 아니면 null.
@@ -61,13 +83,23 @@ export function totalBytesError(cases: TestCaseInput[]): string | null {
   return `모든 케이스의 합이 10MiB를 넘어요 (지금 ${formatBytes(total)})`
 }
 
-/** 불러온 케이스를 폼 모양으로. 바이트 수와 검증 결과는 폼이 들지 않는다 — 표가 따로 읽는다. */
+/** 불러온 케이스를 폼 모양으로. 서버가 세어 준 크기와 검증 상태를 행에 달아 둔다. */
 export function toForm(cases: AdminTestCase[]): TestCasesForm {
   return {
     cases: cases.map((item) => ({
       caseType: item.caseType,
       input: item.input,
       output: item.output,
+      meta: {
+        inputBytes: item.inputBytes,
+        outputBytes: item.outputBytes,
+        validation: item.validation,
+      },
     })),
   }
+}
+
+/** 서버가 아직 모르는 케이스를 행으로. ZIP에서 읽은 것이 여기로 온다. */
+export function toRows(cases: TestCaseInput[]): CaseRow[] {
+  return cases.map((item) => ({ ...item, meta: null }))
 }

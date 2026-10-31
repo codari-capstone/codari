@@ -5,6 +5,8 @@ import {
   MAX_INPUT_BYTES,
   MAX_OUTPUT_BYTES,
   testCasesSchema,
+  toForm,
+  toRows,
   totalBytesError,
   utf8Bytes,
 } from './testCasesSchema'
@@ -43,7 +45,7 @@ const BIG_OUTPUT = 'a'.repeat(MAX_OUTPUT_BYTES)
 describe('testCasesSchema', () => {
   it('글을 다듬지 않는다', () => {
     const parsed = testCasesSchema.parse({
-      cases: [{ caseType: 'SAMPLE', input: ' 1 2 \n', output: '3\n\n' }],
+      cases: [{ caseType: 'SAMPLE', input: ' 1 2 \n', output: '3\n\n', meta: null }],
     })
 
     // 계약: "글은 받은 그대로 저장한다 — 앞뒤 공백·줄바꿈 포함." trim을 걸면 기대 출력의
@@ -53,7 +55,9 @@ describe('testCasesSchema', () => {
 
   it('빈 입력·기대 출력을 받는다', () => {
     expect(
-      testCasesSchema.safeParse({ cases: [{ caseType: 'HIDDEN', input: '', output: '' }] }).success,
+      testCasesSchema.safeParse({
+        cases: [{ caseType: 'HIDDEN', input: '', output: '', meta: null }],
+      }).success,
     ).toBe(true)
   })
 
@@ -62,6 +66,7 @@ describe('testCasesSchema', () => {
       caseType: 'SAMPLE' as const,
       input: '',
       output: '',
+      meta: null,
     }))
 
     const result = testCasesSchema.safeParse({ cases })
@@ -73,8 +78,8 @@ describe('testCasesSchema', () => {
   it('입력 2MiB를 넘긴 행을 짚어 준다', () => {
     const result = testCasesSchema.safeParse({
       cases: [
-        { caseType: 'SAMPLE', input: '', output: '' },
-        { caseType: 'HIDDEN', input: BIG_INPUT + 'a', output: '' },
+        { caseType: 'SAMPLE', input: '', output: '', meta: null },
+        { caseType: 'HIDDEN', input: BIG_INPUT + 'a', output: '', meta: null },
       ],
     })
 
@@ -86,7 +91,7 @@ describe('testCasesSchema', () => {
 
   it('기대 출력 1MiB를 넘긴 행을 짚어 준다', () => {
     const result = testCasesSchema.safeParse({
-      cases: [{ caseType: 'SAMPLE', input: '', output: BIG_OUTPUT + 'a' }],
+      cases: [{ caseType: 'SAMPLE', input: '', output: BIG_OUTPUT + 'a', meta: null }],
     })
 
     expect(result.success).toBe(false)
@@ -96,9 +101,39 @@ describe('testCasesSchema', () => {
   it('상한만큼은 받는다', () => {
     expect(
       testCasesSchema.safeParse({
-        cases: [{ caseType: 'SAMPLE', input: BIG_INPUT, output: '' }],
+        cases: [{ caseType: 'SAMPLE', input: BIG_INPUT, output: '', meta: null }],
       }).success,
     ).toBe(true)
+  })
+
+  /**
+   * `meta`(서버가 세어 준 크기·검증 상태)는 표가 행마다 들고 다니는 값이다. 서버
+   * `TestCaseInput`에 없는 칸이라 저장 본문에 섞이면 안 된다.
+   */
+  it('meta를 저장 본문에서 떼어 낸다', () => {
+    const parsed = testCasesSchema.parse({
+      cases: [
+        {
+          caseType: 'HIDDEN',
+          input: '1',
+          output: '2',
+          meta: { inputBytes: 1, outputBytes: 1, validation: { PYTHON: null, CPP: null } },
+        },
+      ],
+    })
+
+    expect(parsed.cases[0]).toEqual({ caseType: 'HIDDEN', input: '1', output: '2' })
+  })
+
+  // meta 없는 행을 만들어 두면 그 행이 다른 케이스의 크기를 보여 주게 된다. 조용히
+  // 통과시키지 않고 거절해, 행을 만드는 쪽(toForm·toRows·EMPTY_CASE)에서 드러나게 한다.
+  it('meta를 빠뜨린 행은 거절한다', () => {
+    const result = testCasesSchema.safeParse({
+      cases: [{ caseType: 'SAMPLE', input: '', output: '' }],
+    })
+
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.path).toEqual(['cases', 0, 'meta'])
   })
 })
 
@@ -120,5 +155,30 @@ describe('totalBytesError', () => {
 
     expect(totalBytesError(cases)).toContain('10MiB를 넘어요')
     expect(totalBytesError(cases)).toContain('12.0MB')
+  })
+})
+
+describe('toForm · toRows', () => {
+  const loaded = {
+    caseType: 'HIDDEN' as const,
+    input: '1',
+    output: '2',
+    inputBytes: 1,
+    outputBytes: 1,
+    validation: { PYTHON: null, CPP: null },
+  }
+
+  it('불러온 케이스에는 서버가 세어 준 값을 달아 둔다', () => {
+    expect(toForm([loaded]).cases[0]?.meta).toEqual({
+      inputBytes: 1,
+      outputBytes: 1,
+      validation: { PYTHON: null, CPP: null },
+    })
+  })
+
+  // ZIP에서 읽은 행은 서버가 아직 모른다. meta를 null로 둬야 크기 자리에 옛 값이 아닌
+  // '저장하면 크기를 계산해요'가 뜬다.
+  it('ZIP에서 읽은 행은 meta가 null이다', () => {
+    expect(toRows([{ caseType: 'SAMPLE', input: '1', output: '2' }])[0]?.meta).toBeNull()
   })
 })

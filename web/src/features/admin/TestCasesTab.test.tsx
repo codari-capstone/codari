@@ -1,11 +1,12 @@
-import { QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import type { TestCaseInput } from '@/api/types'
 import { createQueryClient } from '@/app/queryClient'
+import { ME_QUERY_KEY } from '@/features/auth/authQuery'
 import { resetAdminProblems } from '@/mocks/handlers'
 import { server } from '@/mocks/server'
 import { TestCasesTab } from './TestCasesTab'
@@ -15,12 +16,22 @@ import { TestCasesTab } from './TestCasesTab'
  * 섞이는 문제는 AdminProblemFormPage 쪽 테스트가 본다.
  */
 function renderTab(
-  options: { problemId?: number; locked?: boolean; publishedVersionNo?: number | null } = {},
+  options: {
+    problemId?: number
+    locked?: boolean
+    publishedVersionNo?: number | null
+    client?: QueryClient
+  } = {},
 ) {
-  const { problemId = 1, locked = false, publishedVersionNo = 1 } = options
+  const {
+    problemId = 1,
+    locked = false,
+    publishedVersionNo = 1,
+    client = createQueryClient(),
+  } = options
 
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <TestCasesTab
         problemId={problemId}
         locked={locked}
@@ -47,6 +58,33 @@ function uploadZip(file: File) {
 
 function zipFile(sizeBytes: number) {
   return new File([new Uint8Array(sizeBytes)], 'cases.zip', { type: 'application/zip' })
+}
+
+/** 검증 기록과 크기가 서로 다른 케이스 둘. 행이 밀리는지 보려면 값이 달라야 한다. */
+const TAGGED_CASES = [
+  {
+    caseType: 'SAMPLE' as const,
+    input: 'first',
+    output: 'a',
+    inputBytes: 5,
+    outputBytes: 1,
+    validation: { PYTHON: null, CPP: null },
+  },
+  {
+    caseType: 'HIDDEN' as const,
+    input: 'second',
+    output: 'bb',
+    inputBytes: 6,
+    outputBytes: 2,
+    validation: {
+      PYTHON: { verdict: 'ACCEPTED' as const, timeMs: 10, memoryKb: 100, message: null },
+      CPP: null,
+    },
+  },
+]
+
+function serveTagged() {
+  server.use(http.get('*/api/admin/problems/:id/test-cases', () => HttpResponse.json(TAGGED_CASES)))
 }
 
 afterEach(() => resetAdminProblems())
@@ -224,5 +262,138 @@ describe('TestCasesTab', () => {
     expect(
       await screen.findByRole('button', { name: '다시 시도' }, { timeout: 3000 }),
     ).toBeInTheDocument()
+  })
+
+  // 리뷰 지적(major·minor): 서버 메타데이터를 행 위치로 맞추면 행을 지우거나 ZIP으로
+  // 바꿀 때 밀려서, 다른 케이스의 크기와 검증 상태가 그 행 것처럼 보인다.
+  describe('서버 메타데이터가 행을 따라간다', () => {
+    it('행을 지우면 남은 행이 자기 검증 상태를 그대로 보여 준다', async () => {
+      const user = userEvent.setup()
+      serveTagged()
+      renderTab()
+      await screen.findByText(/공개 예제 1개/)
+      expect(screen.getByText('입력 5B · 출력 1B')).toBeInTheDocument()
+
+      await expand(user, '1. 공개 예제')
+      await user.click(screen.getByRole('button', { name: '1번 케이스 지우기' }))
+
+      // 남은 것은 2번 케이스다. 1번의 '검증 전'과 5B를 물려받으면 안 된다.
+      expect(screen.getByText('검증 1/1 통과')).toBeInTheDocument()
+      expect(screen.getByText('입력 6B · 출력 2B')).toBeInTheDocument()
+      expect(screen.queryByText('입력 5B · 출력 1B')).not.toBeInTheDocument()
+    })
+
+    it('행을 더해도 손대지 않은 행의 크기는 그대로다', async () => {
+      const user = userEvent.setup()
+      serveTagged()
+      renderTab()
+      await screen.findByText('입력 5B · 출력 1B')
+
+      await user.click(screen.getByRole('button', { name: '케이스 더하기' }))
+
+      // useFieldArray의 append가 dirtyFields를 전체 다시 계산해도 영향이 없어야 한다.
+      expect(screen.getByText('입력 5B · 출력 1B')).toBeInTheDocument()
+      expect(screen.getByText('입력 6B · 출력 2B')).toBeInTheDocument()
+    })
+
+    it('글을 고친 행만 크기를 저장 뒤로 미룬다', async () => {
+      const user = userEvent.setup()
+      serveTagged()
+      renderTab()
+      await screen.findByText('입력 5B · 출력 1B')
+
+      await expand(user, '1. 공개 예제')
+      await user.type(screen.getByLabelText('1번 입력'), 'x')
+
+      expect(screen.getByText('저장하면 크기를 계산해요')).toBeInTheDocument()
+      expect(screen.queryByText('입력 5B · 출력 1B')).not.toBeInTheDocument()
+      // 2번 행은 손대지 않았다.
+      expect(screen.getByText('입력 6B · 출력 2B')).toBeInTheDocument()
+    })
+
+    it('ZIP으로 읽은 행에는 옛 크기와 검증 상태가 붙지 않는다', async () => {
+      serveTagged()
+      renderTab()
+      await screen.findByText('입력 5B · 출력 1B')
+
+      uploadZip(zipFile(100))
+
+      await screen.findByText(/3개를 읽었어요/)
+      expect(screen.queryByText('입력 5B · 출력 1B')).not.toBeInTheDocument()
+      expect(screen.queryByText('검증 1/1 통과')).not.toBeInTheDocument()
+      expect(screen.getAllByText('저장하면 크기를 계산해요')).toHaveLength(3)
+      expect(screen.getAllByText('저장 전')).toHaveLength(3)
+    })
+  })
+
+  // 리뷰 지적(minor): readZip에 onError가 없어 401이어도 세션을 정리하지 않고, 직전
+  // 성공 안내가 오류 옆에 남는다.
+  it('ZIP 읽기가 실패하면 직전 성공 안내를 지운다', async () => {
+    let fail = false
+    server.use(
+      http.post('*/api/admin/problems/:id/test-cases/zip', () =>
+        fail
+          ? HttpResponse.json(
+              { status: 400, code: 'ZIP_INVALID', detail: '폴더 이름이 달라요' },
+              { status: 400 },
+            )
+          : HttpResponse.json([{ caseType: 'SAMPLE', input: '1', output: '2' }]),
+      ),
+    )
+    renderTab()
+    await screen.findByText(/공개 예제 2개/)
+
+    uploadZip(zipFile(100))
+    await screen.findByText(/1개를 읽었어요/)
+
+    fail = true
+    uploadZip(zipFile(100))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('폴더 이름이 달라요')
+    expect(screen.queryByText(/읽었어요/)).not.toBeInTheDocument()
+  })
+
+  it('ZIP 읽기가 401이면 세션을 비운다', async () => {
+    const client = createQueryClient()
+    client.setQueryData(ME_QUERY_KEY, { id: 1, nickname: '관리자', role: 'ADMIN' })
+    server.use(
+      http.post('*/api/admin/problems/:id/test-cases/zip', () =>
+        HttpResponse.json({ status: 401, title: 'Unauthorized' }, { status: 401 }),
+      ),
+    )
+    renderTab({ client })
+    await screen.findByText(/공개 예제 2개/)
+
+    uploadZip(zipFile(100))
+
+    // 문구만 띄우면 만료된 채로 화면에 남는다. 로그인 화면으로 보내려면 캐시를 비워야 한다.
+    await waitFor(() => expect(client.getQueryData(ME_QUERY_KEY)).toBeNull())
+  })
+
+  // 리뷰 지적(minor): 둘이 같이 돌면 저장의 재조회가 방금 읽어 온 표를 덮는다.
+  it('ZIP을 읽는 동안에는 저장할 수 없다', async () => {
+    let release = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    server.use(
+      http.post('*/api/admin/problems/:id/test-cases/zip', async () => {
+        await gate
+        return HttpResponse.json([{ caseType: 'SAMPLE', input: '1', output: '2' }])
+      }),
+    )
+    renderTab()
+    await screen.findByText(/공개 예제 2개/)
+
+    uploadZip(zipFile(100))
+
+    expect(await screen.findByRole('button', { name: 'ZIP 읽는 중…' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '케이스 저장' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '케이스 더하기' })).toBeDisabled()
+
+    await act(async () => {
+      release()
+    })
+    await screen.findByText(/1개를 읽었어요/)
   })
 })

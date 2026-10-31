@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useFieldArray, useForm, useWatch } from 'react-hook-form'
 
-import type { AdminTestCase, CaseType } from '@/api/types'
+import type { CaseType } from '@/api/types'
 import { ErrorState } from '@/components/ErrorState'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
@@ -18,7 +18,10 @@ import {
   MAX_ZIP_BYTES,
   testCasesSchema,
   toForm,
+  toRows,
   totalBytesError,
+  type CaseMeta,
+  type TestCasesBody,
   type TestCasesForm,
 } from './testCasesSchema'
 
@@ -33,7 +36,7 @@ const CASE_TYPE_LABEL: Record<CaseType, string> = {
  * 판정 내용은 보여 주지 않는다 — 케이스별 결과 표는 ADM-05 탭의 몫이고(계약이 그렇게
  * 나눠 뒀다), 여기서는 "검증했는지"만 알면 된다.
  */
-function validationLabel(validation: AdminTestCase['validation']): string {
+function validationLabel(validation: CaseMeta['validation']): string {
   const entries = (['PYTHON', 'CPP'] as const).filter((language) => validation[language] !== null)
   if (entries.length === 0) return '검증 전'
 
@@ -69,8 +72,15 @@ export function TestCasesTab({
   const [zipError, setZipError] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
-  const form = useForm<TestCasesForm>({
+  // 세 번째 제네릭이 handleSubmit에 **검사를 지난 값**을 준다 — 스키마에 `meta`가 없어
+  // zod가 걸러 내므로, 표가 들고 있는 서버 메타데이터가 저장 본문에 섞이지 않는다.
+  //
+  // `reValidateMode`를 기본값(onChange)으로 두면 저장이 한 번 실패한 뒤로는 어느 칸에서든
+  // 한 글자 칠 때마다 전체 케이스를 다시 인코딩한다. 입력이 2MiB까지 오는 폼이라 그만큼이
+  // 매 타이핑마다 돌아간다.
+  const form = useForm<TestCasesForm, unknown, TestCasesBody>({
     resolver: zodResolver(testCasesSchema),
+    reValidateMode: 'onSubmit',
     defaultValues: { cases: [] },
   })
   const rows = useFieldArray({ control: form.control, name: 'cases' })
@@ -85,7 +95,7 @@ export function TestCasesTab({
   }, [queryClient, cases.error])
 
   const save = useMutation({
-    mutationFn: (body: TestCasesForm) => saveTestCases(problemId, body.cases),
+    mutationFn: (body: TestCasesBody) => saveTestCases(problemId, body.cases),
     onSuccess: async (saved) => {
       // 저장하면 검증 기록이 지워진다(계약). 그 말을 하지 않으면 공개 조건이 왜 뒤로
       // 갔는지 알 수 없다.
@@ -105,9 +115,15 @@ export function TestCasesTab({
     mutationFn: (file: File) => readTestCaseZip(problemId, file),
     onSuccess: (read) => {
       // 읽기만 한다 — 저장은 따로 누른다(계약). 표를 바꿨으니 저장해야 한다고 알린다.
-      form.reset({ cases: read }, { keepDirty: false })
-      form.setValue('cases', read, { shouldDirty: true })
+      // 읽어 온 행은 `meta`가 null이라 크기·검증 자리에 '저장하면' 문구가 뜬다.
+      form.reset({ cases: toRows(read) })
       setNotice(`ZIP에서 ${read.length}개를 읽었어요. 저장을 눌러야 저장돼요`)
+    },
+    onError: (error) => {
+      // 직전 성공 안내를 지운다. 두면 '읽었어요'와 오류가 함께 남아 어느 쪽이 지금
+      // 상태인지 알 수 없다. 읽기도 401로 끝날 수 있어 세션도 정리한다.
+      setNotice(null)
+      forgetSessionIfUnauthorized(queryClient, error)
     },
   })
 
@@ -127,7 +143,21 @@ export function TestCasesTab({
     readZip.mutate(file)
   }
 
-  function handleSave(values: TestCasesForm) {
+  /**
+   * 그 행의 글을 고치면, 서버가 세어 준 크기와 검증 기록은 더 이상 이 행의 것이 아니다.
+   *
+   * 폼의 `dirtyFields`로 판단하지 않는 까닭: useFieldArray의 append·remove가 그걸 전체
+   * 다시 계산해, 손대지 않은 행이 '편집됨'이 되고 행을 지우면 밀린 행이 아래 행의 값을
+   * 쓴다. meta를 행에 달아 두고 글이 바뀔 때 비우면 순서가 바뀌어도 맞는다.
+   *
+   * 이미 null이면 `setValue`를 부르지 않는다 — 타이핑마다 리렌더가 돌지 않게.
+   */
+  function forgetMeta(index: number) {
+    if (form.getValues(`cases.${index}.meta`) === null) return
+    form.setValue(`cases.${index}.meta`, null)
+  }
+
+  function handleSave(values: TestCasesBody) {
     const tooBig = totalBytesError(values.cases)
     if (tooBig) {
       form.setError('cases', { message: tooBig })
@@ -142,7 +172,9 @@ export function TestCasesTab({
   const watched = useWatch({ control: form.control, name: 'cases' })
   const sampleCount = watched.filter((item) => item.caseType === 'SAMPLE').length
   const hiddenCount = watched.length - sampleCount
-  const dirtyRows = form.formState.dirtyFields.cases
+  // ZIP 읽기와 저장이 같이 돌면, 저장의 재조회가 방금 읽어 온 표를 덮어쓴다. 어느 쪽이든
+  // 도는 동안에는 둘 다 막는다.
+  const busy = save.isPending || readZip.isPending
 
   if (cases.error) return <ErrorState problem={cases.error} onRetry={() => void cases.refetch()} />
   if (cases.isPending) return <ListSkeleton rows={4} />
@@ -199,26 +231,24 @@ export function TestCasesTab({
         ) : (
           <ul className="flex flex-col gap-2">
             {rows.fields.map((field, index) => {
-              const saved = cases.data?.[index]
-              const edited = dirtyRows?.[index] !== undefined
               // 새 행은 watch가 아직 비어 있을 수 있어 field의 기본값으로 떨어진다.
-              const caseType = watched[index]?.caseType ?? field.caseType
+              const row = watched[index] ?? field
 
               return (
                 <li key={field.id} className="border-border rounded-xl border">
                   <details>
                     <summary className="flex min-h-11 cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
-                      <span className="font-medium">{`${index + 1}. ${CASE_TYPE_LABEL[caseType]}`}</span>
+                      <span className="font-medium">{`${index + 1}. ${CASE_TYPE_LABEL[row.caseType]}`}</span>
                       <span className="text-muted-foreground text-xs">
                         {/* 바이트는 서버가 세어 준 값을 쓴다(계약이 담아 주는 이유다).
                             고친 행은 저장할 때 세므로 그 말을 적는다 — 2MiB 값에
                             매 타이핑마다 TextEncoder를 돌리지 않는다. */}
-                        {edited || saved === undefined
+                        {row.meta === null
                           ? '저장하면 크기를 계산해요'
-                          : `입력 ${formatBytes(saved.inputBytes)} · 출력 ${formatBytes(saved.outputBytes)}`}
+                          : `입력 ${formatBytes(row.meta.inputBytes)} · 출력 ${formatBytes(row.meta.outputBytes)}`}
                       </span>
                       <span className="text-muted-foreground ml-auto text-xs">
-                        {saved === undefined ? '저장 전' : validationLabel(saved.validation)}
+                        {row.meta === null ? '저장 전' : validationLabel(row.meta.validation)}
                       </span>
                     </summary>
 
@@ -244,7 +274,9 @@ export function TestCasesTab({
                         <textarea
                           id={`cases.${index}.input`}
                           rows={4}
-                          {...form.register(`cases.${index}.input`)}
+                          {...form.register(`cases.${index}.input`, {
+                            onChange: () => forgetMeta(index),
+                          })}
                           className="border-input bg-background rounded-md border px-3 py-2 font-mono text-sm"
                         />
                         {form.formState.errors.cases?.[index]?.input ? (
@@ -261,7 +293,9 @@ export function TestCasesTab({
                         <textarea
                           id={`cases.${index}.output`}
                           rows={4}
-                          {...form.register(`cases.${index}.output`)}
+                          {...form.register(`cases.${index}.output`, {
+                            onChange: () => forgetMeta(index),
+                          })}
                           className="border-input bg-background rounded-md border px-3 py-2 font-mono text-sm"
                         />
                         {form.formState.errors.cases?.[index]?.output ? (
@@ -295,7 +329,7 @@ export function TestCasesTab({
               type="button"
               variant="outline"
               className="min-h-11"
-              disabled={rows.fields.length >= MAX_CASES}
+              disabled={busy || rows.fields.length >= MAX_CASES}
               onClick={() => rows.append(EMPTY_CASE, { shouldFocus: false })}
             >
               케이스 더하기
@@ -304,7 +338,7 @@ export function TestCasesTab({
               type="button"
               variant="outline"
               className="min-h-11"
-              disabled={readZip.isPending}
+              disabled={busy}
               onClick={() => fileInput.current?.click()}
             >
               {readZip.isPending ? 'ZIP 읽는 중…' : 'ZIP 올리기'}
@@ -319,7 +353,7 @@ export function TestCasesTab({
               className="hidden"
               onChange={handleZipChange}
             />
-            <Button type="submit" className="min-h-11" disabled={save.isPending}>
+            <Button type="submit" className="min-h-11" disabled={busy}>
               {save.isPending ? '저장 중…' : '케이스 저장'}
             </Button>
           </div>
