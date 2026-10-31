@@ -25,6 +25,7 @@ import {
   type ProblemInputBody,
 } from './problemInputSchema'
 import { StatementTab } from './StatementTab'
+import { TestCasesTab } from './TestCasesTab'
 import { VersionsTab } from './VersionsTab'
 
 /** 기본 정보 탭이 들고 있는 칸. 숨은 탭의 오류를 어디서 보여 줄지 가르는 데 쓴다. */
@@ -84,6 +85,15 @@ function AdminProblemForm() {
   /** 체크박스를 눌러 바꾼 값. 누르기 전에는 불러온 값에서 판단한다. */
   const [manualOverride, setManualOverride] = useState<boolean | null>(null)
   const [tab, setTab] = useState('basic')
+  /**
+   * 케이스 탭을 한 번이라도 열었는지.
+   *
+   * Radix는 보이지 않는 패널을 언마운트한다. 케이스 폼은 그 패널 안에 있어서, 지문 탭을
+   * 보고 돌아오면 ZIP으로 읽은 내용과 고친 행이 안내도 없이 사라진다. 한 번 연 뒤로는
+   * `forceMount`로 붙잡아 둔다 — 열기 전에는 붙잡지 않으므로, 탭을 쓰지 않는 사람에게
+   * 케이스 조회가 한 번 더 나가지는 않는다.
+   */
+  const [openedCases, setOpenedCases] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
   const loaded = version.data ?? detail.data
@@ -99,9 +109,16 @@ function AdminProblemForm() {
   const manualPython =
     manualOverride ?? (loaded !== undefined && !followsPythonFormula(loaded.languages))
 
+  /**
+   * 불러온 내용을 폼에 넣는다.
+   *
+   * `keepDirtyValues`가 **고치던 칸만** 남기고 나머지를 새 값으로 맞춘다. 없으면 상세를
+   * 다시 받을 때마다 폼이 통째로 되돌아간다 — 케이스 탭에서 저장하면 공개 조건이 바뀌어
+   * 상세가 재조회되므로, 기본 정보 탭에서 고치던 제목이 안내도 없이 사라진다.
+   */
   useEffect(() => {
     if (loaded === undefined) return
-    form.reset(toForm(loaded))
+    form.reset(toForm(loaded), { keepDirtyValues: true })
   }, [loaded, form])
 
   // 읽기도 401로 끝날 수 있다. 저장(mutation)만 세션을 정리하면, 화면을 띄워 둔 채
@@ -215,32 +232,52 @@ function AdminProblemForm() {
         </p>
       ) : null}
 
-      <form
-        aria-label={isNew ? '새 문제' : '문제 수정'}
-        noValidate
-        className="flex flex-col gap-4"
-        onSubmit={form.handleSubmit(
-          (values) => save.mutate(values),
-          (errors) => setTab(firstErrorTab(errors)),
-        )}
+      <Tabs
+        value={tab}
+        onValueChange={(next) => {
+          setTab(next)
+          if (next === 'cases') setOpenedCases(true)
+        }}
       >
-        <Tabs value={tab} onValueChange={setTab}>
-          {/* 탭 버튼은 fieldset 밖에 둔다. 안에 두면 disabled가 버튼까지 잠가, 읽기
-              전용·검증 중 화면에서 '기본 정보'에 갇혀 지문도 버전도 볼 수 없다. */}
-          <TabsList aria-label="문제 작성 영역" className="min-h-11">
-            <TabsTrigger value="basic" className="min-h-11">
-              기본 정보
+        {/* 탭 버튼은 fieldset 밖에 둔다. 안에 두면 disabled가 버튼까지 잠가, 읽기
+            전용·검증 중 화면에서 '기본 정보'에 갇혀 지문도 버전도 볼 수 없다.
+            탭이 넷이라 좁은 화면에서는 가로로 밀어 본다. */}
+        <TabsList aria-label="문제 작성 영역" className="min-h-11 max-w-full overflow-x-auto">
+          <TabsTrigger value="basic" className="min-h-11">
+            기본 정보
+          </TabsTrigger>
+          <TabsTrigger value="statement" className="min-h-11">
+            지문
+          </TabsTrigger>
+          {/* 지난 버전 보기에는 케이스 탭을 두지 않는다. `GET .../test-cases`는 버전을
+              받지 않아 최신 버전만 주고(계약에 버전별 조회가 없다), v1 화면에 v2 초안의
+              케이스가 v1 것처럼 보인다 — 관리자가 채점 케이스를 잘못 읽는다. */}
+          {id === null || readOnly ? null : (
+            <TabsTrigger value="cases" className="min-h-11">
+              테스트케이스
             </TabsTrigger>
-            <TabsTrigger value="statement" className="min-h-11">
-              지문
+          )}
+          {id === null ? null : (
+            <TabsTrigger value="versions" className="min-h-11">
+              버전
             </TabsTrigger>
-            {id === null ? null : (
-              <TabsTrigger value="versions" className="min-h-11">
-                버전
-              </TabsTrigger>
-            )}
-          </TabsList>
+          )}
+        </TabsList>
 
+        {/*
+          폼을 탭별로 나눈다. 케이스 탭은 저장이 다른 API(`PUT .../test-cases`)이고,
+          `<form>` 안에 `<form>`은 쓸 수 없다. 그래서 문제 폼은 자기 두 탭만 감싸고,
+          저장 버튼도 그 탭에서만 보인다 — 탭마다 자기 것을 저장한다.
+        */}
+        <form
+          aria-label={isNew ? '새 문제' : '문제 수정'}
+          noValidate
+          className="flex flex-col gap-4"
+          onSubmit={form.handleSubmit(
+            (values) => save.mutate(values),
+            (errors) => setTab(firstErrorTab(errors)),
+          )}
+        >
           {/* disabled 하나로 모든 입력칸이 잠긴다. 링크는 걸리지 않는다.
               TabsContent는 Tabs의 context로 동작해 fieldset을 사이에 끼워도 된다. */}
           <fieldset disabled={locked} className="contents">
@@ -254,22 +291,29 @@ function AdminProblemForm() {
                 onManualPythonChange={setManualOverride}
               />
             </TabsContent>
-            {id === null ? null : (
-              <TabsContent value="versions">
-                <VersionsTab problemId={id} />
-              </TabsContent>
-            )}
           </fieldset>
-        </Tabs>
 
-        {locked ? null : (
-          <div>
-            <Button type="submit" className="min-h-11" disabled={save.isPending}>
-              {save.isPending ? '저장 중…' : '저장'}
-            </Button>
-          </div>
+          {locked || (tab !== 'basic' && tab !== 'statement') ? null : (
+            <div>
+              <Button type="submit" className="min-h-11" disabled={save.isPending}>
+                {save.isPending ? '저장 중…' : '저장'}
+              </Button>
+            </div>
+          )}
+        </form>
+
+        {id === null || readOnly || !openedCases ? null : (
+          // forceMount면 Radix가 hidden을 끄지만, 뒤에 오는 prop이 이겨 우리가 다시 건다.
+          <TabsContent value="cases" forceMount hidden={tab !== 'cases'}>
+            <TestCasesTab problemId={id} locked={locked} before={before} />
+          </TabsContent>
         )}
-      </form>
+        {id === null ? null : (
+          <TabsContent value="versions">
+            <VersionsTab problemId={id} />
+          </TabsContent>
+        )}
+      </Tabs>
     </section>
   )
 }

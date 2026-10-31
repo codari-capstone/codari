@@ -130,3 +130,24 @@ export type AdminProblemDetail = components['schemas']['AdminProblemDetail']
 
 /** 못 채운 공개 조건 (ADM-06). 비어 있으면 공개할 수 있다(계약). 화면은 #37이 만든다. */
 export type PublishCondition = components['schemas']['PublishCondition']
+
+/**
+ * 테스트케이스 하나를 보낼 때의 모양 (ADM-04). 저장과 ZIP 읽기가 같은 모양을 쓴다.
+ *
+ * 글은 받은 그대로 저장된다(계약) — 앞뒤 공백·줄바꿈까지. 화면이 다듬으면 기대 출력이
+ * 달라져 채점이 틀어진다.
+ */
+export type TestCaseInput = components['schemas']['TestCaseInput']
+
+/** 케이스 종류. `SAMPLE` 공개 예제(문제 화면에 보임), `HIDDEN` 비공개(채점에만 씀). */
+export type CaseType = TestCaseInput['caseType']
+
+/**
+ * 불러온 테스트케이스 (ADM-04). 보낸 모양 + 바이트 수 + 언어별 검증 결과.
+ *
+ * 바이트 수를 서버가 담아 주므로 **화면이 세지 않는다**. 새로 쓴 행만 저장할 때 센다.
+ */
+export type AdminTestCase = components['schemas']['AdminTestCase']
+
+/** 케이스 하나를 정답 코드 하나로 돌린 결과 (ADM-04 상태 칸·ADM-05 결과 표). */
+export type CaseValidation = components['schemas']['CaseValidation']

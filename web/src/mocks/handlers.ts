@@ -1,6 +1,12 @@
 import { http, HttpResponse, type RequestHandler } from 'msw'
 
-import type { Language, LoginRequest, ProblemInput } from '@/api/types'
+import type {
+  AdminTestCase,
+  Language,
+  LoginRequest,
+  ProblemInput,
+  TestCaseInput,
+} from '@/api/types'
 import { DIFFICULTY_RANK, type Difficulty, type SolveStatus } from '@/api/types'
 import { EMAIL_PATTERN, isValidNickname, isValidPassword } from '@/features/auth/accountRules'
 import {
@@ -48,6 +54,64 @@ function badRequest(detail: string) {
 
 /** 한 페이지의 최대 개수. 서버 ProblemController.MAX_PAGE_SIZE와 같은 값이다. */
 const MAX_PAGE_SIZE = 20
+
+/** 테스트케이스 한도 (ADM-04). 계약의 `replaceTestCases` 설명과 같은 값이다. */
+const MAX_CASES = 10
+const MAX_INPUT_BYTES = 2 * 1024 * 1024
+const MAX_OUTPUT_BYTES = 1024 * 1024
+const MAX_TOTAL_BYTES = 10 * 1024 * 1024
+
+function utf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).length
+}
+
+/** ZIP을 읽었을 때 돌려주는 케이스. 공개 2개·비공개 1개로 섞인 것을 보여 준다. */
+const ZIP_CASES: TestCaseInput[] = [
+  { caseType: 'SAMPLE', input: '1 2\n', output: '3\n' },
+  { caseType: 'SAMPLE', input: '10 20\n', output: '30\n' },
+  { caseType: 'HIDDEN', input: '100 200\n', output: '300\n' },
+]
+
+/**
+ * 케이스 저장 본문 검사 (ADM-04). 한도를 넘으면 400 `TEST_CASE_LIMIT_EXCEEDED`다(계약).
+ *
+ * 화면도 저장 전에 같은 값으로 막지만, 여기서도 센다 — 화면 검사를 지우면 아무 데서도
+ * 걸리지 않는 목이 된다.
+ */
+function checkTestCases(body: TestCaseInput[]) {
+  if (body.length > MAX_CASES) {
+    return problem(400, 'TEST_CASE_LIMIT_EXCEEDED', `케이스는 ${MAX_CASES}개까지예요`)
+  }
+
+  let total = 0
+  for (const [index, item] of body.entries()) {
+    const inputBytes = utf8Bytes(item.input)
+    const outputBytes = utf8Bytes(item.output)
+    if (inputBytes > MAX_INPUT_BYTES) {
+      return problem(400, 'TEST_CASE_LIMIT_EXCEEDED', `${index + 1}번 입력이 2MiB를 넘어요`)
+    }
+    if (outputBytes > MAX_OUTPUT_BYTES) {
+      return problem(400, 'TEST_CASE_LIMIT_EXCEEDED', `${index + 1}번 기대 출력이 1MiB를 넘어요`)
+    }
+    total += inputBytes + outputBytes
+  }
+  if (total > MAX_TOTAL_BYTES) {
+    return problem(400, 'TEST_CASE_LIMIT_EXCEEDED', '모든 케이스의 합이 10MiB를 넘어요')
+  }
+
+  return null
+}
+
+/** 불러올 때의 케이스 한 줄. 바이트 수를 서버가 세어 준다(계약) — 화면은 세지 않는다. */
+function adminTestCase(item: TestCaseInput): AdminTestCase {
+  return {
+    ...item,
+    inputBytes: utf8Bytes(item.input),
+    outputBytes: utf8Bytes(item.output),
+    // 정답 코드와 검증은 PR B에서 담는다. 기록이 없으면 null이 계약의 모양이다.
+    validation: { PYTHON: null, CPP: null },
+  }
+}
 
 /** 코드 길이 한도. 계약의 SOURCE_TOO_LONG과 같은 값이다(UTF-8 64KB). */
 const MAX_SOURCE_BYTES = 64 * 1024
@@ -476,10 +540,11 @@ export const handlers: RequestHandler[] = [
           createdAt: new Date().toISOString(),
           publishedAt: null,
           input: body,
+          // 케이스는 없이 시작한다. 등록 본문(`ProblemInput`)에 케이스가 없고,
+          // 넣는 길은 `PUT .../test-cases`뿐이다(계약).
+          cases: [],
         },
       ],
-      sampleCount: 0,
-      hiddenCount: 0,
     })
 
     return HttpResponse.json(
@@ -552,10 +617,89 @@ export const handlers: RequestHandler[] = [
       createdAt: new Date().toISOString(),
       publishedAt: null,
       input: body,
+      // 계약: "최신 버전을 복사해 새 초안을 만든다." 케이스도 함께 복사한다 — 글을 고쳤다고
+      // 케이스가 사라지면 공개 조건이 뒤로 간다.
+      cases: latest.cases.map((item) => ({ ...item })),
     }
     found.versions.push(created)
 
     return HttpResponse.json({ versionNo: created.versionNo, status: created.status })
+  }),
+
+  /**
+   * 테스트케이스 목록 (ADM-04). 최신 버전의 케이스를 순서대로 준다.
+   *
+   * `validation`은 두 언어 모두 null이다 — 정답 코드와 검증은 PR B(#37)에서 담는다.
+   * 계약이 "그 언어의 검증 기록이 없으면 null"로 정해 둔 모양 그대로다.
+   */
+  http.get('*/api/admin/problems/:id/test-cases', ({ params }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    return HttpResponse.json(latestVersion(found).cases.map(adminTestCase))
+  }),
+
+  /**
+   * 테스트케이스 저장 (ADM-04·07). 버전 분기는 문제 수정(`PUT /api/admin/problems/:id`)과 같다.
+   *
+   * 계약이 정한 순서대로 본다: 검증 중이면 409 → 한도를 넘으면 400 → 같은 목록이면 그대로 →
+   * 초안이면 그 자리 → 공개·비공개면 새 초안(+1). 정답 코드 검증 기록을 지우는 것은 PR B에서
+   * 정답 코드를 담은 뒤 더한다(지금은 지울 기록이 없다).
+   */
+  http.put('*/api/admin/problems/:id/test-cases', async ({ params, request }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    const body = (await request.json()) as TestCaseInput[]
+    const invalid = checkTestCases(body)
+    if (invalid) return invalid
+
+    const latest = latestVersion(found)
+    if (latest.status === 'VALIDATING') {
+      return problem(
+        409,
+        'PROBLEM_VALIDATING',
+        '정답 코드를 검증하는 중이에요. 끝난 뒤 고쳐 주세요',
+      )
+    }
+
+    // 계약: "보낸 목록이 최신 버전의 케이스와 똑같으면 아무것도 바꾸지 않는다."
+    const unchanged = JSON.stringify(body) === JSON.stringify(latest.cases)
+    if (unchanged || latest.status === 'DRAFT') {
+      if (!unchanged) latest.cases = body
+      return HttpResponse.json({ versionNo: latest.versionNo, status: latest.status })
+    }
+
+    const created: MockProblemVersion = {
+      versionNo: latest.versionNo + 1,
+      status: 'DRAFT',
+      createdAt: new Date().toISOString(),
+      publishedAt: null,
+      input: { ...latest.input },
+      cases: body,
+    }
+    found.versions.push(created)
+
+    return HttpResponse.json({ versionNo: created.versionNo, status: created.status })
+  }),
+
+  /**
+   * 테스트케이스 ZIP 읽기 (ADM-04). **저장하지 않는다** — 읽은 목록만 준다(계약).
+   *
+   * 파일을 풀지 않고 정해진 목록을 돌려준다. `jszip`을 더해도 화면 코드가 더 맞아지지
+   * 않는다 — 화면은 `TestCaseInput[]`을 받기만 하고, ZIP 규칙은 서버(#152)가 지킨다.
+   * `ZIP_INVALID`·`TEST_CASE_LIMIT_EXCEEDED`·413은 **여기에 분기를 두지 않고** 테스트에서
+   * `server.use`로 꽂는다. 목에 계약에 없는 규칙을 넣으면 그 규칙을 믿는 테스트가 생긴다.
+   *
+   * shortcut: 목이 ZIP을 풀지 않는다. 실제 파싱은 배포 서버에서 확인한다
+   */
+  http.post('*/api/admin/problems/:id/test-cases/zip', ({ params }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    // 본문을 읽지 않는다. 볼 이유가 없고(목은 ZIP을 풀지 않는다), 읽으면 테스트가 깨진다
+    // — jsdom의 File은 undici의 File이 아니라 `request.formData()`가 거기서 터진다.
+    return HttpResponse.json(ZIP_CASES)
   }),
 
   /** 버전 목록 (ADM-07). 최신 버전부터 준다(계약). */

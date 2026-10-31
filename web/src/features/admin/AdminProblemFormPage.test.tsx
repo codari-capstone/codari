@@ -1,5 +1,5 @@
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { createMemoryRouter, RouterProvider } from 'react-router'
@@ -350,6 +350,182 @@ describe('AdminProblemFormPage', () => {
     await user.click(screen.getByRole('button', { name: '저장' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('직접 입력')
+  })
+
+  /**
+   * 케이스 저장은 다른 API다(`PUT .../test-cases`). `<form>` 안에 `<form>`은 쓸 수 없어
+   * 폼을 탭별로 나눠 뒀다 — 한 폼으로 두면 케이스 저장이 문제 수정까지 보내거나,
+   * 두 저장 버튼이 한 화면에 뜬다.
+   */
+  it('케이스 탭에서는 문제 저장 버튼이 보이지 않는다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+    expect(screen.getByRole('button', { name: '저장' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+
+    expect(await screen.findByRole('button', { name: '케이스 저장' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '저장' })).not.toBeInTheDocument()
+  })
+
+  it('케이스를 저장해도 문제 수정은 보내지 않는다', async () => {
+    const user = userEvent.setup()
+    const sent: string[] = []
+    server.use(
+      http.put('*/api/admin/problems/:id', () => {
+        sent.push('problem')
+        return HttpResponse.json({ versionNo: 1, status: 'PUBLISHED' })
+      }),
+      http.put('*/api/admin/problems/:id/test-cases', () => {
+        sent.push('test-cases')
+        return HttpResponse.json({ versionNo: 2, status: 'DRAFT' })
+      }),
+    )
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    await user.click(await screen.findByRole('button', { name: '케이스 저장' }))
+
+    await waitFor(() => expect(sent).toEqual(['test-cases']))
+  })
+
+  it('새 문제에는 케이스 탭이 없다', async () => {
+    renderPage('/admin/problems/new')
+
+    // 문제 번호가 없으면 부를 API가 없다. 버전 탭과 같은 처리다.
+    expect(screen.queryByRole('tab', { name: '테스트케이스' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '버전' })).not.toBeInTheDocument()
+  })
+
+  // 리뷰 지적(major): Radix는 보이지 않는 패널을 언마운트한다. 케이스 폼이 그 안에 있어
+  // 탭을 옮기면 ZIP으로 읽은 내용과 고친 행이 안내도 없이 사라졌다.
+  it('탭을 옮겨도 ZIP으로 읽은 케이스가 남는다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    await screen.findByRole('button', { name: '케이스 저장' })
+    // 숨은 파일 칸이라 change를 직접 쏜다 (userEvent.upload는 display:none을 못 누른다).
+    fireEvent.change(screen.getByLabelText('ZIP 파일'), {
+      target: { files: [new File([new Uint8Array(10)], 'cases.zip', { type: 'application/zip' })] },
+    })
+    await screen.findByText(/3개를 읽었어요/)
+
+    await user.click(screen.getByRole('tab', { name: '지문' }))
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+
+    expect(screen.getByText(/공개 예제 2개 · 비공개 1개/)).toBeInTheDocument()
+    expect(screen.getByText(/저장을 눌러야/)).toBeInTheDocument()
+  })
+
+  // 리뷰 지적(major): GET .../test-cases는 버전을 받지 않아 최신 버전만 준다. 지난 버전
+  // 화면에 탭을 두면 v2 초안의 케이스가 v1 것처럼 보인다.
+  it('지난 버전 보기에는 케이스 탭이 없다', async () => {
+    renderPage('/admin/problems/1/versions/1')
+    await waitForLoaded('두 수의 합')
+
+    expect(screen.queryByRole('tab', { name: '테스트케이스' })).not.toBeInTheDocument()
+    // 버전 탭은 남는다 — 버전 사이를 옮기는 길이다.
+    expect(screen.getByRole('tab', { name: '버전' })).toBeInTheDocument()
+  })
+
+  // 리뷰 지적(major): 케이스를 저장하면 공개 조건이 바뀌어 상세가 재조회된다. 그때 폼을
+  // 통째로 reset하면 기본 정보 탭에서 고치던 제목이 저장 전 값으로 돌아간다.
+  it('케이스를 저장해도 고치던 제목은 그대로다', async () => {
+    const user = userEvent.setup()
+    const { client } = renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+    const beforeSave = client.getQueryState(['admin-problem', 1])?.dataUpdatedAt ?? 0
+
+    await user.clear(field('제목'))
+    await user.type(field('제목'), '세 수의 합')
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    // 케이스를 바꿔야 서버가 새 초안을 만들어 상세가 실제로 달라진다. 그대로 저장하면
+    // 목이 같은 버전에 저장해, 상세가 같아 폼을 되돌릴 일도 없다 — 버그를 비껴간다.
+    await user.click(await screen.findByRole('button', { name: '케이스 더하기' }))
+    await user.click(screen.getByRole('button', { name: '케이스 저장' }))
+    await screen.findByText(/정답 코드를 다시 검증해야 해요/)
+    // 상세 재조회가 **끝난 뒤**에 봐야 한다. 폼을 되돌리는 것은 저장이 아니라 그 재조회다
+    // — 기다리지 않고 단정하면 버그가 있어도 테스트가 통과한다.
+    await waitFor(() =>
+      expect(client.getQueryState(['admin-problem', 1])?.dataUpdatedAt ?? 0).toBeGreaterThan(
+        beforeSave,
+      ),
+    )
+
+    await user.click(screen.getByRole('tab', { name: '기본 정보' }))
+    expect(field('제목')).toHaveValue('세 수의 합')
+  })
+
+  // 2차 리뷰(major): 케이스 탭을 forceMount로 붙잡아 두자, 반대 방향이 열렸다 — 문제
+  // 저장이 ['admin-problem', id]를 무효화하면 접두사가 같아 케이스 목록까지 다시 불린다.
+  it('문제를 저장해도 저장 전 케이스 편집은 남는다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    fireEvent.change(await screen.findByLabelText('ZIP 파일'), {
+      target: { files: [new File([new Uint8Array(10)], 'cases.zip', { type: 'application/zip' })] },
+    })
+    await screen.findByText(/3개를 읽었어요/)
+
+    // 문제를 고쳐 저장한다 — 상세가 달라져야 케이스 목록까지 다시 불린다.
+    await user.click(screen.getByRole('tab', { name: '기본 정보' }))
+    await user.clear(field('제목'))
+    await user.type(field('제목'), '세 수의 합')
+    await user.click(screen.getByRole('button', { name: '저장' }))
+    await screen.findByText(/반영했어요|저장했어요/)
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    // ZIP으로 읽은 3개가 그대로여야 한다. 서버 목록으로 돌아가면 7개(비공개 5개)다.
+    expect(screen.getByText(/공개 예제 2개 · 비공개 1개/)).toBeInTheDocument()
+  })
+
+  // 2차 리뷰(major): keepDirtyValues는 '고친 칸'만 남긴다. 파생된 Python 제한은
+  // shouldDirty 없이 써넣고 있어 혼자 서버 값으로 되돌아갔다 — C++과 짝이 깨진다.
+  it('케이스를 저장해도 보정된 Python 제한이 C++와 어긋나지 않는다', async () => {
+    const user = userEvent.setup()
+    const sent: ProblemInput[] = []
+    server.use(
+      http.put('*/api/admin/problems/:id', async ({ request }) => {
+        sent.push((await request.json()) as ProblemInput)
+        return HttpResponse.json({ versionNo: 3, status: 'DRAFT' })
+      }),
+    )
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.click(screen.getByRole('tab', { name: '지문' }))
+    // 이 fixture의 Python 값(2000)은 보정식과 달라 '직접 입력'으로 열린다. 보정을 켠다.
+    await user.click(screen.getByLabelText('Python 제한을 직접 입력'))
+    const cppTime = limits('C++').getByLabelText('시간 제한 (ms)')
+    await user.clear(cppTime)
+    await user.type(cppTime, '2000')
+    expect(limits('Python').getByLabelText('시간 제한 (ms)')).toHaveValue(8000)
+
+    // 케이스를 저장해 상세를 다시 받게 한다.
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    await user.click(await screen.findByRole('button', { name: '케이스 더하기' }))
+    await user.click(screen.getByRole('button', { name: '케이스 저장' }))
+    await screen.findByText(/정답 코드를 다시 검증해야 해요/)
+
+    // **기본 정보 탭에서** 저장한다. 지문 탭으로 돌아가면 StatementTab이 새로 마운트돼
+    // 값이 다시 계산되므로 화면만 봐서는 드러나지 않는다 — 보낸 본문을 봐야 한다.
+    await user.click(screen.getByRole('tab', { name: '기본 정보' }))
+    await user.click(screen.getByRole('button', { name: '저장' }))
+
+    await waitFor(() => expect(sent).toHaveLength(1))
+    // Python이 서버 값(2000)으로 되돌아간 채 C++ 2000과 함께 저장되면, 그 문제의 Python
+    // 제출은 전부 시간 초과가 된다. 다음에 열 때는 공식과 달라 '직접 입력'으로 굳는다.
+    expect(sent[0]?.languages.find((entry) => entry.language === 'PYTHON')).toMatchObject({
+      timeLimitMs: 8000,
+      memoryLimitMb: 512,
+    })
   })
 
   it('버전 탭은 버전을 최신부터 보여 준다', async () => {
