@@ -57,7 +57,16 @@ export function changedLanguages(codes: Codes, saved: AdminSolution[]): Language
   )
 }
 
-/** 저장한 것과 같은지. */
-export function sameAsSaved(codes: Codes, saved: AdminSolution[]): boolean {
-  return changedLanguages(codes, saved).length === 0
+/**
+ * 보낸 것과 같은 칸만 덮어쓰기 층에서 걷어 낸다.
+ *
+ * 저장이 도는 동안 더 친 글자는 서버로 가지 않았다. 층을 통째로 비우면 그 입력이 안내도
+ * 없이 사라지고, 화면은 방금 저장한 값으로 돌아간다.
+ */
+export function dropSubmitted(edited: Partial<Codes>, body: SolutionInput[]): Partial<Codes> {
+  const next = { ...edited }
+  for (const item of body) {
+    if (next[item.language] === item.sourceCode) delete next[item.language]
+  }
+  return next
 }

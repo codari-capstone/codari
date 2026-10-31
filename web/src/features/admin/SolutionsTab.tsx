@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 
-import type { AdminSolution, CaseValidation, SolutionInput } from '@/api/types'
+import type { AdminSolution, CaseValidation, SolutionInput, SolutionStatus } from '@/api/types'
 import { ErrorState } from '@/components/ErrorState'
 import { ListSkeleton } from '@/components/ListSkeleton'
 import { Button } from '@/components/ui/button'
@@ -28,6 +28,7 @@ import {
 import { savedVersionNotice, SOLUTION_STATUS_LABEL } from './labels'
 import {
   changedLanguages,
+  dropSubmitted,
   MAX_SOURCE_BYTES,
   SOLUTION_LANGUAGES,
   toBody,
@@ -112,11 +113,17 @@ function statusLine(solution: AdminSolution | undefined, changed: boolean): stri
   return parts.join(' · ')
 }
 
-/** 케이스 하나의 판정 이름. 기록은 있는데 판정이 없으면 채점이 끝나지 않은 것이다. */
-function verdictLabel(result: CaseValidation): string {
-  return result.verdict === null
-    ? VERDICT_INFO.JUDGE_ERROR.label
-    : VERDICT_INFO[result.verdict].label
+/**
+ * 케이스 하나의 판정 이름.
+ *
+ * **판정이 없으면 '채점 불가'가 아니다.** 계약에서 \`verdict\`가 null인 것은 "이 케이스를
+ * 돌리지 않았다"는 뜻뿐이고, 왜인지는 그 언어의 상태가 말한다 — 아직 검증 중이거나,
+ * 컴파일 에러·채점 불가로 거기까지 가지 못했거나. 전부 '채점 불가'로 적으면 컴파일
+ * 에러로 끝난 코드를 보고 채점 서버 장애로 오해한다.
+ */
+function verdictLabel(result: CaseValidation, status: SolutionStatus | undefined): string {
+  if (result.verdict !== null) return VERDICT_INFO[result.verdict].label
+  return status === 'VALIDATING' ? '검증 중' : '실행 안 함'
 }
 
 /**
@@ -165,14 +172,23 @@ export function SolutionsTab({
    *
    * 접두사가 같아 상세(버전 상태·공개 조건)와 케이스가 함께 다시 불린다.
    */
-  const wasValidating = useRef(false)
+  // 처음 값을 `locked`에서 가져온다. 탭을 늦게 열면 **첫 응답부터 끝난 상태**라 전이가
+  // 일어나지 않는데, 그때도 상세는 'VALIDATING'으로 묵어 있다 — 상세에는 폴링이 없어
+  // 새로고침 전에는 잠금이 풀리지 않았다. 이 탭은 지난 버전 보기에서 그려지지 않으므로,
+  // 여기서 `locked`는 '상세가 검증 중이라고 안다'와 같은 말이다.
+  const wasValidating = useRef(locked)
   useEffect(() => {
+    // 첫 응답이 오기 전에는 아무것도 모른다. 여기서 미루지 않으면 마운트하자마자 무효화가
+    // 돌고, 그때는 케이스 조회가 아직 떠 있는 중이라 다시 불리지 않는다 — 그러고 나면
+    // 다시 돌 일이 없어 조용히 아무 일도 일어나지 않는다.
+    if (solutions.data === undefined) return
+
     if (wasValidating.current && !validating) {
       void queryClient.invalidateQueries({ queryKey: ['admin-problem', problemId] })
       void queryClient.invalidateQueries({ queryKey: ['admin-problems'] })
     }
     wasValidating.current = validating
-  }, [validating, queryClient, problemId])
+  }, [solutions.data, validating, queryClient, problemId])
 
   useEffect(() => {
     forgetSessionIfUnauthorized(queryClient, solutions.error ?? cases.error)
@@ -209,14 +225,19 @@ export function SolutionsTab({
       setSizeError(null)
       setValidateError(null)
     },
-    onSuccess: async (result, { changed: didChange }) => {
-      // 저장이 끝났으니 덮어쓰기 층을 걷는다. 서버가 아는 값이 그대로 비쳐 보인다.
-      setEdited({})
+    onSuccess: async (result, { body, changed: didChange }) => {
       setNotice(saveNotice(result, didChange, before))
       setValidateError(result.validateError)
       forgetSessionIfUnauthorized(queryClient, result.validateError)
       await queryClient.invalidateQueries({ queryKey: ['admin-problem', problemId] })
       await queryClient.invalidateQueries({ queryKey: ['admin-problems'] })
+      // **재조회가 끝난 뒤에** 걷는다. 먼저 걷으면 그 사이 화면이 캐시의 옛 코드로
+      // 돌아가고, 그때 한 글자를 치면 옛 코드 위에 층이 다시 생겨 방금 저장한 코드를
+      // 가린다.
+      //
+      // 보낸 것과 **같은 칸만** 걷는다. 저장이 도는 동안 더 친 글자는 서버로 가지 않았으니
+      // 남겨야 한다 — 통째로 비우면 안내도 없이 사라진다.
+      setEdited((prev) => dropSubmitted(prev, body))
     },
     onError: (error) => {
       forgetSessionIfUnauthorized(queryClient, error)
@@ -268,6 +289,23 @@ export function SolutionsTab({
         </p>
       ) : null}
 
+      {/* 케이스 조회가 실패하면 결과 표만 조용히 사라진다 — 상태 줄은 '검증 통과'인데 표가
+          없으니, 아직 채워지는 중인 줄 알고 기다리게 된다. 재조회만 실패한 경우에는 지난
+          결과가 지금 결과처럼 남는다. 그래서 말해 주고 다시 받을 길을 둔다. */}
+      {cases.error ? (
+        <p role="alert" className="text-destructive flex flex-wrap items-center gap-2 text-sm">
+          {`케이스별 결과를 받지 못했어요. ${problemMessage(cases.error)}`}
+          <Button
+            type="button"
+            variant="outline"
+            className="min-h-11"
+            onClick={() => void cases.refetch()}
+          >
+            결과 다시 받기
+          </Button>
+        </p>
+      ) : null}
+
       {SOLUTION_LANGUAGES.map((language) => {
         const solution = saved.find((item) => item.language === language)
         const dirty = changed.includes(language)
@@ -299,6 +337,7 @@ export function SolutionsTab({
               label={`${LANGUAGE_LABEL[language]} 코드 편집기`}
               value={codes[language]}
               onChange={(next) => setEdited((prev) => ({ ...prev, [language]: next }))}
+              readOnly={locked || save.isPending}
             />
 
             {results.length > 0 ? (
@@ -317,7 +356,7 @@ export function SolutionsTab({
                     <TableRow key={row.no}>
                       <TableCell>{row.no}</TableCell>
                       <TableCell>{row.caseType === 'SAMPLE' ? '공개 예제' : '비공개'}</TableCell>
-                      <TableCell>{verdictLabel(row.result)}</TableCell>
+                      <TableCell>{verdictLabel(row.result, solution?.status)}</TableCell>
                       <TableCell>
                         {row.result.executionTimeMs === null
                           ? '-'

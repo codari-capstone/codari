@@ -20,6 +20,7 @@ export function CodeEditor({
   value,
   onChange,
   label = '코드 편집기',
+  readOnly = false,
 }: {
   language: Language
   value: string
@@ -29,6 +30,14 @@ export function CodeEditor({
    * 나란히 둔다) — 같은 이름이 둘이면 스크린 리더로는 어느 칸이 어느 언어인지 알 수 없다.
    */
   label?: string
+  /**
+   * 편집을 막는다. 보내는 중에 더 친 글자는 서버로 가지 않으므로, 그 사이 입력을 받으면
+   * 안내도 없이 사라지거나 방금 보낸 것과 어긋난다 (ADM-05 저장·검증).
+   *
+   * `disabled` 대신 이 prop을 두는 까닭: CodeMirror의 편집 영역은 contenteditable이라
+   * 바깥 `fieldset`의 `disabled`가 닿지 않는다.
+   */
+  readOnly?: boolean
 }) {
   const { theme } = useTheme()
 
@@ -46,6 +55,7 @@ export function CodeEditor({
       onChange={onChange}
       theme={theme}
       extensions={extensions}
+      readOnly={readOnly}
       minHeight="24rem"
       className="overflow-hidden rounded-lg border text-sm"
     />

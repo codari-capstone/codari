@@ -165,7 +165,10 @@ function advanceValidation(version: MockProblemVersion) {
   }
 
   version.status = 'DRAFT'
-  version.caseValidation = passedCaseValidation(version.cases)
+  version.caseValidation = passedCaseValidation(
+    version.cases,
+    version.solutions.map((solution) => solution.language),
+  )
   version.solutions = version.solutions.map((solution) => ({
     ...solution,
     status: 'PASSED' as const,

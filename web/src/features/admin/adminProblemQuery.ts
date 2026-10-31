@@ -211,10 +211,15 @@ export function adminSolutionsQuery(id: number) {
       if (result.data === undefined) fail(result)
       return result.data
     },
-    refetchInterval: (query) =>
-      query.state.data?.some((solution) => solution.status === 'VALIDATING')
+    refetchInterval: (query) => {
+      // 오류가 나면 멈춘다. `data`만 보면 마지막 'VALIDATING'이 캐시에 남아 있어, 문제가
+      // 지워져 404가 오거나 서버가 5xx를 주는 동안에도 화면 뒤에서 요청이 끝없이 나간다
+      // (탭은 그때 ErrorState와 '다시 시도'를 보여 준다).
+      if (query.state.error !== null) return false
+      return query.state.data?.some((solution) => solution.status === 'VALIDATING')
         ? POLL_INTERVAL_MS
-        : false,
+        : false
+    },
   })
 }
 
@@ -244,5 +249,8 @@ export function saveSolutions(id: number, body: SolutionInput[]): Promise<SavedV
  */
 export async function startValidation(id: number): Promise<void> {
   const result = await api.POST('/api/admin/problems/{id}/validate', { params: { path: { id } } })
-  if (result.error !== undefined) fail(result)
+  // 본문 없는 응답은 `error`가 아니라 상태로 가른다 (`logoutRequest`와 같다). 게이트웨이가
+  // 본문 없는 5xx를 주면 openapi-fetch의 `error`가 undefined라, '검증을 시작했어요'라고
+  // 알리고는 폴링도 돌지 않는 화면이 된다.
+  if (!result.response.ok) fail(result)
 }

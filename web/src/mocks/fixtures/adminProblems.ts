@@ -13,6 +13,7 @@ import type {
   PublishCondition,
   TestCaseInput,
 } from '@/api/types'
+import { SOLUTION_LANGUAGES } from '@/features/admin/solutionsState'
 import { problemDetails } from './problemDetails'
 
 export interface MockProblemVersion {
@@ -105,7 +106,7 @@ function filledCases(detail: ProblemDetailView): TestCaseInput[] {
 /** 검증을 통과한 정답 코드 한 쌍. 공개한 적 있는 버전은 이 상태여야 공개 조건이 채워진다. */
 function verifiedSolutions(detail: ProblemDetailView): AdminSolution[] {
   // 언어 순서는 계약이 정했다 — Python 먼저, C++ 다음.
-  return (['PYTHON', 'CPP'] as const).map((language) => ({
+  return SOLUTION_LANGUAGES.map((language) => ({
     language,
     sourceCode: detail.languages.find((entry) => entry.language === language)?.starterCode ?? '',
     verifiedAt: '2026-10-12T09:00:00Z',
@@ -116,8 +117,17 @@ function verifiedSolutions(detail: ProblemDetailView): AdminSolution[] {
   }))
 }
 
-/** 모든 케이스를 통과한 기록. 표가 판정·시간·메모리를 그린다. */
-export function passedCaseValidation(cases: TestCaseInput[]): Record<Language, CaseValidation[]> {
+/**
+ * 모든 케이스를 통과한 기록. 표가 판정·시간·메모리를 그린다.
+ *
+ * **정답 코드가 있는 언어만 채운다.** 계약은 정답 코드가 없는 언어의 결과를 null로 정했다 —
+ * 둘 다 채우면 Python만 저장한 초안에서 C++ 칸이 '정답 코드가 없어요'와 통과 결과표를 함께
+ * 보여 주고, 케이스 탭은 '검증 2/2 통과'가 된다. 목을 믿는 테스트가 서버와 갈라진다.
+ */
+export function passedCaseValidation(
+  cases: TestCaseInput[],
+  languages: readonly Language[],
+): Record<Language, CaseValidation[]> {
   const passed = cases.map((_, index) => ({
     verdict: 'ACCEPTED' as const,
     // 번호마다 조금씩 다르게 둬서 표의 칸이 한 값으로 뭉치지 않게 한다.
@@ -125,7 +135,11 @@ export function passedCaseValidation(cases: TestCaseInput[]): Record<Language, C
     memoryUsedKb: 1024 + index * 32,
     runtimeErrorType: null,
   }))
-  return { PYTHON: passed, CPP: passed.map((item) => ({ ...item })) }
+  // 빈 배열이면 핸들러가 케이스마다 null을 준다 — 계약의 '기록 없음'과 같은 모양이다.
+  return {
+    PYTHON: languages.includes('PYTHON') ? passed : [],
+    CPP: languages.includes('CPP') ? passed.map((item) => ({ ...item })) : [],
+  }
 }
 
 /** 검증이 도는 중인 정답 코드. `npm run dev`에서 폴링 화면을 볼 수 있어야 한다. */
@@ -197,7 +211,9 @@ export function buildAdminProblems(): MockAdminProblem[] {
             : validating
               ? validatingSolutions(detail)
               : [],
-          caseValidation: filled ? passedCaseValidation(filledCases(detail)) : null,
+          caseValidation: filled
+            ? passedCaseValidation(filledCases(detail), SOLUTION_LANGUAGES)
+            : null,
         }
       }),
     }

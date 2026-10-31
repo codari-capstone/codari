@@ -335,6 +335,201 @@ describe('SolutionsTab (ADM-05)', () => {
     )
   })
 
+  describe('리뷰 지적 — 저장 중의 편집 (major)', () => {
+    /**
+     * 버튼만 막고 에디터는 계속 입력을 받고 있었다. CodeMirror의 편집 영역은
+     * contenteditable이라 바깥 `fieldset`의 `disabled`가 닿지 않는다.
+     */
+    it('저장하는 동안에는 코드를 고칠 수 없다', async () => {
+      const user = userEvent.setup()
+      let release = () => {}
+      const held = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      server.use(
+        http.put('*/api/admin/problems/:id/solutions', async () => {
+          await held
+          return HttpResponse.json({ versionNo: 2, status: 'DRAFT' })
+        }),
+      )
+      serveSolutions([solution({ language: 'PYTHON', sourceCode: 'print(1)' })])
+      renderTab()
+      await screen.findByText('검증 전')
+
+      await retype(user, 'PYTHON', 'print(2)')
+      await user.click(saveButton())
+
+      // 저장이 도는 중에 친 글자는 서버로 가지 않는다.
+      await user.click(editor('PYTHON'))
+      await user.paste('더 친 글자')
+      expect(editor('PYTHON')).not.toHaveTextContent('더 친 글자')
+
+      release()
+      await screen.findByRole('status')
+    })
+
+    /**
+     * 층을 걷지 않으면 서버가 다듬어 돌려준 값이 영영 보이지 않는다.
+     *
+     * 걷는 **시점**(재조회 전인지 후인지)은 jsdom에서 눈에 드러나지 않아 테스트로 묶지
+     * 않았다. 재조회 뒤로 미루는 것은 리뷰 지적대로 두되, 여기서 지키는 것은 "서버 값이
+     * 끝내 드러난다"는 것 하나다.
+     */
+    it('저장이 끝나면 서버가 돌려준 값이 보인다', async () => {
+      const user = userEvent.setup()
+      let stored = false
+      server.use(
+        http.get('*/api/admin/problems/:id/solutions', () =>
+          HttpResponse.json([
+            solution({
+              language: 'PYTHON',
+              sourceCode: stored ? '서버가 다듬은 코드' : 'print(1)',
+            }),
+          ]),
+        ),
+        http.put('*/api/admin/problems/:id/solutions', () => {
+          stored = true
+          return HttpResponse.json({ versionNo: 2, status: 'DRAFT' })
+        }),
+      )
+      renderTab()
+      await screen.findByText('검증 전')
+
+      await retype(user, 'PYTHON', 'print(2)')
+      await user.click(saveButton())
+
+      await waitFor(() => expect(editor('PYTHON')).toHaveTextContent('서버가 다듬은 코드'))
+    })
+  })
+
+  describe('리뷰 지적 — 판정이 없는 케이스 (major)', () => {
+    /** 계약: `verdict`가 null인 것은 "돌리지 않았다"는 뜻뿐이다. 왜인지는 언어 상태가 말한다. */
+    function serveCases(verdict: null, status: AdminSolution['status']) {
+      serveSolutions([solution({ language: 'PYTHON', status })])
+      server.use(
+        http.get('*/api/admin/problems/:id/test-cases', () =>
+          HttpResponse.json([
+            {
+              caseType: 'SAMPLE',
+              input: '1',
+              output: '1',
+              inputBytes: 1,
+              outputBytes: 1,
+              validation: {
+                PYTHON: {
+                  verdict,
+                  executionTimeMs: null,
+                  memoryUsedKb: null,
+                  runtimeErrorType: null,
+                },
+                CPP: null,
+              },
+            },
+          ]),
+        ),
+      )
+    }
+
+    it('컴파일 에러로 돌리지 못한 케이스를 채점 불가로 적지 않는다', async () => {
+      serveCases(null, 'FAILED')
+      renderTab()
+
+      expect(await screen.findByText('실행 안 함')).toBeInTheDocument()
+      expect(screen.queryByText('채점 불가')).not.toBeInTheDocument()
+    })
+
+    it('아직 돌고 있는 케이스는 검증 중으로 적는다', async () => {
+      serveCases(null, 'VALIDATING')
+      renderTab()
+
+      expect(await screen.findAllByText('검증 중')).not.toHaveLength(0)
+      expect(screen.queryByText('실행 안 함')).not.toBeInTheDocument()
+    })
+  })
+
+  /**
+   * 탭을 늦게 열면 **첫 응답부터 끝난 상태**라 전이가 일어나지 않는다. 그런데 상세는
+   * 'VALIDATING'으로 묵어 있고 폴링도 없어, 새로고침 전에는 화면이 잠긴 채 남았다.
+   */
+  it('검증이 이미 끝난 뒤에 열어도 상세를 다시 받는다', async () => {
+    let caseCalls = 0
+    server.use(
+      http.get('*/api/admin/problems/:id/test-cases', () => {
+        caseCalls += 1
+        return HttpResponse.json([])
+      }),
+    )
+    serveSolutions([solution({ language: 'PYTHON', status: 'PASSED', verdict: 'ACCEPTED' })])
+    // 상세가 '검증 중'이라고 알고 있는 상태로 연다.
+    renderTab({ locked: true })
+
+    await screen.findByText('검증 통과')
+    await waitFor(() => expect(caseCalls).toBeGreaterThan(1))
+  })
+
+  it('케이스별 결과를 못 받으면 알리고 다시 받을 길을 준다', async () => {
+    const user = userEvent.setup()
+    let calls = 0
+    server.use(
+      http.get('*/api/admin/problems/:id/test-cases', () => {
+        calls += 1
+        return HttpResponse.json(
+          { status: 500, code: 'OOPS', detail: '잠시 뒤 다시 시도해 주세요' },
+          { status: 500 },
+        )
+      }),
+    )
+    renderTab()
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('케이스별 결과를 받지 못했어요')
+    const before = calls
+    await user.click(screen.getByRole('button', { name: '결과 다시 받기' }))
+    await waitFor(() => expect(calls).toBeGreaterThan(before))
+  })
+
+  /**
+   * 본문 없는 5xx는 openapi-fetch의 `error`가 undefined다. 상태로 가르지 않으면 서버가
+   * 시작하지 않았는데 '검증을 시작했어요'라고 알리고 폴링도 돌지 않는다.
+   */
+  it('본문 없는 5xx를 검증 시작 성공으로 보지 않는다', async () => {
+    const user = userEvent.setup()
+    server.use(
+      http.put('*/api/admin/problems/:id/solutions', () =>
+        HttpResponse.json({ versionNo: 2, status: 'DRAFT' }),
+      ),
+      http.post('*/api/admin/problems/:id/validate', () => new HttpResponse(null, { status: 502 })),
+    )
+    renderTab()
+    await screen.findAllByText(/검증 통과/)
+
+    await retype(user, 'PYTHON', 'print(1)')
+    await user.click(validateButton())
+
+    expect(await screen.findByRole('status')).toHaveTextContent('검증은 시작하지 못했어요')
+  })
+
+  /**
+   * 리뷰 지적(minor): 목이 정답 코드가 없는 언어의 결과까지 만들어 내고 있었다. 계약은
+   * 그 언어의 `validation`을 null로 정했다 — 목을 믿는 테스트가 서버와 갈라진다.
+   */
+  it('정답 코드가 없는 언어는 목도 결과를 만들지 않는다', async () => {
+    const user = userEvent.setup()
+    renderTab({ problemId: 9 })
+    await screen.findAllByText(/검증 통과/)
+
+    // C++ 칸을 비워 저장하면 그 언어가 지워진다. 그 뒤 검증하면 Python 결과만 나와야 한다.
+    await retype(user, 'CPP', '')
+    await user.click(validateButton())
+
+    await screen.findByText('정답 코드가 없어요')
+    // 목은 조회마다 진행률을 올려 두 번이면 끝난다.
+    expect(await screen.findByText(/검증 통과/)).toBeInTheDocument()
+    const passed = await screen.findAllByText('맞았습니다!!')
+    // 케이스 7개 × 한 언어. 두 언어였다면 14줄이다.
+    expect(passed).toHaveLength(7)
+  })
+
   it('저장이 실패하면 고치던 코드를 지우지 않는다', async () => {
     const user = userEvent.setup()
     server.use(
