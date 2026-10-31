@@ -25,6 +25,7 @@ import {
   type ProblemInputBody,
 } from './problemInputSchema'
 import { StatementTab } from './StatementTab'
+import { TestCasesTab } from './TestCasesTab'
 import { VersionsTab } from './VersionsTab'
 
 /** 기본 정보 탭이 들고 있는 칸. 숨은 탭의 오류를 어디서 보여 줄지 가르는 데 쓴다. */
@@ -215,32 +216,43 @@ function AdminProblemForm() {
         </p>
       ) : null}
 
-      <form
-        aria-label={isNew ? '새 문제' : '문제 수정'}
-        noValidate
-        className="flex flex-col gap-4"
-        onSubmit={form.handleSubmit(
-          (values) => save.mutate(values),
-          (errors) => setTab(firstErrorTab(errors)),
-        )}
-      >
-        <Tabs value={tab} onValueChange={setTab}>
-          {/* 탭 버튼은 fieldset 밖에 둔다. 안에 두면 disabled가 버튼까지 잠가, 읽기
-              전용·검증 중 화면에서 '기본 정보'에 갇혀 지문도 버전도 볼 수 없다. */}
-          <TabsList aria-label="문제 작성 영역" className="min-h-11">
-            <TabsTrigger value="basic" className="min-h-11">
-              기본 정보
+      <Tabs value={tab} onValueChange={setTab}>
+        {/* 탭 버튼은 fieldset 밖에 둔다. 안에 두면 disabled가 버튼까지 잠가, 읽기
+            전용·검증 중 화면에서 '기본 정보'에 갇혀 지문도 버전도 볼 수 없다.
+            탭이 넷이라 좁은 화면에서는 가로로 밀어 본다. */}
+        <TabsList aria-label="문제 작성 영역" className="min-h-11 max-w-full overflow-x-auto">
+          <TabsTrigger value="basic" className="min-h-11">
+            기본 정보
+          </TabsTrigger>
+          <TabsTrigger value="statement" className="min-h-11">
+            지문
+          </TabsTrigger>
+          {id === null ? null : (
+            <TabsTrigger value="cases" className="min-h-11">
+              테스트케이스
             </TabsTrigger>
-            <TabsTrigger value="statement" className="min-h-11">
-              지문
+          )}
+          {id === null ? null : (
+            <TabsTrigger value="versions" className="min-h-11">
+              버전
             </TabsTrigger>
-            {id === null ? null : (
-              <TabsTrigger value="versions" className="min-h-11">
-                버전
-              </TabsTrigger>
-            )}
-          </TabsList>
+          )}
+        </TabsList>
 
+        {/*
+          폼을 탭별로 나눈다. 케이스 탭은 저장이 다른 API(`PUT .../test-cases`)이고,
+          `<form>` 안에 `<form>`은 쓸 수 없다. 그래서 문제 폼은 자기 두 탭만 감싸고,
+          저장 버튼도 그 탭에서만 보인다 — 탭마다 자기 것을 저장한다.
+        */}
+        <form
+          aria-label={isNew ? '새 문제' : '문제 수정'}
+          noValidate
+          className="flex flex-col gap-4"
+          onSubmit={form.handleSubmit(
+            (values) => save.mutate(values),
+            (errors) => setTab(firstErrorTab(errors)),
+          )}
+        >
           {/* disabled 하나로 모든 입력칸이 잠긴다. 링크는 걸리지 않는다.
               TabsContent는 Tabs의 context로 동작해 fieldset을 사이에 끼워도 된다. */}
           <fieldset disabled={locked} className="contents">
@@ -254,22 +266,28 @@ function AdminProblemForm() {
                 onManualPythonChange={setManualOverride}
               />
             </TabsContent>
-            {id === null ? null : (
-              <TabsContent value="versions">
-                <VersionsTab problemId={id} />
-              </TabsContent>
-            )}
           </fieldset>
-        </Tabs>
 
-        {locked ? null : (
-          <div>
-            <Button type="submit" className="min-h-11" disabled={save.isPending}>
-              {save.isPending ? '저장 중…' : '저장'}
-            </Button>
-          </div>
+          {locked || (tab !== 'basic' && tab !== 'statement') ? null : (
+            <div>
+              <Button type="submit" className="min-h-11" disabled={save.isPending}>
+                {save.isPending ? '저장 중…' : '저장'}
+              </Button>
+            </div>
+          )}
+        </form>
+
+        {id === null ? null : (
+          <TabsContent value="cases">
+            <TestCasesTab problemId={id} locked={locked} before={before} />
+          </TabsContent>
         )}
-      </form>
+        {id === null ? null : (
+          <TabsContent value="versions">
+            <VersionsTab problemId={id} />
+          </TabsContent>
+        )}
+      </Tabs>
     </section>
   )
 }

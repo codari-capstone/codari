@@ -5,9 +5,11 @@ import { fail } from '@/api/fail'
 import type {
   AdminProblemDetail,
   AdminProblemVersion,
+  AdminTestCase,
   ProblemInput,
   ProblemVersionStatus,
   ProblemVersionSummary,
+  TestCaseInput,
 } from '@/api/types'
 
 /**
@@ -128,4 +130,59 @@ export function saveProblem(id: number | null, body: ProblemInput) {
     }))
   }
   return updateProblem(id, body).then((saved) => ({ id, saved }))
+}
+
+/**
+ * 테스트케이스 목록 (ADM-04). 비공개 케이스도 그대로 온다 — 관리자 API에만 있다.
+ *
+ * 계약: "케이스마다 정답 코드 검증 결과(`validation`)를 함께 준다." 검증 중에는 이 API를
+ * 다시 부르지 않고 `GET .../solutions`로 진행을 본다(#37 PR B).
+ */
+export function adminTestCasesQuery(id: number) {
+  return queryOptions({
+    queryKey: ['admin-problem', id, 'test-cases'] as const,
+    queryFn: async (): Promise<AdminTestCase[]> => {
+      const result = await api.GET('/api/admin/problems/{id}/test-cases', {
+        params: { path: { id } },
+      })
+      if (result.data === undefined) fail(result)
+      return result.data
+    },
+  })
+}
+
+/**
+ * 테스트케이스 저장 (ADM-04·07). 표 전체를 보낸다(계약).
+ *
+ * 저장하면 **정답 코드 검증 기록이 지워진다**. 고치지 않은 언어도 다시 검증해야 한다.
+ * 공개·비공개 버전이 최신이면 새 초안(+1)이 생기고, 응답이 그 번호와 상태를 준다.
+ */
+export function saveTestCases(id: number, body: TestCaseInput[]): Promise<SavedVersion> {
+  return api
+    .PUT('/api/admin/problems/{id}/test-cases', { params: { path: { id } }, body })
+    .then((result) => {
+      if (result.data === undefined) fail(result)
+      return result.data
+    })
+}
+
+/**
+ * ZIP 읽기 (ADM-04). **저장하지 않는다** — 읽은 목록을 표에 채우고 저장은 따로 누른다(계약).
+ *
+ * `multipart/form-data`라 본문을 `FormData`로 보낸다. openapi-fetch는 FormData를 보면
+ * Content-Type을 직접 넣지 않고 브라우저가 boundary까지 붙이게 둔다 — 직접 넣으면 깨진다.
+ */
+export function readTestCaseZip(id: number, file: File): Promise<TestCaseInput[]> {
+  const form = new FormData()
+  form.append('file', file)
+
+  return api
+    .POST('/api/admin/problems/{id}/test-cases/zip', {
+      params: { path: { id } },
+      body: form as unknown as { file: string },
+    })
+    .then((result) => {
+      if (result.data === undefined) fail(result)
+      return result.data
+    })
 }

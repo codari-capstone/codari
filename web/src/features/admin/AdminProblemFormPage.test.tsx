@@ -352,6 +352,53 @@ describe('AdminProblemFormPage', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('직접 입력')
   })
 
+  /**
+   * 케이스 저장은 다른 API다(`PUT .../test-cases`). `<form>` 안에 `<form>`은 쓸 수 없어
+   * 폼을 탭별로 나눠 뒀다 — 한 폼으로 두면 케이스 저장이 문제 수정까지 보내거나,
+   * 두 저장 버튼이 한 화면에 뜬다.
+   */
+  it('케이스 탭에서는 문제 저장 버튼이 보이지 않는다', async () => {
+    const user = userEvent.setup()
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+    expect(screen.getByRole('button', { name: '저장' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+
+    expect(await screen.findByRole('button', { name: '케이스 저장' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '저장' })).not.toBeInTheDocument()
+  })
+
+  it('케이스를 저장해도 문제 수정은 보내지 않는다', async () => {
+    const user = userEvent.setup()
+    const sent: string[] = []
+    server.use(
+      http.put('*/api/admin/problems/:id', () => {
+        sent.push('problem')
+        return HttpResponse.json({ versionNo: 1, status: 'PUBLISHED' })
+      }),
+      http.put('*/api/admin/problems/:id/test-cases', () => {
+        sent.push('test-cases')
+        return HttpResponse.json({ versionNo: 2, status: 'DRAFT' })
+      }),
+    )
+    renderPage('/admin/problems/1')
+    await waitForLoaded('두 수의 합')
+
+    await user.click(screen.getByRole('tab', { name: '테스트케이스' }))
+    await user.click(await screen.findByRole('button', { name: '케이스 저장' }))
+
+    await waitFor(() => expect(sent).toEqual(['test-cases']))
+  })
+
+  it('새 문제에는 케이스 탭이 없다', async () => {
+    renderPage('/admin/problems/new')
+
+    // 문제 번호가 없으면 부를 API가 없다. 버전 탭과 같은 처리다.
+    expect(screen.queryByRole('tab', { name: '테스트케이스' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: '버전' })).not.toBeInTheDocument()
+  })
+
   it('버전 탭은 버전을 최신부터 보여 준다', async () => {
     const user = userEvent.setup()
     renderPage('/admin/problems/9')

@@ -1,0 +1,73 @@
+import { z } from 'zod'
+import type { UseFormReturn } from 'react-hook-form'
+
+import type { AdminTestCase, TestCaseInput } from '@/api/types'
+
+/** 케이스 한도 (ADM-04). 계약의 `replaceTestCases` 설명과 같은 값이다. */
+export const MAX_CASES = 10
+export const MAX_INPUT_BYTES = 2 * 1024 * 1024
+export const MAX_OUTPUT_BYTES = 1024 * 1024
+export const MAX_TOTAL_BYTES = 10 * 1024 * 1024
+/** ZIP 파일 자체의 상한. 계약: "화면은 올리기 전에 파일 크기를 확인해 막는다." */
+export const MAX_ZIP_BYTES = 10 * 1024 * 1024
+
+export function utf8Bytes(value: string): number {
+  return new TextEncoder().encode(value).length
+}
+
+/** 사람이 읽는 크기. 표의 칸이 좁아 소수점은 한 자리까지만 쓴다. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}
+
+/**
+ * 케이스 표 한 줄 (ADM-04).
+ *
+ * **글을 다듬지 않는다.** 계약이 "받은 그대로 저장한다 — 앞뒤 공백·줄바꿈 포함"으로 정했다.
+ * `trim()`을 걸면 기대 출력의 마지막 줄바꿈이 사라져 채점이 틀어진다.
+ *
+ * 바이트 상한은 행마다 검사한다 — 어느 행이 넘쳤는지 말해 주어야 고칠 수 있다.
+ * 합(10MiB)은 행 하나로는 알 수 없어 저장 직전에 `totalBytesError`로 본다.
+ */
+const caseSchema = z.object({
+  caseType: z.enum(['SAMPLE', 'HIDDEN']),
+  input: z.string().refine((value) => utf8Bytes(value) <= MAX_INPUT_BYTES, '입력이 2MiB를 넘어요'),
+  output: z
+    .string()
+    .refine((value) => utf8Bytes(value) <= MAX_OUTPUT_BYTES, '기대 출력이 1MiB를 넘어요'),
+})
+
+export const testCasesSchema = z.object({
+  cases: z.array(caseSchema).max(MAX_CASES, `케이스는 ${MAX_CASES}개까지예요`),
+})
+
+export type TestCasesForm = z.infer<typeof testCasesSchema>
+export type TestCasesFormApi = UseFormReturn<TestCasesForm>
+
+/** 빈 행. 종류는 공개 예제가 먼저 필요해(공개 조건 2개·검증의 전제) 그쪽을 기본값으로 둔다. */
+export const EMPTY_CASE: TestCaseInput = { caseType: 'SAMPLE', input: '', output: '' }
+
+/**
+ * 합계 상한을 넘겼는지. 넘겼으면 문구, 아니면 null.
+ *
+ * zod 스키마에 넣지 않은 까닭은 오류가 붙을 자리가 행이 아니라 표 전체라서다. 배열에
+ * `superRefine`으로 달면 어느 행도 짚지 못하는 오류가 행 옆에 뜬다.
+ */
+export function totalBytesError(cases: TestCaseInput[]): string | null {
+  const total = cases.reduce((sum, item) => sum + utf8Bytes(item.input) + utf8Bytes(item.output), 0)
+  if (total <= MAX_TOTAL_BYTES) return null
+  return `모든 케이스의 합이 10MiB를 넘어요 (지금 ${formatBytes(total)})`
+}
+
+/** 불러온 케이스를 폼 모양으로. 바이트 수와 검증 결과는 폼이 들지 않는다 — 표가 따로 읽는다. */
+export function toForm(cases: AdminTestCase[]): TestCasesForm {
+  return {
+    cases: cases.map((item) => ({
+      caseType: item.caseType,
+      input: item.input,
+      output: item.output,
+    })),
+  }
+}

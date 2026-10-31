@@ -2,11 +2,13 @@ import type {
   AdminProblemDetail,
   AdminProblemSummary,
   AdminProblemVersion,
+  CaseType,
   ProblemDetailView,
   ProblemInput,
   ProblemVersionStatus,
   ProblemVersionSummary,
   PublishCondition,
+  TestCaseInput,
 } from '@/api/types'
 import { problemDetails } from './problemDetails'
 
@@ -16,6 +18,11 @@ export interface MockProblemVersion {
   createdAt: string
   publishedAt: string | null
   input: ProblemInput
+  /**
+   * 그 버전의 테스트케이스 (ADM-04). 계약이 케이스를 **버전에** 달아 뒀다 — 공개 버전에
+   * 케이스를 저장하면 새 초안이 생기고, 기존 버전의 케이스는 그대로 남는다.
+   */
+  cases: TestCaseInput[]
 }
 
 export interface MockAdminProblem {
@@ -23,14 +30,6 @@ export interface MockAdminProblem {
   slug: string
   /** 번호 오름차순. 1번이 맨 앞이다. */
   versions: MockProblemVersion[]
-  /**
-   * 공개 조건을 세는 데만 쓰는 케이스 수 (`SAMPLE_COUNT`·`HIDDEN_COUNT`).
-   *
-   * 케이스 자체는 담지 않는다 — 등록·수정 본문(`ProblemInput`)에 케이스가 없고,
-   * 케이스 관리 API는 #34다. 조건 계산에 필요한 개수만 들고 있는다.
-   */
-  sampleCount: number
-  hiddenCount: number
 }
 
 /** 상세 fixture를 등록·수정 본문 모양으로 옮긴다. 태그는 계약대로 `slug`만 보낸다. */
@@ -69,6 +68,28 @@ const VERSION_STATES: Record<number, ProblemVersionStatus[]> = {
 }
 
 /**
+ * 공개 조건을 채운 케이스 묶음 — 공개 예제 2개·비공개 5개 (`SAMPLE_COUNT`·`HIDDEN_COUNT`).
+ *
+ * 공개 예제는 문제 상세의 `samples`를 그대로 쓴다. 두 곳이 어긋나면 "문제 화면에 보이는
+ * 예제"와 "관리자가 보는 공개 예제"가 달라져, 어느 쪽이 진짜인지 알 수 없는 목이 된다.
+ * 예제가 하나뿐인 문제는 그 하나를 복제해 둘로 맞춘다.
+ */
+function filledCases(detail: ProblemDetailView): TestCaseInput[] {
+  const samples =
+    detail.samples.length >= 2 ? detail.samples.slice(0, 2) : [...detail.samples, ...detail.samples]
+
+  return [
+    ...samples.map((sample) => ({ caseType: 'SAMPLE' as const, ...sample })),
+    // 비공개는 내용을 보여 줄 이유가 없어 번호만 다른 줄로 채운다.
+    ...Array.from({ length: 5 }, (_, index) => ({
+      caseType: 'HIDDEN' as const,
+      input: `${index + 1}\n`,
+      output: `${index + 1}\n`,
+    })),
+  ]
+}
+
+/**
  * 공개한 적이 있는 버전인지. `RETIRED`도 한 번은 공개했던 버전이라 시각이 있다
  * (계약: "마지막으로 공개한 시각. 공개한 적이 없으면 null").
  */
@@ -100,12 +121,14 @@ export function buildAdminProblems(): MockAdminProblem[] {
           // 버전마다 같은 내용으로 둔다. 버전끼리 글이 다른 것을 보여 줄 이유가 생기면
           // 그때 손본다 — ADM-07 화면은 어느 버전을 고르느냐만 보면 된다.
           input: inputFrom(detail),
+          // 공개한 적이 있는 문제만 케이스를 채운 것으로 둔다. 초안만 있는 문제(10~12번)는
+          // 비어 있어야 ADM-06 체크리스트(#37)와 빈 표가 볼 거리가 된다.
+          cases:
+            status === 'PUBLISHED' || status === 'RETIRED' || states.includes('PUBLISHED')
+              ? filledCases(detail)
+              : [],
         }
       }),
-      // 공개한 적이 있는 문제만 조건을 채운 것으로 둔다. 초안만 있는 문제(10~12번)는
-      // 공개 조건이 비어 있어야 ADM-06 체크리스트(#37)가 볼 거리가 생긴다.
-      sampleCount: states.includes('PUBLISHED') || states.includes('RETIRED') ? 2 : 0,
-      hiddenCount: states.includes('PUBLISHED') || states.includes('RETIRED') ? 5 : 0,
     }
   })
 }
@@ -142,21 +165,26 @@ export function adminSummary(problem: MockAdminProblem): AdminProblemSummary {
   }
 }
 
+/** 종류별 케이스 수. 공개 조건과 ADM-04 표 머리글이 같은 수를 봐야 한다. */
+export function countCases(cases: TestCaseInput[], caseType: CaseType): number {
+  return cases.filter((item) => item.caseType === caseType).length
+}
+
 /**
  * 못 채운 공개 조건 (ADM-06). 비어 있으면 공개할 수 있다(계약).
  *
  * 수치는 계약의 `PublishCondition` 설명에서 그대로 가져왔다 — 공개 예제 2개 이상,
  * 비공개 5개 이상, 태그 1~3개, 출처(`sourceName`) 입력, 두 언어 설정.
- * "정답 코드 검증 통과"는 #35에서 더한다고 계약이 적어 뒀다.
+ *
+ * **버전 하나만 본다.** 케이스도 정답 코드도 버전에 달려 있어, 공개 버전 위에 초안이
+ * 있으면 둘의 조건이 다르다. `SOLUTIONS_VERIFIED`는 정답 코드를 담은 뒤(PR B) 더한다.
  */
-export function unmetConditions(
-  problem: MockAdminProblem,
-  input: ProblemInput,
-): PublishCondition[] {
+export function unmetConditions(version: MockProblemVersion): PublishCondition[] {
   const unmet: PublishCondition[] = []
+  const input = version.input
 
-  if (problem.sampleCount < 2) unmet.push('SAMPLE_COUNT')
-  if (problem.hiddenCount < 5) unmet.push('HIDDEN_COUNT')
+  if (countCases(version.cases, 'SAMPLE') < 2) unmet.push('SAMPLE_COUNT')
+  if (countCases(version.cases, 'HIDDEN') < 5) unmet.push('HIDDEN_COUNT')
   if (input.tags.length < 1 || input.tags.length > 3) unmet.push('TAG_COUNT')
   // 빈 문자열도 '안 넣은 것'으로 센다. 계약은 null을 받지만 공백만 든 이름은 출처가 아니다.
   if (input.sourceName === null || input.sourceName.trim() === '') unmet.push('SOURCE')
@@ -196,7 +224,7 @@ export function adminDetail(problem: MockAdminProblem): AdminProblemDetail {
   return {
     ...adminVersion(problem, latest),
     publishedVersionNo: publishedVersionNo(problem),
-    unmetConditions: unmetConditions(problem, latest.input),
+    unmetConditions: unmetConditions(latest),
   }
 }
 
