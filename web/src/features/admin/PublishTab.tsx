@@ -42,7 +42,10 @@ export function PublishTab({
   onGoToTab,
 }: {
   problemId: number
-  /** 검증 중에는 아무것도 바꾸지 못한다. 서버도 조건보다 먼저 409로 막는다. */
+  /**
+   * 검증 중. **공개만** 막는다 — 서버가 조건보다 먼저 409 `PROBLEM_VALIDATING`을 준다.
+   * 비공개는 계약에 409가 없어 막지 않는다(비공개 버튼의 주석).
+   */
   locked: boolean
   /** 못 채운 조건을 고칠 탭으로 보낸다. 탭 상태는 폼 페이지가 들고 있다. */
   onGoToTab: (tab: string) => void
@@ -64,16 +67,24 @@ export function PublishTab({
     null,
   )
 
-  const refresh = async (error?: unknown) => {
-    forgetSessionIfUnauthorized(queryClient, error)
+  const refresh = async () => {
     await queryClient.invalidateQueries({ queryKey: ['admin-problem', problemId] })
     await queryClient.invalidateQueries({ queryKey: ['admin-problems'] })
+    // 공개·비공개는 **사용자 화면을 바꾸는 동작이다.** 사용자용 캐시를 그대로 두면
+    // staleTime(30초) 안에는 내린 문제가 목록과 풀기 화면에 그대로 있고, 새로 공개한
+    // 문제는 목록에 없다 — 관리자가 자기 화면에서 확인할 때 가장 먼저 겪는다
+    // (저장 흐름이 #33 때문에 이미 같은 일을 한다: AdminProblemFormPage).
+    await queryClient.invalidateQueries({ queryKey: ['problem', problemId] })
+    await queryClient.invalidateQueries({ queryKey: ['problems'] })
   }
 
   const publish = useMutation({
     mutationFn: () => publishProblem(problemId),
     onMutate: () => {
       setNotice(null)
+      // 지난 비공개 오류를 지운다. 뮤테이션의 오류는 자기 자신을 다시 실행할 때만
+      // 지워져, 두면 이번 결과 옆에 옛 실패 문구가 남는다.
+      unpublish.reset()
     },
     onSuccess: async () => {
       setNotice(`v${String(detail.data?.versionNo ?? '')}을 공개했어요. 사용자 화면에 보여요`)
@@ -92,6 +103,7 @@ export function PublishTab({
     mutationFn: () => unpublishProblem(problemId),
     onMutate: () => {
       setNotice(null)
+      publish.reset()
     },
     onSuccess: async () => {
       setNotice('비공개로 내렸어요. 사용자 화면에서는 보이지 않아요')
@@ -139,19 +151,30 @@ export function PublishTab({
       ) : (
         <ul className="flex flex-col gap-2">
           {unmet.map((condition) => {
-            const info = PUBLISH_CONDITION_LABEL[condition]
+            /*
+              모르는 값이 올 수 있다. 서버가 새 조건을 먼저 배포하면 화면에 없는 코드가
+              온다 — 그걸 그대로 찾아 쓰면 undefined에서 터지고, 라우트 오류 경계가 폼
+              화면을 통째로 덮어 거절 이유도 못 보게 된다. 코드라도 보여 주고 버튼은
+              잠긴 채로 둔다(이 줄이 목록에 남으므로 `unmet.length > 0`이다).
+            */
+            const info: (typeof PUBLISH_CONDITION_LABEL)[PublishCondition] | undefined =
+              PUBLISH_CONDITION_LABEL[condition]
             return (
               <li key={condition} className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="text-destructive">{info.text}</span>
+                <span className="text-destructive">
+                  {info?.text ?? `아직 못 채운 조건이 있어요 (${condition})`}
+                </span>
                 {/* 조건만 보여 주고 고칠 곳을 알려 주지 않으면 네 탭을 뒤져야 한다. */}
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="min-h-11"
-                  onClick={() => onGoToTab(info.tab)}
-                >
-                  {`${info.tabLabel} 탭으로`}
-                </Button>
+                {info === undefined ? null : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="min-h-11"
+                    onClick={() => onGoToTab(info.tab)}
+                  >
+                    {`${info.tabLabel} 탭으로`}
+                  </Button>
+                )}
               </li>
             )
           })}
@@ -195,12 +218,13 @@ export function PublishTab({
         {detail.data.publishedVersionNo === null ? null : (
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                className="min-h-11"
-                disabled={locked || busy}
-              >
+              {/*
+                검증 중에도 내릴 수 있다. 계약의 `unpublishProblem`에는 409가 없고 서버도
+                검증 상태를 보지 않는다 — 공개 중인 v1에서 오답이 발견됐는데 초안 v2가
+                검증 중이라고 막으면, 검증이 끝날 때까지 틀린 문제가 사용자에게 계속
+                보인다. 내려도 초안은 그대로 남아 검증은 하던 대로 끝난다(계약).
+              */}
+              <Button type="button" variant="outline" className="min-h-11" disabled={busy}>
                 비공개로 내리기
               </Button>
             </AlertDialogTrigger>
