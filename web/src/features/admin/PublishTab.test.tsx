@@ -163,7 +163,7 @@ describe('PublishTab (ADM-06)', () => {
   it('공개한 적이 없으면 비공개 버튼을 두지 않는다', async () => {
     renderTab()
 
-    await screen.findByText('아직 공개한 적이 없어요')
+    await screen.findByText('공개 중인 버전이 없어요. 사용자에게 보이지 않아요')
     expect(screen.queryByRole('button', { name: '비공개로 내리기' })).not.toBeInTheDocument()
   })
 
@@ -204,6 +204,9 @@ describe('PublishTab (ADM-06)', () => {
       )
 
       expect(await screen.findByRole('status')).toHaveTextContent('비공개로 내렸어요')
+      // 내린 문제를 '아직 공개한 적이 없어요'라고 적으면 거짓이다 — 상세만으로는 공개한
+      // 적이 있는지 알 수 없으니 지금 사실만 적는다.
+      expect(screen.queryByText(/공개한 적이 없어요/)).not.toBeInTheDocument()
       // 내린 뒤에는 공개할 수 있는 상태가 된다 — 상세를 다시 받았다는 뜻이다.
       await waitFor(() => {
         expect(screen.queryByRole('button', { name: '공개하기' })).toBeInTheDocument()

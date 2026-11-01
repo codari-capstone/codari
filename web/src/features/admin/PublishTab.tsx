@@ -121,10 +121,15 @@ export function PublishTab({
       <div>
         <h2 className="text-lg font-semibold">공개 조건</h2>
         <p className="text-muted-foreground text-sm">
+          {/*
+            '아직 공개한 적이 없어요'라고 적지 않는다. 내린 뒤에도 `publishedVersionNo`는
+            null이라 그 문구가 거짓이 된다 — 상세만으로는 공개한 적이 있는지 알 수 없다
+            (지난 버전 목록을 받아야 안다). 지금 사실만 적는다.
+          */}
           {isPublished
             ? `v${String(detail.data.versionNo)}이 공개 중이에요. 사용자에게 보여요`
             : detail.data.publishedVersionNo === null
-              ? '아직 공개한 적이 없어요'
+              ? '공개 중인 버전이 없어요. 사용자에게 보이지 않아요'
               : `사용자는 v${String(detail.data.publishedVersionNo)}를 풀고 있어요`}
         </p>
       </div>
