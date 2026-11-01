@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { http, HttpResponse } from 'msw'
+
 import { api } from '@/api/client'
 import type { ProblemVersionStatus } from '@/api/types'
 import { problemCode } from '@/features/auth/problemCode'
 import { resetAdminProblems } from '@/mocks/handlers'
+import { server } from '@/mocks/server'
 import { publishProblem, unmetFromError, unpublishProblem } from './adminProblemQuery'
 
 // 공개·비공개는 목의 버전 상태를 고친다. 되돌리지 않으면 한 테스트가 공개한 버전을
@@ -103,6 +106,22 @@ describe('공개·비공개 (ADM-06)', () => {
     await unpublishProblem(WITH_DRAFT)
 
     expect(await versionsOf(WITH_DRAFT)).toEqual({ 1: 'RETIRED', 2: 'DRAFT' })
+  })
+
+  /**
+   * 본문 없는 5xx는 openapi-fetch의 `error`가 undefined다. 상태로 가르지 않으면 서버가
+   * 공개하지 않았는데 '공개했어요'라고 알린다 (PR B 리뷰에서 지적받은 자리와 같다).
+   */
+  it.each([
+    ['공개', () => publishProblem(PUBLISHED)],
+    ['비공개', () => unpublishProblem(PUBLISHED)],
+  ])('%s은 본문 없는 5xx를 성공으로 보지 않는다', async (name, call) => {
+    const path = name === '공개' ? 'publish' : 'unpublish'
+    server.use(
+      http.post(`*/api/admin/problems/:id/${path}`, () => new HttpResponse(null, { status: 502 })),
+    )
+
+    await expect(call()).rejects.toMatchObject({ status: 502 })
   })
 
   /** 계약: 공개 중인 버전이 없어도 204다. 화면이 이걸 오류로 다루면 안 된다. */
