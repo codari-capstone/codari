@@ -24,6 +24,7 @@ import {
   type ProblemForm,
   type ProblemInputBody,
 } from './problemInputSchema'
+import { PublishTab } from './PublishTab'
 import { SolutionsTab } from './SolutionsTab'
 import { StatementTab } from './StatementTab'
 import { TestCasesTab } from './TestCasesTab'
@@ -194,6 +195,19 @@ function AdminProblemForm() {
   const validating = detail.data?.status === 'VALIDATING'
   const locked = readOnly || validating
 
+  /**
+   * 탭을 바꾼다. 공개 탭의 '고치러 가기'도 이 길로 온다.
+   *
+   * 빗장(`openedCases`·`openedSolutions`)을 함께 올려야 한다. Radix의 `onValueChange`는
+   * 탭 버튼을 눌렀을 때만 불려, 코드로 `tab`만 바꾸면 그 탭이 아직 마운트되지 않아 빈
+   * 화면이 된다.
+   */
+  const goToTab = (next: string) => {
+    setTab(next)
+    if (next === 'cases') setOpenedCases(true)
+    if (next === 'solutions') setOpenedSolutions(true)
+  }
+
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -235,14 +249,7 @@ function AdminProblemForm() {
         </p>
       ) : null}
 
-      <Tabs
-        value={tab}
-        onValueChange={(next) => {
-          setTab(next)
-          if (next === 'cases') setOpenedCases(true)
-          if (next === 'solutions') setOpenedSolutions(true)
-        }}
-      >
+      <Tabs value={tab} onValueChange={goToTab}>
         {/* 탭 버튼은 fieldset 밖에 둔다. 안에 두면 disabled가 버튼까지 잠가, 읽기
             전용·검증 중 화면에서 '기본 정보'에 갇혀 지문도 버전도 볼 수 없다.
             탭이 넷이라 좁은 화면에서는 가로로 밀어 본다. */}
@@ -266,6 +273,12 @@ function AdminProblemForm() {
           {id === null || readOnly ? null : (
             <TabsTrigger value="solutions" className="min-h-11">
               정답 코드
+            </TabsTrigger>
+          )}
+          {/* 공개 탭도 최신 버전의 조건을 본다 — 지난 버전에는 둘 것이 없다. */}
+          {id === null || readOnly ? null : (
+            <TabsTrigger value="publish" className="min-h-11">
+              공개
             </TabsTrigger>
           )}
           {id === null ? null : (
@@ -322,6 +335,15 @@ function AdminProblemForm() {
         {id === null || readOnly || !openedSolutions ? null : (
           <TabsContent value="solutions" forceMount hidden={tab !== 'solutions'}>
             <SolutionsTab problemId={id} locked={locked} before={before} />
+          </TabsContent>
+        )}
+        {/*
+          케이스·정답 코드 탭과 달리 `forceMount`로 붙들지 않는다. 고치던 입력이 없어
+          떠났다 돌아와도 잃을 것이 없고, 공개 조건은 상세에서 다시 읽는다.
+        */}
+        {id === null || readOnly ? null : (
+          <TabsContent value="publish">
+            <PublishTab problemId={id} locked={locked} onGoToTab={goToTab} />
           </TabsContent>
         )}
         {id === null ? null : (

@@ -586,4 +586,35 @@ describe('AdminProblemFormPage', () => {
     const links = await screen.findAllByRole('link', { name: /^v\d+$/ })
     expect(links.map((link) => link.textContent)).toEqual(['v2', 'v1'])
   })
+
+  describe('공개 탭 (ADM-06)', () => {
+    it('못 채운 조건에서 고치러 가면 그 탭이 열린다', async () => {
+      const user = userEvent.setup()
+      renderPage('/admin/problems/10')
+      await waitForLoaded('연습 문제 10')
+
+      await user.click(screen.getByRole('tab', { name: '공개' }))
+      await user.click((await screen.findAllByRole('button', { name: '테스트케이스 탭으로' }))[0]!)
+
+      // 탭만 바꾸면 빗장이 안 올라가 패널이 비어 있다 — 케이스 탭의 내용이 실제로 떠야 한다.
+      expect(await screen.findByRole('button', { name: '케이스 더하기' })).toBeInTheDocument()
+      expect(screen.getByRole('tab', { name: '테스트케이스' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      )
+    })
+
+    it('지난 버전 보기에는 공개 탭을 두지 않는다', async () => {
+      renderPage('/admin/problems/9/versions/1')
+
+      await waitForLoaded('연습 문제 9')
+      expect(screen.queryByRole('tab', { name: '공개' })).not.toBeInTheDocument()
+    })
+
+    it('새 문제에는 공개 탭을 두지 않는다', () => {
+      renderPage('/admin/problems/new')
+
+      expect(screen.queryByRole('tab', { name: '공개' })).not.toBeInTheDocument()
+    })
+  })
 })

@@ -1,4 +1,4 @@
-import type { ProblemVersionStatus, SolutionStatus } from '@/api/types'
+import type { ProblemVersionStatus, PublishCondition, SolutionStatus } from '@/api/types'
 
 /** 버전 하나의 상태. 기능명세 ADM-01의 '작성 중·검증 중·공개' 문구를 쓴다. */
 export const VERSION_STATUS_LABEL: Record<ProblemVersionStatus, string> = {
@@ -80,4 +80,30 @@ export const SOLUTION_STATUS_LABEL: Record<SolutionStatus, string> = {
   PASSED: '검증 통과',
   FAILED: '검증 실패',
   JUDGE_ERROR: '채점 불가',
+}
+
+/**
+ * 못 채운 공개 조건을 사람 말로 (ADM-06).
+ *
+ * 조건은 **서버가 세고 화면은 받아 적는다**(상세의 `unmetConditions`, 공개 거절 409의
+ * `unmetConditions`). 그래서 여기에는 수치를 다시 적지 않는다 — 계약이 "2개 이상"을
+ * 바꾸는 날 화면 문구와 실제 판정이 갈라진다. 무엇을 해야 하는지만 적는다.
+ *
+ * `tab`은 그 조건을 고칠 수 있는 탭이다. 조건만 보여 주고 고칠 곳을 알려 주지 않으면
+ * 관리자가 네 탭을 뒤져야 한다.
+ */
+export const PUBLISH_CONDITION_LABEL: Record<
+  PublishCondition,
+  { text: string; tab: 'basic' | 'statement' | 'cases' | 'solutions'; tabLabel: string }
+> = {
+  SAMPLE_COUNT: { text: '공개 예제가 모자라요', tab: 'cases', tabLabel: '테스트케이스' },
+  HIDDEN_COUNT: { text: '비공개 테스트케이스가 모자라요', tab: 'cases', tabLabel: '테스트케이스' },
+  TAG_COUNT: { text: '개념 태그를 1~3개 골라 주세요', tab: 'basic', tabLabel: '기본 정보' },
+  SOURCE: { text: '출처를 입력해 주세요', tab: 'basic', tabLabel: '기본 정보' },
+  LANGUAGES: { text: 'Python·C++ 제한을 둘 다 설정해 주세요', tab: 'statement', tabLabel: '지문' },
+  SOLUTIONS_VERIFIED: {
+    text: 'Python·C++ 정답 코드가 둘 다 검증을 통과해야 해요',
+    tab: 'solutions',
+    tabLabel: '정답 코드',
+  },
 }

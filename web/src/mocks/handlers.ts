@@ -28,6 +28,7 @@ import {
   clearValidation,
   countCases,
   latestVersion,
+  unmetConditions,
   passedCaseValidation,
   brokenTextConditions,
   versionSummary,
@@ -793,6 +794,59 @@ export const handlers: RequestHandler[] = [
       status: 'VALIDATING' as const,
     }))
     return new HttpResponse(null, { status: 202 })
+  }),
+
+  /**
+   * 공개 (ADM-06).
+   *
+   * 계약의 순서를 지킨다 — 검증 중이면 **공개 조건을 보기 전에** 409다. 조건을 먼저
+   * 보면 검증 중에는 정답 코드가 아직 통과가 아니라서, 엉뚱하게
+   * `PUBLISH_CONDITIONS_NOT_MET`을 주게 된다.
+   */
+  http.post('*/api/admin/problems/:id/publish', ({ params }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    const latest = latestVersion(found)
+    if (latest.status === 'VALIDATING') {
+      return problem(409, 'PROBLEM_VALIDATING', '정답 코드를 검증하는 중이에요')
+    }
+
+    // 이미 공개 중이면 아무것도 바꾸지 않고 204다(계약).
+    if (latest.status === 'PUBLISHED') return new HttpResponse(null, { status: 204 })
+
+    const unmet = unmetConditions(latest)
+    if (unmet.length > 0) {
+      return HttpResponse.json(
+        {
+          status: 409,
+          code: 'PUBLISH_CONDITIONS_NOT_MET',
+          detail: '공개 조건을 채우지 못했어요',
+          unmetConditions: unmet,
+        },
+        { status: 409 },
+      )
+    }
+
+    // 공개하던 버전은 지난 버전이 된다(계약). 내려간 버전의 `publishedAt`은 그대로 둔다 —
+    // '마지막으로 공개한 시각'이라 내려도 남는다.
+    for (const version of found.versions) {
+      if (version.status === 'PUBLISHED') version.status = 'RETIRED'
+    }
+    latest.status = 'PUBLISHED'
+    latest.publishedAt = new Date().toISOString()
+    return new HttpResponse(null, { status: 204 })
+  }),
+
+  /** 비공개 (ADM-06). 공개 중인 버전이 없어도 204다(계약). 초안은 그대로 둔다. */
+  http.post('*/api/admin/problems/:id/unpublish', ({ params }) => {
+    const found = findAdminProblem(params.id)
+    if (found instanceof HttpResponse) return found
+
+    for (const version of found.versions) {
+      if (version.status === 'PUBLISHED') version.status = 'RETIRED'
+    }
+    return new HttpResponse(null, { status: 204 })
   }),
 
   /**
