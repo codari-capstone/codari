@@ -167,7 +167,7 @@
 - `status`: `PENDING`, `COMPLETED`, `FAILED` 중 하나.
 - `content` (비어도 됨): 설명·힌트를 담은 구조화 JSON. 완료 전에는 비어 있을 수 있다.
 - `input_tokens`, `output_tokens` (비어도 됨): AI 요청·응답 토큰 수.
-- `cost_usd` (비어도 됨): 해당 AI 처리 비용(미국 달러).
+- `cost_usd` (비어도 됨): 해당 AI 처리 비용(미국 달러). 팀 서버의 모델은 호출당 요금이 없어 비워 둔다.
 - `revealed_hint_level`: 사용자가 공개한 힌트 단계(0~3).
 - `created_at`: AI 결과 행을 만들거나 마지막으로 재시도한 시각. 일일 AI 한도를 셀 때 기준으로 쓴다(`FAILED` 행은 제외).
 - `completed_at` (비어도 됨): 처리가 끝난 시각.
