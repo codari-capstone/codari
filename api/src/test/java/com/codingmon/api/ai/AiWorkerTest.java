@@ -29,8 +29,24 @@ class AiWorkerTest {
     }
 
     private AiWorker worker(int threads, Supplier<LlmResponse<String>> answer) {
-        worker = new AiWorker(new FakeLlm(answer), new RecordingRepository(), threads);
+        return worker(threads, 10, answer);
+    }
+
+    private AiWorker worker(int threads, int queueCapacity, Supplier<LlmResponse<String>> answer) {
+        worker = new AiWorker(new FakeLlm(answer), new RecordingRepository(), threads, queueCapacity);
         return worker;
+    }
+
+    private static Supplier<LlmResponse<String>> blockedUntil(CountDownLatch release, CountDownLatch started) {
+        return () -> {
+            started.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return answer(LlmUsage.NONE);
+        };
     }
 
     private static LlmResponse<String> answer(LlmUsage usage) {
@@ -76,7 +92,7 @@ class AiWorkerTest {
                 throw new IllegalStateException("DB 장애");
             }
         };
-        worker = new AiWorker(new FakeLlm(() -> answer(new LlmUsage(1, 1))), broken, 1);
+        worker = new AiWorker(new FakeLlm(() -> answer(new LlmUsage(1, 1))), broken, 1, 10);
 
         assertThat(worker.submit(7, REQUEST).get(5, TimeUnit.SECONDS).value()).isEqualTo("값");
     }
@@ -113,6 +129,55 @@ class AiWorkerTest {
         assertThat(threads).allSatisfy(name -> assertThat(name).startsWith("ai-"));
     }
 
+    @Test
+    void 대기열이_차면_기다리지_않고_요청_한도로_돌려준다() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch started = new CountDownLatch(1);
+        AiWorker slow = worker(1, 1, blockedUntil(release, started));
+
+        CompletableFuture<LlmResponse<String>> running = slow.submit(1, REQUEST);
+        assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<LlmResponse<String>> queued = slow.submit(2, REQUEST);
+        CompletableFuture<LlmResponse<String>> rejected = slow.submit(3, REQUEST);
+
+        assertThatThrownBy(() -> rejected.get(1, TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .cause().isInstanceOfSatisfying(LlmException.class,
+                        e -> assertThat(e.kind()).isEqualTo(LlmException.Kind.RATE_LIMITED));
+
+        release.countDown();
+        CompletableFuture.allOf(running, queued).get(5, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void 내려갈_때_대기열에_남은_요청을_장애로_끝낸다() throws Exception {
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch started = new CountDownLatch(1);
+        AiWorker slow = worker(1, 5, blockedUntil(release, started));
+
+        slow.submit(1, REQUEST);
+        assertThat(started.await(5, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<LlmResponse<String>> queued = slow.submit(2, REQUEST);
+
+        slow.stop();
+
+        assertThatThrownBy(() -> queued.get(1, TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .cause().isInstanceOfSatisfying(LlmException.class,
+                        e -> assertThat(e.kind()).isEqualTo(LlmException.Kind.UNAVAILABLE));
+    }
+
+    @Test
+    void 내려간_뒤의_요청은_장애로_돌려준다() {
+        AiWorker stopped = worker(1, () -> answer(LlmUsage.NONE));
+        stopped.stop();
+
+        assertThatThrownBy(() -> stopped.submit(1, REQUEST).get(1, TimeUnit.SECONDS))
+                .isInstanceOf(ExecutionException.class)
+                .cause().isInstanceOfSatisfying(LlmException.class,
+                        e -> assertThat(e.kind()).isEqualTo(LlmException.Kind.UNAVAILABLE));
+    }
+
     private final class RecordingRepository extends AiReviewRepository {
 
         RecordingRepository() {
@@ -133,7 +198,7 @@ class AiWorkerTest {
         }
 
         @Override
-        public String promptVersion() {
+        public String promptVersion(ReviewType type) {
             return "v1";
         }
 

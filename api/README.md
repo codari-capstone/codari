@@ -17,7 +17,7 @@ DB_URL=... DB_USERNAME=... DB_PASSWORD=... JUDGE0_URL=http://127.0.0.1:2358 JUDG
 
 팀 서버에 띄운 오픈 웨이트 모델을 OpenAI 호환 API(`/v1/chat/completions`)로 부른다. `LLM_URL`과 `LLM_MODEL`을 주면 켜지고, 비워 두면 AI 기능이 장애로 응답한다. 채점에는 영향이 없다. 나머지 값과 기본값은 `application.properties`의 `app.llm.*`에 있다.
 
-호출은 `AiWorker`가 채점 슬롯과 다른 스레드에서 처리한다. 동시 호출 수는 `LLM_WORKERS`로 정하고, 넘치는 요청은 차례를 기다린다. 응답이 스키마를 어기면 한 번 다시 요청한다. 호출당 요금이 없어 `ai_reviews`에는 토큰 수만 남기고 `cost_usd`는 비워 둔다.
+호출은 `AiWorker`가 채점 슬롯과 다른 스레드에서 처리한다. 동시 호출 수는 `LLM_WORKERS`로 정하고, 넘치는 요청은 `LLM_QUEUE_CAPACITY`까지 차례를 기다리며 그 뒤로는 바로 거절한다. 응답이 스키마를 어기면 한 번 다시 요청한다. 호출당 요금이 없어 `ai_reviews`에는 토큰 수만 남기고 `cost_usd`는 비워 둔다.
 
 지금 모델은 `gemma4:12b`이고 서버 설정은 [`infra/README.md`](../infra/README.md)의 "LLM 서버"에 있다. 실제 모델로 호출하는 테스트(`OpenAiCompatibleLlmClientIntegrationTest`)는 `LLM_URL`과 `LLM_MODEL`이 있을 때만 돈다.
 

@@ -24,6 +24,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.MapperFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 // 팀 서버의 오픈 웨이트 모델을 OpenAI 호환 API(/v1/chat/completions)로 부른다.
@@ -42,29 +44,37 @@ class OpenAiCompatibleLlmClient implements LlmClient {
     private final RestClient rest;
     private final boolean configured;
     private final String model;
-    private final String promptVersion;
+    private final Map<ReviewType, String> promptVersions;
     private final int maxOutputTokens;
     private final JsonMapper json;
     private final Validator validator;
 
     @Autowired
     OpenAiCompatibleLlmClient(@Value("${app.llm.url}") String url, @Value("${app.llm.api-key}") String apiKey,
-            @Value("${app.llm.model}") String model, @Value("${app.llm.prompt-version}") String promptVersion,
+            @Value("${app.llm.model}") String model,
+            @Value("${app.llm.prompt-version.analysis}") String analysisPromptVersion,
+            @Value("${app.llm.prompt-version.code-review}") String codeReviewPromptVersion,
             @Value("${app.llm.connect-timeout}") Duration connectTimeout,
             @Value("${app.llm.read-timeout}") Duration readTimeout,
             @Value("${app.llm.max-output-tokens}") int maxOutputTokens, JsonMapper json, Validator validator) {
-        this(build(url, apiKey, connectTimeout, readTimeout), !url.isBlank() && !model.isBlank(), model, promptVersion,
+        this(build(url, apiKey, connectTimeout, readTimeout), !url.isBlank() && !model.isBlank(), model,
+                Map.of(ReviewType.ANALYSIS, analysisPromptVersion, ReviewType.CODE_REVIEW, codeReviewPromptVersion),
                 maxOutputTokens, json, validator);
     }
 
-    OpenAiCompatibleLlmClient(RestClient rest, boolean configured, String model, String promptVersion,
-            int maxOutputTokens, JsonMapper json, Validator validator) {
+    OpenAiCompatibleLlmClient(RestClient rest, boolean configured, String model,
+            Map<ReviewType, String> promptVersions, int maxOutputTokens, JsonMapper json, Validator validator) {
         this.rest = rest;
         this.configured = configured;
         this.model = model;
-        this.promptVersion = promptVersion;
+        this.promptVersions = promptVersions;
         this.maxOutputTokens = maxOutputTokens;
-        this.json = json;
+        // 값을 바꿔 가며 받아 주면 저장하는 원문은 스키마를 어긴 채로 남는다. 어긴 응답은 그대로 거절해 다시 요청한다.
+        this.json = json.rebuild()
+                .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
+                .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
+                .build();
         this.validator = validator;
     }
 
@@ -86,8 +96,8 @@ class OpenAiCompatibleLlmClient implements LlmClient {
     }
 
     @Override
-    public String promptVersion() {
-        return promptVersion;
+    public String promptVersion(ReviewType type) {
+        return promptVersions.get(type);
     }
 
     @Override
@@ -121,8 +131,9 @@ class OpenAiCompatibleLlmClient implements LlmClient {
     }
 
     private ChatResponse call(Map<String, Object> body, LlmUsage usedSoFar) {
+        ChatResponse response;
         try {
-            return rest.post().uri(COMPLETIONS).contentType(MediaType.APPLICATION_JSON).body(body).retrieve()
+            response = rest.post().uri(COMPLETIONS).contentType(MediaType.APPLICATION_JSON).body(body).retrieve()
                     .body(ChatResponse.class);
         } catch (RestClientResponseException e) {
             int status = e.getStatusCode().value();
@@ -132,6 +143,10 @@ class OpenAiCompatibleLlmClient implements LlmClient {
             // 타임아웃, 연결 실패, 해석할 수 없는 응답
             throw new LlmException(LlmException.Kind.UNAVAILABLE, "LLM 서버를 호출하지 못했다", e, usedSoFar);
         }
+        if (response == null) {
+            throw new LlmException(LlmException.Kind.UNAVAILABLE, "LLM 서버가 빈 응답을 보냈다", null, usedSoFar);
+        }
+        return response;
     }
 
     private <T> T read(String content, Class<T> type) {

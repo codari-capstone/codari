@@ -6,7 +6,7 @@ class LlmException extends RuntimeException {
     enum Kind {
         // 타임아웃, 연결 실패, 5xx, 설정 없음
         UNAVAILABLE,
-        // 429. 모델 서버가 지금은 더 받지 못한다
+        // 429이거나 AI 대기열이 찼다. 지금은 더 받지 못한다
         RATE_LIMITED,
         // 재요청까지 했는데도 스키마를 어긴 응답
         INVALID_RESPONSE

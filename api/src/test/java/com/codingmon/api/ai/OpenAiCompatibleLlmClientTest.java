@@ -41,6 +41,7 @@ class OpenAiCompatibleLlmClientTest {
     private static final LlmRequest<Answer> REQUEST = new LlmRequest<>("시스템 지시", "제출 코드", "answer", SCHEMA, Answer.class);
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final Validator VALIDATOR = Validation.buildDefaultValidatorFactory().getValidator();
+    private static final Map<ReviewType, String> VERSIONS = Map.of(ReviewType.ANALYSIS, "analysis-v2", ReviewType.CODE_REVIEW, "review-v1");
 
     record Answer(@NotBlank String summary, @NotEmpty List<Integer> lines) {
     }
@@ -55,7 +56,7 @@ class OpenAiCompatibleLlmClientTest {
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer k");
         server = MockRestServiceServer.bindTo(builder).build();
         rest = builder.build();
-        client = new OpenAiCompatibleLlmClient(rest, true, "test-model", "v1", 1000, JSON, VALIDATOR);
+        client = new OpenAiCompatibleLlmClient(rest, true, "test-model", VERSIONS, 1000, JSON, VALIDATOR);
     }
 
     private static ResponseCreator chat(String content, int input, int output) {
@@ -156,6 +157,63 @@ class OpenAiCompatibleLlmClientTest {
     }
 
     @Test
+    void 실수를_정수로_바꿔_받지_않고_다시_요청한다() {
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(chat("{\"summary\":\"요약\",\"lines\":[3.7]}", 100, 10));
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(chat(VALID, 100, 20));
+
+        assertThat(client.complete(REQUEST).json()).isEqualTo(VALID);
+        server.verify();
+    }
+
+    @Test
+    void 문자열을_숫자로_바꿔_받지_않고_다시_요청한다() {
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(chat("{\"summary\":\"요약\",\"lines\":[\"3\"]}", 100, 10));
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(chat(VALID, 100, 20));
+
+        assertThat(client.complete(REQUEST).json()).isEqualTo(VALID);
+        server.verify();
+    }
+
+    @Test
+    void 스키마에_없는_칸이_있으면_다시_요청한다() {
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(chat("{\"summary\":\"요약\",\"lines\":[3],\"extra\":true}", 100, 10));
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(chat(VALID, 100, 20));
+
+        assertThat(client.complete(REQUEST).json()).isEqualTo(VALID);
+        server.verify();
+    }
+
+    @Test
+    void 응답_본문이_비면_장애다() {
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.complete(REQUEST))
+                .isInstanceOfSatisfying(LlmException.class,
+                        e -> assertThat(e.kind()).isEqualTo(LlmException.Kind.UNAVAILABLE));
+    }
+
+    @Test
+    void 응답_본문이_null이면_장애다() {
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(withSuccess("null", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.complete(REQUEST))
+                .isInstanceOfSatisfying(LlmException.class,
+                        e -> assertThat(e.kind()).isEqualTo(LlmException.Kind.UNAVAILABLE));
+    }
+
+    @Test
+    void 재요청_응답이_비어도_앞서_쓴_토큰을_넘겨준다() {
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(chat("{}", 100, 10));
+        server.expect(once(), requestTo(COMPLETIONS)).andRespond(withSuccess("", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.complete(REQUEST))
+                .isInstanceOfSatisfying(LlmException.class, e -> {
+                    assertThat(e.kind()).isEqualTo(LlmException.Kind.UNAVAILABLE);
+                    assertThat(e.usage()).isEqualTo(new LlmUsage(100, 10));
+                });
+    }
+
+    @Test
     void 요청_한도는_장애와_구분한다() {
         server.expect(once(), requestTo(COMPLETIONS)).andRespond(withStatus(HttpStatus.TOO_MANY_REQUESTS));
 
@@ -196,7 +254,7 @@ class OpenAiCompatibleLlmClientTest {
 
     @Test
     void 설정이_없으면_호출하지_않고_장애로_답한다() {
-        OpenAiCompatibleLlmClient unconfigured = new OpenAiCompatibleLlmClient(rest, false, "", "v1", 1000, JSON, VALIDATOR);
+        OpenAiCompatibleLlmClient unconfigured = new OpenAiCompatibleLlmClient(rest, false, "", VERSIONS, 1000, JSON, VALIDATOR);
 
         assertThatThrownBy(() -> unconfigured.complete(REQUEST))
                 .isInstanceOfSatisfying(LlmException.class,
@@ -205,8 +263,9 @@ class OpenAiCompatibleLlmClientTest {
     }
 
     @Test
-    void 모델과_프롬프트_버전은_설정값이다() {
+    void 모델과_기능별_프롬프트_버전은_설정값이다() {
         assertThat(client.model()).isEqualTo("test-model");
-        assertThat(client.promptVersion()).isEqualTo("v1");
+        assertThat(client.promptVersion(ReviewType.ANALYSIS)).isEqualTo("analysis-v2");
+        assertThat(client.promptVersion(ReviewType.CODE_REVIEW)).isEqualTo("review-v1");
     }
 }

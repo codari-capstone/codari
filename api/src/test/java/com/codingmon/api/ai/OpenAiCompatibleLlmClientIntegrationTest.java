@@ -18,6 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 // 실제 모델 서버로 호출한다. LLM_URL과 LLM_MODEL이 없으면 건너뛴다(api/README.md).
 @EnabledIfEnvironmentVariable(named = "LLM_URL", matches = ".+")
+@EnabledIfEnvironmentVariable(named = "LLM_MODEL", matches = ".+")
 class OpenAiCompatibleLlmClientIntegrationTest {
 
     private static final Validator VALIDATOR = Validation.buildDefaultValidatorFactory().getValidator();
@@ -47,8 +48,9 @@ class OpenAiCompatibleLlmClientIntegrationTest {
     }
 
     private static OpenAiCompatibleLlmClient client(String model) {
-        return new OpenAiCompatibleLlmClient(System.getenv("LLM_URL"), "", model, "v1", Duration.ofSeconds(3),
-                Duration.ofSeconds(180), 4096, JsonMapper.builder().build(), VALIDATOR);
+        return new OpenAiCompatibleLlmClient(System.getenv("LLM_URL"), System.getenv().getOrDefault("LLM_API_KEY", ""),
+                model, "v1", "v1", Duration.ofSeconds(3), Duration.ofSeconds(180), 4096, JsonMapper.builder().build(),
+                VALIDATOR);
     }
 
     @Test
