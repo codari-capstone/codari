@@ -51,6 +51,21 @@ docker compose logs api | grep -E 'Successfully applied|Started ApiApplication'
 - QUIC은 UDP를 쓴다. 수신 버퍼가 작다는 경고(`failed to sufficiently increase receive buffer size`)가 나오면 서버에서 `net.core.rmem_max`·`wmem_max`를 7500000으로 올린다.
 - HTTPS를 검사하는 프록시는 TCP 7844의 TLS도 가로채 `http2`가 `x509: certificate signed by unknown authority`로 실패한다. 이때는 `TUNNEL_PROTOCOL=quic`으로 고정한다(UDP 7844가 열려 있어야 한다).
 
+### LLM 서버 (Ollama)
+
+모델은 GPU가 있는 서버에 Ollama로 띄우고, API 서버의 `.env`에 `LLM_URL`과 `LLM_MODEL`을 넣는다. 지금 모델은 `gemma4:12b`다(VRAM 약 9GB).
+
+Ollama 서비스에 넣는 값(`systemctl edit ollama`):
+
+| 환경 변수 | 값 | 이유 |
+|---|---|---|
+| `OLLAMA_HOST` | `<서버 사설 IP>:11434` | Ollama에는 인증이 없어 공개 주소에 띄우지 않는다 |
+| `OLLAMA_CONTEXT_LENGTH` | `16384` | OpenAI 호환 경로로는 요청마다 컨텍스트 길이를 줄 수 없다 |
+| `OLLAMA_KEEP_ALIVE` | `-1` | 내려간 모델을 다시 올리면 첫 호출이 1분쯤 걸린다 |
+| `OLLAMA_NUM_PARALLEL` | `1` | API 서버의 `LLM_WORKERS`와 맞춘다 |
+
+11434 포트는 방화벽으로 API 서버에서 오는 연결만 받는다.
+
 ### 운영 명령 (`infra/`에서)
 
 | 할 일 | 명령 |
